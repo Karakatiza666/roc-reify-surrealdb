@@ -6,15 +6,20 @@
 # database constraint, is a Roc function over those records, reified where a
 # builder method asks for a `Code(f)`.
 #
-# `roc main.roc` prints one SurrealQL script: the schema, the seed rows, the
-# queries, the writes the database must refuse, and the writes it must accept.
-# `check.py` runs it. Each query carries the result Roc computes with the same
-# functions over the same rows, and the database must return the same result.
+# `roc examples/main.roc` prints one SurrealQL script: the schema, the seed
+# rows, the queries, the writes the database must refuse, and the writes it
+# must accept. Read the Roc code to learn the API, and the printed script to
+# see what each call becomes.
+#
+# The script is in the block format of `tests/check.py`, which also runs it
+# against SurrealDB. Each query carries a `-- roc:` line: the result that
+# Roc computes with the same functions over the same rows, which the database
+# must return too. Those lines are test machinery. Skip them when reading.
 
-app [main!] { surreal: "../src/main.roc" }
+app [main!] { surreal: "../src/main.roc", clinic: "clinic/main.roc" }
 
 import surreal.Surreal
-import Clinic
+import clinic.Clinic
 
 # ------------------------------------------------------------------- rows
 

@@ -1,4 +1,5 @@
-# Full-text and vector search over the chart notes of a clinic.
+# Full-text and vector search over the chart notes of a clinic: an analyzer,
+# a full-text index and a vector index, and queries that use them.
 #
 # One table, `chart`: a note of a visit with its text and a short
 # embedding. An analyzer cuts the text into terms, a full-text index and a
@@ -11,8 +12,10 @@
 # The literal leaves out such a column, or writes its value by hand, as the
 # order and the highlights are.
 #
-# `roc search.roc` prints a script in the block format of `check.py`, which
-# runs it after the script of `monitoring.roc`.
+# `roc examples/search.roc` prints a script in the block format of
+# `tests/check.py`, which also runs it, after the script of `monitoring.roc`.
+# The `-- roc:` and `-- intrinsic:` lines are that check. Skip them when
+# reading.
 
 app [main!] { surreal: "../src/main.roc" }
 

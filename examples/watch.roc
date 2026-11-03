@@ -1,20 +1,24 @@
-# Live queries against a running SurrealDB, on the basic-cli platform.
+# How an app on the basic-cli platform starts live queries (watches) on a
+# running SurrealDB and reads their changes.
 #
 # The app opens a WebSocket session on `/rpc` through
 # roc-basic-cli-websocket, starts a watch, and makes groups of writes on
 # the same session (`send!` and `await!`, as `run!` does, and two writes
 # in flight together). After each group, it reads the changes of the
 # result that the server reported for the group (`next!`), then it starts
-# the next group. The changes that the Roc Mirror predicts for the same
-# writes stand next to them: a line starts with `ok` when the two agree,
-# and with `FAIL` when they do not. The exit code is 1 when one line fails.
+# the next group.
+#
+# It also checks itself. The changes that the Roc Mirror predicts for the
+# same writes stand next to the real ones: a line starts with `ok` when the
+# two agree, and with `FAIL` when they do not. The exit code is 1 when one
+# line fails. `tests/check.py` runs the app for that exit code.
 #
 # The tables are the tables of `monitoring.roc`, and `check.py` makes them:
-# run `python3 check.py` first, then `roc watch.roc`. The writes use rows of
-# their own (kennels `w` and `v`, the site `w_site`, readings of
-# 2026-03-09), and delete them again. The watches of the links that the
-# clauses read run last, in a database of their own, `roc_watch`, which
-# the app makes again each time with the tables of the watches.
+# run `python3 tests/check.py` first, then `roc examples/watch.roc`. The
+# writes use rows of their own (kennels `w` and `v`, the site `w_site`,
+# readings of 2026-03-09), and delete them again. The watches of the links
+# that the clauses read run last, in a database of their own, `roc_watch`,
+# which the app makes again each time with the tables of the watches.
 app [main!] {
 	cbor: "https://github.com/Karakatiza666/roc-cbor/releases/download/0.4.0/EnfRKFT7uPHmd3zT5PcwAiBWUtGmBXapJqFK5166U33J.tar.zst",
 	pf: platform "https://github.com/roc-lang/basic-cli/releases/download/0.26.0/GddgvsGjiNXrHFW6au5i5dUDbTs8FinQdrgE2Gqmw53t.tar.zst",

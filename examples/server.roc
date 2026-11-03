@@ -12,10 +12,11 @@
 # reads the reply as `List(Reading)`. The same server runs over HTTP with
 # the transport in the comment next to `transport`.
 #
-# The tables are the tables of `monitoring.roc`, and `check.py` makes them.
-# The server listens on 127.0.0.1:8001, next to SurrealDB on 8000:
+# The tables are the tables of `monitoring.roc`, and `tests/check.py` makes
+# them (it also starts this server, asks it for the readings, and stops
+# it). The server listens on 127.0.0.1:8001, next to SurrealDB on 8000:
 #
-#     roc server.roc &
+#     roc examples/server.roc &
 #     curl 'http://127.0.0.1:8001/readings?min_pulse=120'
 app [Context, program] {
 	cbor: "https://github.com/Karakatiza666/roc-cbor/releases/download/0.4.0/EnfRKFT7uPHmd3zT5PcwAiBWUtGmBXapJqFK5166U33J.tar.zst",

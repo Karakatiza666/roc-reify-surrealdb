@@ -1,12 +1,14 @@
-# Live check of the builtins that `Translate.roc` maps to SurrealQL.
+# A test, not an example: a coverage table of the builtins that
+# `Translate.roc` maps to SurrealQL, checked live.
 #
 # One table, `sample`, with rows chosen so that a naive mapping gives a wrong
 # result: `straße`, U+200E, an empty needle, 2.5 and -2.5, a zero divisor and
 # out-of-range integers. Each query is a Roc function. Its `-- roc:` reference
-# is the same function run over the seed rows, as in `main.roc`.
+# is the same function run over the seed rows, as in `examples/main.roc`.
 #
-# `roc builtins.roc` prints a script in the block format of `check.py`, which
-# runs it after the script of `main.roc`.
+# `roc tests/BuiltinsTest.roc` prints a script in the block format of
+# `check.py`, which runs it after the script of `examples/main.roc`.
+# `roc test` runs the expects in this file.
 
 app [main!] { surreal: "../src/main.roc" }
 

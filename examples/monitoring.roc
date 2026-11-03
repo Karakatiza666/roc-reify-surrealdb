@@ -1,6 +1,6 @@
-# Live check of database functions, time series and geometry on a monitoring
-# domain: sites, the kennels at them, and the vital signs of the animals in
-# the kennels.
+# Database functions, time series, geometry, views and live queries, on a
+# monitoring domain: sites, the kennels at them, and the vital signs of the
+# animals in the kennels. Read `main.roc` first for the basic API.
 #
 # `fever` is one Roc function. `Surreal.function` makes it `fn::fever` in the
 # schema, a query calls it in a `WHERE`, a computed field calls it on every
@@ -29,8 +29,11 @@
 # makes writes, and compares the server's notices with the notices that the
 # Roc Mirror predicts from the same functions.
 #
-# `roc monitoring.roc` prints a script in the block format of `check.py`,
-# which runs it after the scripts of `main.roc` and `builtins.roc`.
+# `roc examples/monitoring.roc` prints a script in the block format of
+# `tests/check.py`, which also runs it, after the scripts of `main.roc` and
+# `tests/BuiltinsTest.roc`. The `-- roc:` lines and the `-- live:` blocks are
+# that check. Skip them when reading. Its tables are the ones that
+# `watch.roc`, `client.roc` and `server.roc` use.
 
 app [main!] { surreal: "../src/main.roc" }
 

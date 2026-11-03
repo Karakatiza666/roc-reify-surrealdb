@@ -1,17 +1,21 @@
-# Plain queries against a running SurrealDB, with typed results, on the
-# basic-cli platform.
+# How an app on the basic-cli platform connects to a running SurrealDB, runs
+# queries and writes, and reads each result as a Roc type. Start here to
+# connect from basic-cli.
 #
 # The app opens a WebSocket session on `/rpc`, or with `-- --http` a
 # session over HTTP (`POST /rpc`), runs queries and writes with
 # `Session.run!`, and reads each result as the Roc type of the query. Only
-# the transport of the session (`transport`) knows which one it is. The
-# result that Roc computes from the same functions over the rows in the
-# database stands next to it: a line starts with `ok` when the two agree,
-# and with `FAIL` when they do not. The exit code is 1 when one line fails.
+# the transport of the session (`transport`) knows which one it is.
+#
+# It also checks itself. The result that Roc computes from the same
+# functions over the rows in the database stands next to each typed result:
+# a line starts with `ok` when the two agree, and with `FAIL` when they do
+# not. The exit code is 1 when one line fails. `tests/check.py` runs the app
+# for that exit code.
 #
 # The tables are the tables of `monitoring.roc`, and `check.py` makes them:
-# run `python3 check.py` first, then `roc client.roc`. The writes use rows
-# of their own (kennel `q`, carers `kim` and `lea`, a reading of
+# run `python3 tests/check.py` first, then `roc examples/client.roc`. The
+# writes use rows of their own (kennel `q`, carers `kim` and `lea`, a reading of
 # 2026-03-10), and delete them again. The tables `payment` and
 # `placement`, each with a tag union field, and `bin`, which `placement`
 # links to, are the app's own: it defines them, and removes them at the end. With `-- --record DIR`, the app saves

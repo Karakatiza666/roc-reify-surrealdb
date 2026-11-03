@@ -1,30 +1,22 @@
-# `main.roc`, refactored by hand: the parameters of the functions the
-# queries and constraints reify renamed, bindings added, bindings in another
-# order, and some helpers inlined or extracted. As in `main.roc`, the
-# defaults of `Owner.tags` and `Medication.stock` are `??` defaults in their
-# types, and the constraints and query fragments over visits and
-# medications come from `Clinic.roc`. None of it changes what a function
-# computes, so every description is the same, and the script this prints is
-# `expected_output.surql`, byte for byte, which the `expect` at the end
-# checks.
+# A test, not an example: it checks that refactoring does not change the
+# translation. This is `examples/main.roc`, refactored by hand: the
+# parameters of the functions the queries and constraints reify renamed,
+# bindings added, bindings in another order, and some helpers inlined or
+# extracted. As in `examples/main.roc`, the defaults of `Owner.tags` and
+# `Medication.stock` are `??` defaults in their types, and the constraints
+# and query fragments over visits and medications come from `Clinic.roc`
+# (the `clinic` package in `examples/clinic/`). None of it changes what a
+# function computes, so every description is the same, and the script this
+# prints is `expected_output.surql`, byte for byte, which the `expect` at
+# the end checks. `scripts/all_tests.sh` runs it with `roc test`.
 #
-# A veterinary clinic's schema and queries, written against `Surreal.roc`.
-#
-# The rows are ordinary Roc records. The same `Owner`, `Patient` and `Visit`
-# values the queries describe are the ones the application builds, inserts,
-# passes to its own functions and tests with `expect`. Every clause, and every
-# database constraint, is a Roc function over those records, reified where a
-# builder method asks for a `Code(f)`.
-#
-# `roc main.roc` prints one SurrealQL script: the schema, the seed rows, the
-# queries, the writes the database must refuse, and the writes it must accept.
-# `check.py` runs it. Each query carries the result Roc computes with the same
-# functions over the same rows, and the database must return the same result.
+# Read `examples/main.roc` to learn the API. This file is the same
+# clinic, written differently.
 
-app [main!] { surreal: "../src/main.roc" }
+app [main!] { surreal: "../src/main.roc", clinic: "../examples/clinic/main.roc" }
 
 import surreal.Surreal
-import Clinic
+import clinic.Clinic
 import "expected_output.surql" as expected_output : Str
 
 # ------------------------------------------------------------------- rows

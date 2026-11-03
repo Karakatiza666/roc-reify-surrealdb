@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the scripts that `roc main.roc`, `roc builtins.roc`, `roc monitoring.roc` and `roc search.roc` print against SurrealDB and check every block.
+"""Run the scripts that `roc examples/main.roc`, `roc tests/BuiltinsTest.roc`, `roc examples/monitoring.roc` and `roc examples/search.roc` print against SurrealDB and check every block.
 
 Blocks are separated by one blank line; a block has no blank line inside.
 Line 1 of a block is its header, then directive lines, then SurrealQL:
@@ -20,12 +20,12 @@ Line 1 of a block is its header, then directive lines, then SurrealQL:
 The scripts run, one after the other, in the same fresh database. Three
 blocks of check.py's own (`SELF_CHECKS`) then show that a literal that
 leaves out a column that reads no intrinsic is reported. Then
-`roc watch.roc` runs on that database: a live session on basic-cli that
+`roc examples/watch.roc` runs on that database: a live session on basic-cli that
 checks each change it reads against the Roc Mirror, and exits with 0 when
-all agree. Then `roc client.roc`: plain queries and writes in a session,
+all agree. Then `roc examples/client.roc`: plain queries and writes in a session,
 each typed result checked against the result that Roc computes. Then
-`roc client.roc -- --http`: the same queries in a session over HTTP. Then
-`roc server.roc`, a web server on basic-webserver that runs a typed query
+`roc examples/client.roc -- --http`: the same queries in a session over HTTP. Then
+`roc examples/server.roc`, a web server on basic-webserver that runs a typed query
 in a WebSocket session of each request: the checker asks it for the
 readings, and compares the answer. They are the last four blocks (not with `--script`).
 With `--record DIR`, each WebSocket message of a
@@ -63,7 +63,7 @@ import urllib.request
 
 HERE = pathlib.Path(__file__).resolve().parent
 EXAMPLES = HERE.parent / "examples"
-APPS = ["main.roc", "builtins.roc", "monitoring.roc", "search.roc"]
+APPS = [EXAMPLES / "main.roc", HERE / "BuiltinsTest.roc", EXAMPLES / "monitoring.roc", EXAMPLES / "search.roc"]
 NS, DB = "roc", "roc_surreal"
 DOCKER = "docker run --rm -d -p 8000:8000 surrealdb/surrealdb:v3.3.4 start --user root --pass root memory"
 
@@ -501,7 +501,7 @@ def main():
     if args.script:
         scripts = [pathlib.Path(f).read_text() for f in args.script]
     else:
-        scripts = [subprocess.run([args.roc, str(EXAMPLES / app)], capture_output=True, text=True, check=True).stdout
+        scripts = [subprocess.run([args.roc, str(app)], capture_output=True, text=True, check=True).stdout
                    for app in APPS]
     script = "\n\n".join(text.strip("\n") for text in scripts)
 
