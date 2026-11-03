@@ -1,0 +1,7 @@
+.cache/
+.zig-cache/
+zig-out/
+__pycache__/
+/dist/
+/generated-docs/
+/.release/

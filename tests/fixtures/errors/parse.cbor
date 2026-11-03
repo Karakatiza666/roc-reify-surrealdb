@@ -1,0 +1,6 @@
+¢eerror¤ecauseÆödcode9|ÿdkindjValidationgmessagexpParse error: Unexpected end of file, expected an expression
+ --> [1:13]
+  |
+1 | SELECT * FROM
+  |             ^
+bid
