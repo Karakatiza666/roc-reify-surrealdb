@@ -6,7 +6,9 @@ Line 1 of a block is its header, then directive lines, then SurrealQL:
   -- schema | -- seed: T | -- accepts: N      all statements must be OK
   -- query: N | -- write: N                   last statement result is compared
        `-- roc: <SurrealQL literal>` (one line), `-- ordered` (else multiset),
-       `-- ignore: a, b` (columns of each row left out of the comparison)
+       `-- intrinsic: a, b` (the columns whose value reads an intrinsic, which
+       the package names: the `-- roc:` literal may leave out these columns,
+       and no other; a column it leaves out is not compared)
   -- rejects: N  with `-- error: <substring>`  some statement must be ERR
   -- live: N  with `-- roles: <role>, ..` (one per LIVE statement: node, edge,
        read, raw or diff; a read statement sends a list of rows, each one
@@ -15,7 +17,9 @@ Line 1 of a block is its header, then directive lines, then SurrealQL:
        write), the request, then each write after a `-- write` line. The
        request runs in a WebSocket session; each write runs over HTTP, and
        the notices that arrive are compared with the list of that write.
-The scripts run, one after the other, in the same fresh database. Then
+The scripts run, one after the other, in the same fresh database. Three
+blocks of check.py's own (`SELF_CHECKS`) then show that a literal that
+leaves out a column that reads no intrinsic is reported. Then
 `roc watch.roc` runs on that database: a live session on basic-cli that
 checks each change it reads against the Roc Mirror, and exits with 0 when
 all agree. Then `roc client.roc`: plain queries and writes in a session,
@@ -400,13 +404,32 @@ def split_block(block):
             directives["error"] = line.removeprefix("-- error: ")
         elif line.startswith("-- roles: "):
             directives["roles"] = line.removeprefix("-- roles: ")
-        elif line.startswith("-- ignore: "):
-            directives["ignore"] = line.removeprefix("-- ignore: ").split(", ")
+        elif line.startswith("-- intrinsic: "):
+            directives["intrinsic"] = line.removeprefix("-- intrinsic: ").split(", ")
         elif line.startswith("-- snapshot: "):
             directives["snapshot"] = line.removeprefix("-- snapshot: ")
         else:
             body.append(line)
     return lines[0], directives, "\n".join(body)
+
+
+def left_out(got, want):
+    """The columns of the result rows that no row of the literal has."""
+    if not (isinstance(got, list) and isinstance(want, list) and want):
+        return set()
+    have = {k for row in got if isinstance(row, dict) for k in row}
+    wanted = {k for row in want if isinstance(row, dict) for k in row}
+    return have - wanted if wanted else set()
+
+
+# Blocks that check the check: a literal that leaves out a column that
+# reads no intrinsic must fail, and one that leaves out only an intrinsic
+# column must agree. (header, block, whether it must agree)
+SELF_CHECKS = [
+    ("self: omits a plain column", "-- query: omits_plain\n-- intrinsic: score\n-- roc: [{ id: 1 }]\nRETURN [{ id: 1, score: 0.5, name: 'x' }];", False),
+    ("self: omits an intrinsic column", "-- query: omits_intrinsic\n-- intrinsic: score\n-- roc: [{ id: 1, name: 'x' }]\nRETURN [{ id: 1, score: 0.5, name: 'x' }];", True),
+    ("self: omits a column, no intrinsic", "-- query: omits_undeclared\n-- roc: [{ id: 1 }]\nRETURN [{ id: 1, score: 0.5 }];", False),
+]
 
 
 def check_block(server, header, directives, body, args):
@@ -436,10 +459,15 @@ def check_block(server, header, directives, body, args):
         if error or reference[0]["status"] != "OK":
             return f"bad -- roc literal: {error or reference[0]['result']}"
         got, want = normal(statements[-1]["result"]), normal(reference[0]["result"])
-        if "ignore" in directives and isinstance(got, list):
-            # A column with no Roc meaning, such as a search score: the
-            # literal leaves it out, and the rows are compared without it.
-            got = [{k: v for k, v in row.items() if k not in directives["ignore"]} if isinstance(row, dict) else row for row in got]
+        omitted = left_out(got, want)
+        if omitted:
+            # A column that reads an intrinsic, such as a search score, has
+            # no Roc value: the literal may leave it out, and the rows are
+            # compared without it. Any other column must be in the literal.
+            plain = sorted(omitted - set(directives.get("intrinsic", [])))
+            if plain:
+                return f"the -- roc literal leaves out {', '.join(plain)}, which read no intrinsic"
+            got = [{k: v for k, v in row.items() if k not in omitted} if isinstance(row, dict) else row for row in got]
         if not directives.get("ordered") and isinstance(got, list) and isinstance(want, list):
             got, want = sorted(got, key=key), sorted(want, key=key)
         if got != want:
@@ -499,6 +527,19 @@ def main():
         else:
             problem = check_block(server, header, directives, body, args)
         print(f"{'FAIL' if problem else 'ok  '} {header.removeprefix('-- ')}")
+        if problem:
+            print(f"     {problem}")
+            failures += 1
+    for name, block, agrees in SELF_CHECKS:
+        total += 1
+        header, directives, body = split_block(block)
+        found = check_block(server, header, directives, body, args)
+        problem = None
+        if agrees and found:
+            problem = f"must agree, and check_block said: {found}"
+        elif not agrees and not found:
+            problem = "must be reported, and check_block let it agree"
+        print(f"{'FAIL' if problem else 'ok  '} {name}" + ("" if agrees or problem else f" (reported: {found})"))
         if problem:
             print(f"     {problem}")
             failures += 1

@@ -369,7 +369,7 @@ removes and creates its own database at the start.
 | Block header | What the checker does |
 | --- | --- |
 | `-- schema`, `-- seed: T` | Every statement must succeed. |
-| `-- query: N`, `-- write: N` | The last statement result must equal the `-- roc:` literal. `-- ordered` keeps the order. Without it, the rows are compared as a multiset. `-- ignore: score` leaves a column with no Roc meaning out of each row of the result, and the literal does not have it. |
+| `-- query: N`, `-- write: N` | The last statement result must equal the `-- roc:` literal. `-- ordered` keeps the order. Without it, the rows are compared as a multiset. `-- intrinsic: score` names the columns whose value reads an intrinsic, which the library writes from the clause (`Statement.block`): the literal may leave out these columns, and no other, and a column it leaves out is not compared. A literal that leaves out any other column fails, and three blocks of `check.py`'s own (`self: ..`) show it. |
 | `-- rejects: N` | Some statement must fail, and its error must contain the `-- error:` text. |
 | `-- live: N` | A live query (see "Live queries"). The request runs in a WebSocket session. Each write after a `-- write` line runs over HTTP, and the notices that arrive must equal the list of that write in the `-- roc:` literal, as a multiset. `-- roles:` names the statement of each `LIVE` (`node`, `edge`, `read`). A message of a `read` statement holds a list of rows, and each is one notice. `-- snapshot:` is the rows of the snapshot. Each live query is then killed with the RPC method `kill`, and must send `KILLED`. |
 | `app: watch.roc`, `app: client.roc`, `app: client.roc --http` | The app runs on the database that the scripts leave, and must exit with 0. Not with `--script`. |
@@ -553,7 +553,7 @@ of the same graph. The translator expands it with that row's parameters bound
 the same way (`Translate.expand`). A function that calls itself is
 refused, except a database function that calls its own row (see "Database functions"). A call of a builtin or of a function of `Surreal` is a
 `Prim`, and the translator looks up its form by the id of the function (`Translate.form`), never by its name. The builtins
-are one table, `Translate.builtins`, read by `Translate.builtin`. The cut functions and the tables a clause names are the extension
+are one table, `Translate.builtins`, read by `Translate.builtin`. The intrinsics, the cut functions and the tables a clause names are the extension
 `Surreal.library`, which `Surreal` passes into every translation, as `Translate` cannot import `Surreal` (see "Extending the translator").
 A builtin is mapped only when
 SurrealDB 3.3.4 gives the same result as Roc. `builtins.roc` checks the risky
@@ -1414,7 +1414,7 @@ other than a `CREATE` of one row. Each is a definition of its own, not a
 clause over a row, so it would be text, and a script with a raw `DEFINE
 ACCESS` (`Unchecked.query!`) gives the same.
 
-The values of the session in a clause are database only (see "Package
+The values of the session in a clause are intrinsics (see "Package
 functions"): `users.auth()` is `$auth.id` as an `Id` of the table, so a
 link compares with it (`m.owner.id() == users.auth()`), and so does the key
 of a row (`users.id(u.id) == users.auth()`). `Surreal.Auth.access()` is
@@ -1492,7 +1492,7 @@ Surreal.from(charts).filter(|c| c.patient != "rex").nearest(chart_vectors, [1, 0
 | `t.text_index(\|r\| r.body, analyzer)`, `Def.text_index` | `DEFINE INDEX t_body_fulltext ON t FIELDS body FULLTEXT ANALYZER a BM25 HIGHLIGHTS` | The field is a `Str`, at any depth of objects. `schema` refuses an analyzer it is not given, and an index of another table |
 | `t.vector_index(\|r\| r.embedding, { dimension, distance })`, `Def.vector_index` | `DEFINE INDEX t_embedding_hnsw ON t FIELDS embedding HNSW DIMENSION n DIST COSINE TYPE F64` | A `List(F64)` is `TYPE F64`, a `List(F32)` `TYPE F32`, any other type a `BadSchema`. `distance` is `Cosine`, `Euclidean`, `Manhattan` or `Chebyshev`. A write of another dimension is refused by the server: "Incorrect vector dimension (2)" (`vector_dimension`) |
 | `q.search(index, terms)` | `WHERE body @1@ 'terms'`, `AND`ed with the other filters | The row becomes `(row, hit)`. The library numbers the search: the index, the query and the hit are of one row, so a query has one search and no `nearest` (a type error), and no clause writes the number |
-| `hit.score()`, `hit.highlight(a, b)`, `hit.offsets()` | `search::score(1)`, `search::highlight(a, b, 1)`, `search::offsets(1)['0'].map(\|$o\| { end: $o.e, start: $o.s })` | Database only: a `crash` in Roc. `ORDER BY` takes a column, so the score is selected as one |
+| `hit.score()`, `hit.highlight(a, b)`, `hit.offsets()` | `search::score(1)`, `search::highlight(a, b, 1)`, `search::offsets(1)['0'].map(\|$o\| { end: $o.e, start: $o.s })` | Intrinsics: SurrealDB computes them, and they have no Roc body. `Hit` and `Near` are backed by `[]`, so the program has no value of them. `ORDER BY` takes a column, so the score is selected as one |
 | `q.nearest(index, probe, Approx({ k, ef }))`, `Exact(k)` | `WHERE embedding <\|k,ef\|> [..]` through the HNSW graph, `<\|k,COSINE\|>` over every row | The row becomes `(row, near)`, and `near.distance()` is `vector::distance::knn()`. A probe of another dimension than the index's is an `Unsupported` when the statement is built. `<\|k\|>` alone is refused by 3.3.4 ("no longer supported"), and `MTREE` is a parse error |
 | A live query of a search | Refused | A search reads its index, and a notice is of one written row; watch the rows with a `filter` |
 
@@ -1500,8 +1500,8 @@ The Roc meanings:
 
 | Part | Roc meaning | Verified on 3.3.4 |
 | --- | --- | --- |
-| The rows of `search` | `Analyzer.matches(text, terms)`: the terms of the query, by the analyzer, are not empty, and the text has each of them. `Analyzer.tokens` is the analyzer for the tokenizers `Blank` and `Class` and the filters `Lowercase` and `Uppercase`, over ASCII text. Any other analyzer, or a text outside ASCII, stops the program: database only | `Class` cuts at a change of letter, digit and anything else, and keeps the punctuation as terms: `a!+b` is `a`, `!+`, `b`. A query of two terms keeps the rows that have both. `''` keeps none (`search_limping`, `search_two_terms`, `search_no_term`, `search_after_filter`) |
-| The score, the highlights, the offsets, the distance of a KNN | None. A block names the column in `-- ignore:`, and its order or text is written by hand | BM25 gives 0 to a term that half the rows or more have. The KNN distance through the graph is computed on the index's copy, and `<\|k,COSINE\|>` differs from `1 - vector::similarity::cosine` in the last bits. By `EUCLIDEAN` over `F64` it is the Roc distance to the bit (`client.roc`, `close_notes`) |
+| The rows of `search` | `Analyzer.matches(text, terms)`: the terms of the query, by the analyzer, are not empty, and the text has each of them. `Analyzer.tokens` is the analyzer for the tokenizers `Blank` and `Class` and the filters `Lowercase` and `Uppercase`, over ASCII text. Any other analyzer, or a text outside ASCII, stops the program: only the database computes it | `Class` cuts at a change of letter, digit and anything else, and keeps the punctuation as terms: `a!+b` is `a`, `!+`, `b`. A query of two terms keeps the rows that have both. `''` keeps none (`search_limping`, `search_two_terms`, `search_no_term`, `search_after_filter`) |
+| The score, the highlights, the offsets, the distance of a KNN | None: they are intrinsics. The block names the column in `-- intrinsic:`, the literal leaves it out, or the order or the text is written by hand | BM25 gives 0 to a term that half the rows or more have. The KNN distance through the graph is computed on the index's copy, and `<\|k,COSINE\|>` differs from `1 - vector::similarity::cosine` in the last bits. By `EUCLIDEAN` over `F64` it is the Roc distance to the bit (`client.roc`, `close_notes`) |
 | The rows of `nearest` | The rows that the other filters keep, sorted by their `Vector` distance from the probe, the first `k` | The `k` are taken after the other filters (`nearest_after_filter`). On a few rows `Approx` gives the exact rows |
 | `Vector` | A real implementation | Each sum runs from the first element, as the server's does, so the six functions agree to the bit (`vector_measures`, `vector_filter`) |
 
@@ -1676,19 +1676,20 @@ no value, so it is not a method of `Str`. The name is `Text` and not `Str`,
 because a nominal named `Str` shadows the builtin in the whole module. In the
 tables below `Datetime` is `Surreal.Datetime`.
 
-A function is in the cut (`Surreal.code_primitives`), so the reifier does not read
-its body and the translator maps it to one SurrealQL function (its form in
-`Surreal.library`, by its id). It has one of two kinds of body, and no third:
+The translator maps each function to one SurrealQL function (its form in
+`Surreal.library`, by its id). A function is one of two kinds, and no third:
 
 | Kind | Body | Where a call runs |
 | --- | --- | --- |
-| Mirror | A real Roc implementation that gives the SurrealDB result. A live block proves it equal | In a clause (as SurrealQL) and in Roc: an `expect`, seed data and the `-- roc:` reference |
-| Database only | `crash "Surreal.Text.is_email runs in the database only"` | In a clause only. A call outside a clause stops the program with that message |
+| Mirror | A real Roc implementation that gives the SurrealDB result. A live block proves it equal. It is in the cut (`Surreal.code_primitives`), so the reifier does not read its body | In a clause (as SurrealQL) and in Roc: an `expect`, seed data and the `-- roc:` reference |
+| Intrinsic | None: a type and no body, `is_email : Str -> Bool`. SurrealDB computes it. It is a `Prim` in a description, as a builtin is, so it is not in the cut (listing it there is the compile error `already a primitive`); its forms are `intrinsic_forms` | In a clause only. A call in code that runs (an entry point, a top-level constant, an `expect`) is the compile error `exists only in reified code`, with the chain of calls |
 
 A stand-in that gives a plausible value is not allowed: it would give a wrong
-answer without a message. A database-only function has no Roc result, so its
+answer without a message. An intrinsic has no Roc result, so its
 live block has the expected rows written by hand next to the seed rows
-(`builtins.roc`). The cut is one list, `Surreal.code_primitives`, and every nominal that
+(`builtins.roc`), and a column that reads one may be left out of a `-- roc:`
+literal (`-- intrinsic:`). `roc check --intrinsics src/main.roc` lists the
+intrinsics. The cut is one list, `Surreal.code_primitives`, and every nominal that
 takes a `Code` parameter names it as its `code_primitives`.
 
 #### `Text`
@@ -1701,27 +1702,27 @@ texts. The distances count characters, not bytes.
 
 | Roc | Type | SurrealQL | Kind | Live block |
 | --- | --- | --- | --- | --- |
-| `Text.is_email` | `Str -> Bool` | `string::is_email(a)` | database only | text_checks |
-| `Text.is_url` | `Str -> Bool` | `string::is_url(a)` | database only | text_checks |
-| `Text.is_domain` | `Str -> Bool` | `string::is_domain(a)` | database only | text_checks |
-| `Text.is_ip` | `Str -> Bool` | `string::is_ip(a)` | database only | text_addresses |
-| `Text.is_ipv4` | `Str -> Bool` | `string::is_ipv4(a)` | database only | text_addresses |
-| `Text.is_ipv6` | `Str -> Bool` | `string::is_ipv6(a)` | database only | text_addresses |
-| `Text.is_uuid` | `Str -> Bool` | `string::is_uuid(a)` | database only | text_identifiers |
-| `Text.is_ulid` | `Str -> Bool` | `string::is_ulid(a)` | database only | text_identifiers |
-| `Text.is_semver` | `Str -> Bool` | `string::is_semver(a)` | database only | text_identifiers |
-| `Text.is_alpha` | `Str -> Bool` | `string::is_alpha(a)` | database only | text_unicode |
-| `Text.is_alphanum` | `Str -> Bool` | `string::is_alphanum(a)` | database only | text_unicode |
-| `Text.is_numeric` | `Str -> Bool` | `string::is_numeric(a)` | database only | text_unicode |
-| `Text.is_latitude` | `Str -> Bool` | `string::is_latitude(a)` | database only | text_places |
-| `Text.is_longitude` | `Str -> Bool` | `string::is_longitude(a)` | database only | text_places |
-| `Text.is_datetime` | `Str, Str -> Bool` | `string::is_datetime(a, b)` | database only | text_dates |
-| `Text.matches` | `Str, Str -> Bool` | `string::matches(a, b)` | database only | text_pattern |
-| `Text.similarity_jaro` | `Str, Str -> F64` | `string::similarity::jaro(a, b)` | database only | text_similarity |
-| `Text.similarity_jaro_winkler` | `Str, Str -> F64` | `string::similarity::jaro_winkler(a, b)` | database only | text_similarity |
-| `Text.distance_levenshtein` | `Str, Str -> I64` | `string::distance::levenshtein(a, b)` | database only | text_distance |
-| `Text.distance_damerau_levenshtein` | `Str, Str -> I64` | `string::distance::damerau_levenshtein(a, b)` | database only | text_distance |
-| `Text.distance_normalized_levenshtein` | `Str, Str -> F64` | `string::distance::normalized_levenshtein(a, b)` | database only | text_distance |
+| `Text.is_email` | `Str -> Bool` | `string::is_email(a)` | intrinsic | text_checks |
+| `Text.is_url` | `Str -> Bool` | `string::is_url(a)` | intrinsic | text_checks |
+| `Text.is_domain` | `Str -> Bool` | `string::is_domain(a)` | intrinsic | text_checks |
+| `Text.is_ip` | `Str -> Bool` | `string::is_ip(a)` | intrinsic | text_addresses |
+| `Text.is_ipv4` | `Str -> Bool` | `string::is_ipv4(a)` | intrinsic | text_addresses |
+| `Text.is_ipv6` | `Str -> Bool` | `string::is_ipv6(a)` | intrinsic | text_addresses |
+| `Text.is_uuid` | `Str -> Bool` | `string::is_uuid(a)` | intrinsic | text_identifiers |
+| `Text.is_ulid` | `Str -> Bool` | `string::is_ulid(a)` | intrinsic | text_identifiers |
+| `Text.is_semver` | `Str -> Bool` | `string::is_semver(a)` | intrinsic | text_identifiers |
+| `Text.is_alpha` | `Str -> Bool` | `string::is_alpha(a)` | intrinsic | text_unicode |
+| `Text.is_alphanum` | `Str -> Bool` | `string::is_alphanum(a)` | intrinsic | text_unicode |
+| `Text.is_numeric` | `Str -> Bool` | `string::is_numeric(a)` | intrinsic | text_unicode |
+| `Text.is_latitude` | `Str -> Bool` | `string::is_latitude(a)` | intrinsic | text_places |
+| `Text.is_longitude` | `Str -> Bool` | `string::is_longitude(a)` | intrinsic | text_places |
+| `Text.is_datetime` | `Str, Str -> Bool` | `string::is_datetime(a, b)` | intrinsic | text_dates |
+| `Text.matches` | `Str, Str -> Bool` | `string::matches(a, b)` | intrinsic | text_pattern |
+| `Text.similarity_jaro` | `Str, Str -> F64` | `string::similarity::jaro(a, b)` | intrinsic | text_similarity |
+| `Text.similarity_jaro_winkler` | `Str, Str -> F64` | `string::similarity::jaro_winkler(a, b)` | intrinsic | text_similarity |
+| `Text.distance_levenshtein` | `Str, Str -> I64` | `string::distance::levenshtein(a, b)` | intrinsic | text_distance |
+| `Text.distance_damerau_levenshtein` | `Str, Str -> I64` | `string::distance::damerau_levenshtein(a, b)` | intrinsic | text_distance |
+| `Text.distance_normalized_levenshtein` | `Str, Str -> F64` | `string::distance::normalized_levenshtein(a, b)` | intrinsic | text_distance |
 | `Text.is_ascii` | `Str -> Bool` | `string::is_ascii(a)` | mirror | text_unicode |
 | `Text.is_hexadecimal` | `Str -> Bool` | `string::is_hexadecimal(a)` | mirror | text_unicode |
 
@@ -1736,11 +1737,11 @@ hashes are not included (see the dropped functions below).
 | --- | --- | --- | --- | --- |
 | `Hash.sha256` | `Str -> Str` | `crypto::sha256(a)` | mirror | hashes |
 | `Hash.blake3` | `Str -> Str` | `crypto::blake3(a)` | mirror | hashes |
-| `Hash.md5` | `Str -> Str` | `crypto::md5(a)` | database only | hashes_old |
-| `Hash.sha1` | `Str -> Str` | `crypto::sha1(a)` | database only | hashes_old |
-| `Hash.sha512` | `Str -> Str` | `crypto::sha512(a)` | database only | hashes_old |
-| `Hash.argon2` | `Str -> Str` | `crypto::argon2::generate(a)` | database only, a new value on every call | `client.roc`: signup_ann |
-| `Hash.argon2_matches` | `Str, Str -> Bool` | `crypto::argon2::compare(a, b)` | database only | `client.roc`: signin_ann, wrong_password |
+| `Hash.md5` | `Str -> Str` | `crypto::md5(a)` | intrinsic | hashes_old |
+| `Hash.sha1` | `Str -> Str` | `crypto::sha1(a)` | intrinsic | hashes_old |
+| `Hash.sha512` | `Str -> Str` | `crypto::sha512(a)` | intrinsic | hashes_old |
+| `Hash.argon2` | `Str -> Str` | `crypto::argon2::generate(a)` | intrinsic, a new value on every call | `client.roc`: signup_ann |
+| `Hash.argon2_matches` | `Str, Str -> Bool` | `crypto::argon2::compare(a, b)` | intrinsic | `client.roc`: signin_ann, wrong_password |
 
 #### `Array`
 
@@ -1793,22 +1794,22 @@ days, 3 nanoseconds, zero and `I64.highest` nanoseconds, ties, and times before
 
 | Roc | Type | SurrealQL | Kind | Live block |
 | --- | --- | --- | --- | --- |
-| `Time.now` | `() -> Datetime` | `time::now()` | database only | now_filter, now_future |
+| `Time.now` | `() -> Datetime` | `time::now()` | intrinsic | now_filter, now_future |
 | `Time.floor` | `Datetime, Duration -> Datetime` | `time::floor(a, b)` | mirror | time_buckets, time_floor_weeks, daily |
 | `Time.ceil` | `Datetime, Duration -> Datetime` | `time::ceil(a, b)` | mirror | time_buckets, time_floor_weeks |
 | `Time.round` | `Datetime, Duration -> Datetime` | `time::round(a, b)` | mirror | time_buckets, time_floor_weeks |
-| `Time.group` | `Datetime, [Year, Month, Day, Hour, Minute, Second] -> Datetime` | `time::group(t, 'month')` | database only | time_group |
-| `Time.plus` | `Datetime, Duration -> Datetime` | `t + d` | database only | time_plus |
-| `Time.minus` | `Datetime, Duration -> Datetime` | `t - d` | database only | time_plus |
-| `Time.wday` | `Datetime -> I64` | `time::wday(a)` | database only | time_calendar |
-| `Time.yday` | `Datetime -> I64` | `time::yday(a)` | database only | time_calendar |
-| `Time.week` | `Datetime -> I64` | `time::week(a)` | database only | time_calendar |
-| `Time.unix` | `Datetime -> I64` | `time::unix(a)` | database only | time_epoch |
-| `Time.unix_millis` | `Datetime -> I64` | `time::millis(a)` | database only | time_epoch |
-| `Time.unix_micros` | `Datetime -> I64` | `time::micros(a)` | database only | time_epoch |
-| `Time.nano` | `Datetime -> I64` | `time::nano(a)` | database only | time_epoch |
-| `Time.format` | `Datetime, Str -> Str` | `time::format(a, b)` | database only | time_format |
-| `Time.from_unix` | `I64 -> Datetime` | `time::from_unix(a)` | database only | time_from_unix |
+| `Time.group` | `Datetime, [Year, Month, Day, Hour, Minute, Second] -> Datetime` | `time::group(t, 'month')` | intrinsic | time_group |
+| `Time.plus` | `Datetime, Duration -> Datetime` | `t + d` | intrinsic | time_plus |
+| `Time.minus` | `Datetime, Duration -> Datetime` | `t - d` | intrinsic | time_plus |
+| `Time.wday` | `Datetime -> I64` | `time::wday(a)` | intrinsic | time_calendar |
+| `Time.yday` | `Datetime -> I64` | `time::yday(a)` | intrinsic | time_calendar |
+| `Time.week` | `Datetime -> I64` | `time::week(a)` | intrinsic | time_calendar |
+| `Time.unix` | `Datetime -> I64` | `time::unix(a)` | intrinsic | time_epoch |
+| `Time.unix_millis` | `Datetime -> I64` | `time::millis(a)` | intrinsic | time_epoch |
+| `Time.unix_micros` | `Datetime -> I64` | `time::micros(a)` | intrinsic | time_epoch |
+| `Time.nano` | `Datetime -> I64` | `time::nano(a)` | intrinsic | time_epoch |
+| `Time.format` | `Datetime, Str -> Str` | `time::format(a, b)` | intrinsic | time_format |
+| `Time.from_unix` | `I64 -> Datetime` | `time::from_unix(a)` | intrinsic | time_from_unix |
 | `Time.year` | `Datetime -> I64` | `time::year(a)` | mirror | time_parts |
 | `Time.month` | `Datetime -> I64` | `time::month(a)` | mirror | time_parts |
 | `Time.day` | `Datetime -> I64` | `time::day(a)` | mirror | time_parts |
@@ -1830,10 +1831,10 @@ SurrealDB gives `NULL` there. The mean of a list with no value is not a number.
 | Roc | Type | SurrealQL | Kind | Live block |
 | --- | --- | --- | --- | --- |
 | `Math.mean` | `List(F64) -> F64` | `math::mean(list)` | mirror | stats_mean, group_shared_map |
-| `Math.median` | `List(F64) -> F64` | `math::median(list)` | database only | stats_spread, group_shared_map |
-| `Math.stddev` | `List(F64) -> F64` | `math::stddev(list)` | database only | stats_spread, group_shared_map |
-| `Math.variance` | `List(F64) -> F64` | `math::variance(list)` | database only | stats_spread, group_shared_map |
-| `Math.percentile` | `List(F64), F64 -> F64` | `math::percentile(list, p)` | database only | stats_spread |
+| `Math.median` | `List(F64) -> F64` | `math::median(list)` | intrinsic | stats_spread, group_shared_map |
+| `Math.stddev` | `List(F64) -> F64` | `math::stddev(list)` | intrinsic | stats_spread, group_shared_map |
+| `Math.variance` | `List(F64) -> F64` | `math::variance(list)` | intrinsic | stats_spread, group_shared_map |
+| `Math.percentile` | `List(F64), F64 -> F64` | `math::percentile(list, p)` | intrinsic | stats_spread |
 
 #### `Rand` and the effect rule
 
@@ -1857,9 +1858,9 @@ and `Translate.patch_assignments` set it true for each `SET` item.
 
 | Roc | Type | SurrealQL | Kind | Live block |
 | --- | --- | --- | --- | --- |
-| `Rand.uuid` | `() -> Str` | `<string>rand::uuid()` | database only | rand_defaults |
-| `Rand.ulid` | `() -> Str` | `rand::ulid()` | database only | rand_defaults |
-| `Rand.int` | `I64, I64 -> I64` | `rand::int(a, b)` | database only | rand_defaults, rand_update |
+| `Rand.uuid` | `() -> Str` | `<string>rand::uuid()` | intrinsic | rand_defaults |
+| `Rand.ulid` | `() -> Str` | `rand::ulid()` | intrinsic | rand_defaults |
+| `Rand.int` | `I64, I64 -> I64` | `rand::int(a, b)` | intrinsic | rand_defaults, rand_update |
 
 | Case | Result |
 | --- | --- |
@@ -1901,7 +1902,7 @@ query = Surreal.from(vitals).filter(|v| fever_fn.call2(v.temp_c, v.pulse))
 | --- | --- | --- | --- |
 | `Surreal.db_fn` | `Str, f -> DbFn(f)` | Not in a clause by itself | Plain Roc, not in the cut |
 | `Surreal.function` | `Code(({} -> DbFn(f))) -> Defined` | `DEFINE FUNCTION OVERWRITE fn::name($a1: T1, ..) -> R { RETURN body };` | Schema entry |
-| `DbFn.call1`, `call2`, `call3` | `DbFn((a -> r)), a -> r` and the same for 2 and 3 arguments | `fn::name(a, ..)` | Mirror: the body is `(d.run)(..)`. It is database only when the Roc function calls a database-only function |
+| `DbFn.call1`, `call2`, `call3` | `DbFn((a -> r)), a -> r` and the same for 2 and 3 arguments | `fn::name(a, ..)` | Mirror: the body is `(d.run)(..)`. It exists only in reified code when the Roc function calls an intrinsic |
 
 The reifier gives the call as a `Prim` whose first argument is the constant:
 a `Wrap` of the record of a `Lit` name and a `Closure` of the body row. So the
@@ -2009,17 +2010,17 @@ Surreal.from(sites).select(|s| { id: s.id, lat: s.location.lat() })
 
 | Roc | Type | SurrealQL | Kind | Live block |
 | --- | --- | --- | --- | --- |
-| `Geo.area` | `Geometry -> F64` | `geo::area(a)` | database only | `geo_measures` |
-| `Geo.bearing` | `Point, Point -> F64` | `geo::bearing(a, b)` | database only | `geo_measures` |
-| `Geo.centroid` | `Geometry -> Point` | `geo::centroid(a)` | database only | `geo_measures` |
-| `Geo.distance` | `Point, Point -> F64` | `geo::distance(a, b)` | database only | `geo_measures`, `sites_near` |
-| `Geo.hash_encode` | `Point, U8 -> Str` | `geo::hash::encode(a, n)`. SurrealDB refuses `n` outside 1 to 12 with an error | database only | `geo_hash` |
-| `Geo.hash_decode` | `Str -> Point` | `geo::hash::decode(a)` | database only | `geo_hash` |
+| `Geo.area` | `Geometry -> F64` | `geo::area(a)` | intrinsic | `geo_measures` |
+| `Geo.bearing` | `Point, Point -> F64` | `geo::bearing(a, b)` | intrinsic | `geo_measures` |
+| `Geo.centroid` | `Geometry -> Point` | `geo::centroid(a)` | intrinsic | `geo_measures` |
+| `Geo.distance` | `Point, Point -> F64` | `geo::distance(a, b)` | intrinsic | `geo_measures`, `sites_near` |
+| `Geo.hash_encode` | `Point, U8 -> Str` | `geo::hash::encode(a, n)`. SurrealDB refuses `n` outside 1 to 12 with an error | intrinsic | `geo_hash` |
+| `Geo.hash_decode` | `Str -> Point` | `geo::hash::decode(a)` | intrinsic | `geo_hash` |
 | `Geo.is_valid` | `Geometry -> Bool` | `geo::is_valid(a)` | Mirror: every longitude is from -180 to 180 and every latitude from -90 to 90. A NaN is not | `geo_valid` |
-| `Geo.contains` | `Geometry, Geometry -> Bool` | `a CONTAINS b` (`Translate.library`) | database only | `geo_relations` |
-| `Geo.inside` | `Geometry, Geometry -> Bool` | `a INSIDE b` | database only | `geo_relations`, `sites_covering` |
-| `Geo.outside` | `Geometry, Geometry -> Bool` | `a OUTSIDE b`: no point in common. A line that crosses the edge is not `OUTSIDE` (verified) | database only | `geo_relations` |
-| `Geo.intersects` | `Geometry, Geometry -> Bool` | `a INTERSECTS b` | database only | `geo_relations` |
+| `Geo.contains` | `Geometry, Geometry -> Bool` | `a CONTAINS b` (`Translate.library`) | intrinsic | `geo_relations` |
+| `Geo.inside` | `Geometry, Geometry -> Bool` | `a INSIDE b` | intrinsic | `geo_relations`, `sites_covering` |
+| `Geo.outside` | `Geometry, Geometry -> Bool` | `a OUTSIDE b`: no point in common. A line that crosses the edge is not `OUTSIDE` (verified) | intrinsic | `geo_relations` |
+| `Geo.intersects` | `Geometry, Geometry -> Bool` | `a INTERSECTS b` | intrinsic | `geo_relations` |
 
 | Rule | Detail |
 | --- | --- |
@@ -2206,7 +2207,7 @@ fever = |limit| Surreal.bind_captured(Surreal.select_where_with(readings, [tempe
 
 `Surreal`'s own functions are an extension too, `Surreal.library`. The
 translator cannot import `Surreal`, which imports it, so the ids of the cut
-cannot be named in `Translate.roc`. `Surreal` passes `Surreal.library` into
+and of the intrinsics cannot be named in `Translate.roc`. `Surreal` passes `Surreal.library` into
 every call of the translator instead, and `select_where_with` adds the
 caller's after it. One lookup by id (`Translate.form`) serves the builtins,
 `Surreal` and the extensions.
@@ -2341,7 +2342,7 @@ A reason that starts with "By design" is a limit of a live query that stays.
 | A script app does not read results | The Echo platform has no TCP, so `main.roc` and the other script apps print SurrealQL. An app on basic-cli reads typed results with `Session.run!` (`client.roc`) |
 | The order of an edge list differs between Roc and SurrealDB | Compare as multisets, or sort in the clause |
 | A datetime in Roc orders as its string | This is right for the normalised UTC strings that `Surreal.datetime` accepts |
-| A database-only function stops the program outside a clause | It has no Roc body, so a call outside a clause stops the program with its message. In a clause it is read as a call, whether it is written directly, in a named helper (`is_past = \|v\| v.at < Surreal.Time.now()`, then `.filter(is_past)`), in a top-level constant (`right_now = Surreal.Time.now()`) or through an alias of the function (`now = Surreal.Time.now`). Each gives `time::now()` (verified with `roc`). The same for `Rand` in `default_by` is not re-checked |
+| An intrinsic exists only in a clause | It has no Roc body, so a call in code that runs (an entry point, a top-level constant such as `right_now = Surreal.Time.now()`, an `expect`) is the compile error `exists only in reified code`, and so is a call of a function that reaches one. In a clause it is read as a call, whether it is written directly or in a named helper (`is_past = \|v\| v.at < Surreal.Time.now()`, then `.filter(is_past)`): each gives `time::now()`. An intrinsic used as a value in a clause (`xs.map(Surreal.Text.is_email)`) is `cannot reify this expression`; write `\|s\| Surreal.Text.is_email(s)` |
 | `Rand` works in `default_by`, `computed` and an update only | See the effect rule |
 | Each key part of `group_by` is a column of the result | SurrealDB refuses `GROUP BY` of a part that no column selects, a field or a call ("Missing group idiom", verified), so it is an `Unsupported`. A part that a column shows is grouped by the column's alias (`GROUP BY day`), so a call works there. Return the key from the function of `aggregate` |
 | `group_by(\|_\| {})` is refused | A key of no parts has no `GROUP BY`. `GROUP ALL` gives one row for no rows, where Roc's groups of no rows are none, so it is not the same query. `Query.totals` is that query under its own name |

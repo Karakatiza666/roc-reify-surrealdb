@@ -517,93 +517,73 @@ Surreal :: {}.{
 		}
 	}
 
-	## The `string::` functions that Roc has no builtin for. A function that says
-	## "database only" has no Roc body: calling it outside a clause stops the program.
+	## The `string::` functions that Roc has no builtin for. A function with no
+	## body is an intrinsic: SurrealDB computes it, so it exists only in a clause,
+	## and a call in code that runs is a compile error.
 	Text :: {}.{
 
-		## `string::is_email`. Database only.
+		## `string::is_email`. An intrinsic: SurrealDB computes it.
 		is_email : Str -> Bool
-		is_email = |_| crash "Surreal.Text.is_email runs in the database only"
 
-		## `string::is_url`. Database only.
+		## `string::is_url`. An intrinsic: SurrealDB computes it.
 		is_url : Str -> Bool
-		is_url = |_| crash "Surreal.Text.is_url runs in the database only"
 
-		## `string::is_domain`. Database only.
+		## `string::is_domain`. An intrinsic: SurrealDB computes it.
 		is_domain : Str -> Bool
-		is_domain = |_| crash "Surreal.Text.is_domain runs in the database only"
 
-		## `string::is_ip`. Database only.
+		## `string::is_ip`. An intrinsic: SurrealDB computes it.
 		is_ip : Str -> Bool
-		is_ip = |_| crash "Surreal.Text.is_ip runs in the database only"
 
-		## `string::is_ipv4`. Database only.
+		## `string::is_ipv4`. An intrinsic: SurrealDB computes it.
 		is_ipv4 : Str -> Bool
-		is_ipv4 = |_| crash "Surreal.Text.is_ipv4 runs in the database only"
 
-		## `string::is_ipv6`. Database only.
+		## `string::is_ipv6`. An intrinsic: SurrealDB computes it.
 		is_ipv6 : Str -> Bool
-		is_ipv6 = |_| crash "Surreal.Text.is_ipv6 runs in the database only"
 
-		## `string::is_uuid`. Database only.
+		## `string::is_uuid`. An intrinsic: SurrealDB computes it.
 		is_uuid : Str -> Bool
-		is_uuid = |_| crash "Surreal.Text.is_uuid runs in the database only"
 
-		## `string::is_ulid`. Database only.
+		## `string::is_ulid`. An intrinsic: SurrealDB computes it.
 		is_ulid : Str -> Bool
-		is_ulid = |_| crash "Surreal.Text.is_ulid runs in the database only"
 
-		## `string::is_semver`. Database only.
+		## `string::is_semver`. An intrinsic: SurrealDB computes it.
 		is_semver : Str -> Bool
-		is_semver = |_| crash "Surreal.Text.is_semver runs in the database only"
 
-		## `string::is_alpha`. It is Unicode: `abé` is true. Database only.
+		## `string::is_alpha`. It is Unicode: `abé` is true. An intrinsic: SurrealDB computes it.
 		is_alpha : Str -> Bool
-		is_alpha = |_| crash "Surreal.Text.is_alpha runs in the database only"
 
-		## `string::is_alphanum`. It is Unicode. Database only.
+		## `string::is_alphanum`. It is Unicode. An intrinsic: SurrealDB computes it.
 		is_alphanum : Str -> Bool
-		is_alphanum = |_| crash "Surreal.Text.is_alphanum runs in the database only"
 
-		## `string::is_numeric`. It is Unicode: Arabic digits are true. Database only.
+		## `string::is_numeric`. It is Unicode: Arabic digits are true. An intrinsic: SurrealDB computes it.
 		is_numeric : Str -> Bool
-		is_numeric = |_| crash "Surreal.Text.is_numeric runs in the database only"
 
-		## `string::is_latitude`, for a text such as `45.5`. Database only.
+		## `string::is_latitude`, for a text such as `45.5`. An intrinsic: SurrealDB computes it.
 		is_latitude : Str -> Bool
-		is_latitude = |_| crash "Surreal.Text.is_latitude runs in the database only"
 
-		## `string::is_longitude`, for a text such as `45.5`. Database only.
+		## `string::is_longitude`, for a text such as `45.5`. An intrinsic: SurrealDB computes it.
 		is_longitude : Str -> Bool
-		is_longitude = |_| crash "Surreal.Text.is_longitude runs in the database only"
 
-		## `string::is_datetime`: the text read with a `strftime` pattern. Database only.
+		## `string::is_datetime`: the text read with a `strftime` pattern. An intrinsic: SurrealDB computes it.
 		is_datetime : Str, Str -> Bool
-		is_datetime = |_, _| crash "Surreal.Text.is_datetime runs in the database only"
 
-		## `string::matches`: the pattern is Rust regex syntax. Database only.
+		## `string::matches`: the pattern is Rust regex syntax. An intrinsic: SurrealDB computes it.
 		matches : Str, Str -> Bool
-		matches = |_, _| crash "Surreal.Text.matches runs in the database only"
 
-		## `string::similarity::jaro`. Database only.
+		## `string::similarity::jaro`. An intrinsic: SurrealDB computes it.
 		similarity_jaro : Str, Str -> F64
-		similarity_jaro = |_, _| crash "Surreal.Text.similarity_jaro runs in the database only"
 
-		## `string::similarity::jaro_winkler`. Database only.
+		## `string::similarity::jaro_winkler`. An intrinsic: SurrealDB computes it.
 		similarity_jaro_winkler : Str, Str -> F64
-		similarity_jaro_winkler = |_, _| crash "Surreal.Text.similarity_jaro_winkler runs in the database only"
 
-		## `string::distance::levenshtein`: edits counted in characters. Database only.
+		## `string::distance::levenshtein`: edits counted in characters. An intrinsic: SurrealDB computes it.
 		distance_levenshtein : Str, Str -> I64
-		distance_levenshtein = |_, _| crash "Surreal.Text.distance_levenshtein runs in the database only"
 
-		## `string::distance::damerau_levenshtein`. Database only.
+		## `string::distance::damerau_levenshtein`. An intrinsic: SurrealDB computes it.
 		distance_damerau_levenshtein : Str, Str -> I64
-		distance_damerau_levenshtein = |_, _| crash "Surreal.Text.distance_damerau_levenshtein runs in the database only"
 
-		## `string::distance::normalized_levenshtein`: a similarity, 1 for equal texts. Database only.
+		## `string::distance::normalized_levenshtein`: a similarity, 1 for equal texts. An intrinsic: SurrealDB computes it.
 		distance_normalized_levenshtein : Str, Str -> F64
-		distance_normalized_levenshtein = |_, _| crash "Surreal.Text.distance_normalized_levenshtein runs in the database only"
 
 		## `string::is_ascii`: not empty, and every byte is below 128.
 		is_ascii : Str -> Bool
@@ -631,46 +611,40 @@ Surreal :: {}.{
 		blake3 : Str -> Str
 		blake3 = |text| Crypto.BLAKE3.hash(text.to_utf8()).to_hex()
 
-		## `crypto::md5`. Database only.
+		## `crypto::md5`. An intrinsic: SurrealDB computes it.
 		md5 : Str -> Str
-		md5 = |_| crash "Surreal.Hash.md5 runs in the database only"
 
-		## `crypto::sha1`. Database only.
+		## `crypto::sha1`. An intrinsic: SurrealDB computes it.
 		sha1 : Str -> Str
-		sha1 = |_| crash "Surreal.Hash.sha1 runs in the database only"
 
-		## `crypto::sha512`. Database only.
+		## `crypto::sha512`. An intrinsic: SurrealDB computes it.
 		sha512 : Str -> Str
-		sha512 = |_| crash "Surreal.Hash.sha512 runs in the database only"
 
 		## `crypto::argon2::generate`: the hash of a password, with a new
 		## salt on every call, so it follows the rule of `Rand`: a
 		## signup (`Access.define`), a default, a computed field or an
-		## update. Database only.
+		## update. An intrinsic: SurrealDB computes it.
 		argon2 : Str -> Str
-		argon2 = |_| crash "Surreal.Hash.argon2 runs in the database only"
 
 		## `crypto::argon2::compare(hash, password)`: whether the password
-		## gives the hash, as a `SIGNIN` checks it. Database only.
+		## gives the hash, as a `SIGNIN` checks it. An intrinsic: SurrealDB computes it.
 		argon2_matches : Str, Str -> Bool
-		argon2_matches = |_, _| crash "Surreal.Hash.argon2_matches runs in the database only"
 	}
 
 	## The values of the session that a statement runs in, which a clause
 	## reads: a table permission (`Def.permit`), a query that a record
-	## user runs. The record user is `Table.auth`. Database only: a
-	## clause reads them on the server, and Roc does not know them.
+	## user runs. The record user is `Table.auth`. Intrinsics: SurrealDB
+	## computes them, as a clause reads them on the server, and Roc does
+	## not know them.
 	Auth :: {}.{
 
 		## `$access`: the name of the access method that the session
 		## signed in with, `NONE` for a system user.
 		access : () -> Str
-		access = || crash "Surreal.Auth.access runs in the database only"
 
 		## `$token.exp`: when the token of the session expires, in seconds
 		## since 1970.
 		expires : () -> I64
-		expires = || crash "Surreal.Auth.expires runs in the database only"
 	}
 
 	## The `array::` functions on a list of values.
@@ -722,9 +696,8 @@ Surreal :: {}.{
 		weeks : U64 -> Duration
 		weeks = |n| Duration.({ nanos: n * 604800000000000 })
 
-		## `time::now`. It differs on each call, so a clause must not compare it to itself. Database only.
+		## `time::now`. It differs on each call, so a clause must not compare it to itself. An intrinsic: SurrealDB computes it.
 		now : () -> Datetime
-		now = || crash "Surreal.Time.now runs in the database only"
 
 		## `time::floor`: the start of the span that holds the time. Spans count
 		## from 1970-01-01T00:00:00Z, so a week starts on a Thursday.
@@ -762,53 +735,41 @@ Surreal :: {}.{
 			}
 		}
 
-		## `time::group`: the start of the unit that holds the time. Database only.
+		## `time::group`: the start of the unit that holds the time. An intrinsic: SurrealDB computes it.
 		group : Datetime, [Year, Month, Day, Hour, Minute, Second] -> Datetime
-		group = |_, _| crash "Surreal.Time.group runs in the database only"
 
-		## The time `duration` later: `datetime + duration`. Database only.
+		## The time `duration` later: `datetime + duration`. An intrinsic: SurrealDB computes it.
 		plus : Datetime, Duration -> Datetime
-		plus = |_, _| crash "Surreal.Time.plus runs in the database only"
 
-		## The time `duration` earlier: `datetime - duration`. Database only.
+		## The time `duration` earlier: `datetime - duration`. An intrinsic: SurrealDB computes it.
 		minus : Datetime, Duration -> Datetime
-		minus = |_, _| crash "Surreal.Time.minus runs in the database only"
 
-		## `time::wday`: Monday is 1 and Sunday is 7. Database only.
+		## `time::wday`: Monday is 1 and Sunday is 7. An intrinsic: SurrealDB computes it.
 		wday : Datetime -> I64
-		wday = |_| crash "Surreal.Time.wday runs in the database only"
 
-		## `time::yday`: 1 for the first of January. Database only.
+		## `time::yday`: 1 for the first of January. An intrinsic: SurrealDB computes it.
 		yday : Datetime -> I64
-		yday = |_| crash "Surreal.Time.yday runs in the database only"
 
-		## `time::week`: the week of the year. Database only.
+		## `time::week`: the week of the year. An intrinsic: SurrealDB computes it.
 		week : Datetime -> I64
-		week = |_| crash "Surreal.Time.week runs in the database only"
 
-		## `time::unix`: whole seconds since 1970. Database only.
+		## `time::unix`: whole seconds since 1970. An intrinsic: SurrealDB computes it.
 		unix : Datetime -> I64
-		unix = |_| crash "Surreal.Time.unix runs in the database only"
 
-		## `time::millis`: whole milliseconds since 1970. It is not `millis`, which makes a `Duration`. Database only.
+		## `time::millis`: whole milliseconds since 1970. It is not `millis`, which makes a `Duration`. An intrinsic: SurrealDB computes it.
 		unix_millis : Datetime -> I64
-		unix_millis = |_| crash "Surreal.Time.unix_millis runs in the database only"
 
-		## `time::micros`: whole microseconds since 1970. It is not `micros`, which makes a `Duration`. Database only.
+		## `time::micros`: whole microseconds since 1970. It is not `micros`, which makes a `Duration`. An intrinsic: SurrealDB computes it.
 		unix_micros : Datetime -> I64
-		unix_micros = |_| crash "Surreal.Time.unix_micros runs in the database only"
 
-		## `time::nano`: whole nanoseconds since 1970. Database only.
+		## `time::nano`: whole nanoseconds since 1970. An intrinsic: SurrealDB computes it.
 		nano : Datetime -> I64
-		nano = |_| crash "Surreal.Time.nano runs in the database only"
 
-		## `time::format`: the time written with a `strftime` pattern. Database only.
+		## `time::format`: the time written with a `strftime` pattern. An intrinsic: SurrealDB computes it.
 		format : Datetime, Str -> Str
-		format = |_, _| crash "Surreal.Time.format runs in the database only"
 
-		## `time::from_unix`: the time at this many seconds since 1970. Database only.
+		## `time::from_unix`: the time at this many seconds since 1970. An intrinsic: SurrealDB computes it.
 		from_unix : I64 -> Datetime
-		from_unix = |_| crash "Surreal.Time.from_unix runs in the database only"
 
 		## `time::year`.
 		year : Datetime -> I64
@@ -846,68 +807,56 @@ Surreal :: {}.{
 		mean : List(F64) -> F64
 		mean = |values| values.sum() / values.len().to_f64()
 
-		## `math::median`. Database only.
+		## `math::median`. An intrinsic: SurrealDB computes it.
 		median : List(F64) -> F64
-		median = |_| crash "Surreal.Math.median runs in the database only"
 
-		## `math::stddev`: the sample deviation. Database only.
+		## `math::stddev`: the sample deviation. An intrinsic: SurrealDB computes it.
 		stddev : List(F64) -> F64
-		stddev = |_| crash "Surreal.Math.stddev runs in the database only"
 
-		## `math::variance`: the sample variance. Database only.
+		## `math::variance`: the sample variance. An intrinsic: SurrealDB computes it.
 		variance : List(F64) -> F64
-		variance = |_| crash "Surreal.Math.variance runs in the database only"
 
-		## `math::percentile`: a value of the list, with the percentage 0 to 100, interpolated. Database only.
+		## `math::percentile`: a value of the list, with the percentage 0 to 100, interpolated. An intrinsic: SurrealDB computes it.
 		percentile : List(F64), F64 -> F64
-		percentile = |_, _| crash "Surreal.Math.percentile runs in the database only"
 	}
 
 	## The `rand::` functions. Each gives a new value on every call, so a clause
-	## may use them only in a default, a computed field or an update. Database only.
+	## may use them only in a default, a computed field or an update. Intrinsics:
+	## SurrealDB computes them.
 	Rand :: {}.{
 
 		## `rand::uuid`, as text.
 		uuid : () -> Str
-		uuid = || crash "Surreal.Rand.uuid runs in the database only"
 
 		## `rand::ulid`: 26 characters that sort by time.
 		ulid : () -> Str
-		ulid = || crash "Surreal.Rand.ulid runs in the database only"
 
 		## `rand::int`: a whole number from the first to the second, both included.
 		int : I64, I64 -> I64
-		int = |_, _| crash "Surreal.Rand.int runs in the database only"
 	}
 
 	## The `geo::` functions, and the operators of SurrealDB on geometries.
 	## Give a kind other than `Geometry` with `to_geometry()`.
 	Geo :: {}.{
 
-		## `geo::area`: the area on the earth in square metres. Database only.
+		## `geo::area`: the area on the earth in square metres. An intrinsic: SurrealDB computes it.
 		area : Geometry -> F64
-		area = |_| crash "Surreal.Geo.area runs in the database only"
 
-		## `geo::bearing`: the direction from the first point to the second, in degrees. Database only.
+		## `geo::bearing`: the direction from the first point to the second, in degrees. An intrinsic: SurrealDB computes it.
 		bearing : Point, Point -> F64
-		bearing = |_, _| crash "Surreal.Geo.bearing runs in the database only"
 
-		## `geo::centroid`: the centre of the geometry. Database only.
+		## `geo::centroid`: the centre of the geometry. An intrinsic: SurrealDB computes it.
 		centroid : Geometry -> Point
-		centroid = |_| crash "Surreal.Geo.centroid runs in the database only"
 
-		## `geo::distance`: the distance on the earth in metres. Database only.
+		## `geo::distance`: the distance on the earth in metres. An intrinsic: SurrealDB computes it.
 		distance : Point, Point -> F64
-		distance = |_, _| crash "Surreal.Geo.distance runs in the database only"
 
 		## `geo::hash::encode`: the geohash of the point in 1 to 12 characters.
-		## SurrealDB refuses another length with an error. Database only.
+		## SurrealDB refuses another length with an error. An intrinsic: SurrealDB computes it.
 		hash_encode : Point, U8 -> Str
-		hash_encode = |_, _| crash "Surreal.Geo.hash_encode runs in the database only"
 
-		## `geo::hash::decode`: the centre of the cell of a geohash. Database only.
+		## `geo::hash::decode`: the centre of the cell of a geohash. An intrinsic: SurrealDB computes it.
 		hash_decode : Str -> Point
-		hash_decode = |_| crash "Surreal.Geo.hash_decode runs in the database only"
 
 		## `geo::is_valid`: every longitude is from -180 to 180 and every
 		## latitude from -90 to 90. A NaN is not. SurrealDB stores a point out
@@ -915,21 +864,17 @@ Surreal :: {}.{
 		is_valid : Geometry -> Bool
 		is_valid = |geometry| points_of(geometry).all(|Point.(p)| p.lon >= -180 and p.lon <= 180 and p.lat >= -90 and p.lat <= 90)
 
-		## `a CONTAINS b`: the first geometry holds the second. Database only.
+		## `a CONTAINS b`: the first geometry holds the second. An intrinsic: SurrealDB computes it.
 		contains : Geometry, Geometry -> Bool
-		contains = |_, _| crash "Surreal.Geo.contains runs in the database only"
 
-		## `a INSIDE b`: the second geometry holds the first. Database only.
+		## `a INSIDE b`: the second geometry holds the first. An intrinsic: SurrealDB computes it.
 		inside : Geometry, Geometry -> Bool
-		inside = |_, _| crash "Surreal.Geo.inside runs in the database only"
 
-		## `a OUTSIDE b`: the geometries have no point in common. Database only.
+		## `a OUTSIDE b`: the geometries have no point in common. An intrinsic: SurrealDB computes it.
 		outside : Geometry, Geometry -> Bool
-		outside = |_, _| crash "Surreal.Geo.outside runs in the database only"
 
-		## `a INTERSECTS b`: the geometries have a point in common. Database only.
+		## `a INTERSECTS b`: the geometries have a point in common. An intrinsic: SurrealDB computes it.
 		intersects : Geometry, Geometry -> Bool
-		intersects = |_, _| crash "Surreal.Geo.intersects runs in the database only"
 	}
 
 	## A tokenizer of an analyzer. `Blank` splits a text at white space,
@@ -1066,29 +1011,29 @@ Surreal :: {}.{
 	Knn : [Approx({ k : U64, ef : U64 }), Exact(U64)]
 
 	## A row that `Query.search` kept, the second of the pair `(row, hit)`
-	## of the query: what the search knows of it. Database only: a clause
-	## reads it, and the program has no hit to call it on.
-	Hit :: {}.{
+	## of the query: what the search knows of it. Its methods are
+	## intrinsics: SurrealDB computes them, a clause reads them, and the
+	## program has no hit to call them on. Its backing is `[]`, a type of
+	## no value: a hit exists only in a clause.
+	Hit :: [].{
 
 		## `search::score(1)`: the BM25 score of the row for the terms of
 		## the search. A term that half the rows or more have adds 0.
 		score : Hit -> F64
-		score = |_| crash "Surreal.Hit.score runs in the database only"
 
 		## `search::highlight(before, after, 1)`: the text with each term
 		## of the search between `before` and `after`.
 		highlight : Hit, Str, Str -> Str
-		highlight = |_, _, _| crash "Surreal.Hit.highlight runs in the database only"
 
 		## `search::offsets(1)`: where each term of the search is in the
 		## text, from `start` to `end`, `end` left out.
 		offsets : Hit -> List({ start : I64, end : I64 })
-		offsets = |_| crash "Surreal.Hit.offsets runs in the database only"
 	}
 
 	## A row that `Query.nearest` kept, the second of the pair `(row,
-	## near)` of the query. Database only.
-	Near :: {}.{
+	## near)` of the query. Its method is an intrinsic: SurrealDB computes it.
+	## Its backing is `[]`, as `Hit`'s is.
+	Near :: [].{
 
 		## `vector::distance::knn()`: the distance of the row from the
 		## probe, by the distance of the index. Through the HNSW graph it
@@ -1096,7 +1041,6 @@ Surreal :: {}.{
 		## rounds it), so it has no Roc meaning; measure the row with
 		## `Vector` for one.
 		distance : Near -> F64
-		distance = |_| crash "Surreal.Near.distance runs in the database only"
 	}
 
 	## The `vector::` functions over two vectors of the same dimension.
@@ -1199,15 +1143,14 @@ Surreal :: {}.{
 		## Each row is a record id, so a field read is a traversal. With it a
 		## clause writes a correlated subquery or a semi join:
 		## `visits.rows().keep_if(|v| v.patient.get().id == p.id).len()`.
+		## An intrinsic: SurrealDB computes it.
 		rows : Table(row) -> List(row)
-		rows = |Table.(t)| crash "Surreal.Table.rows of `${t.name}` runs in the database only"
 
 		## The record user of the session, a row of this table, inside a
 		## clause: `$auth.id`. `|m| m.owner.id() == users.auth()` is
 		## `owner = $auth.id`. A session of a system user has no record
-		## user, and `$auth.id` is `NONE`. Database only.
+		## user, and `$auth.id` is `NONE`. An intrinsic: SurrealDB computes it.
 		auth : Table(row) -> Id(row)
-		auth = |Table.(t)| crash "Surreal.Table.auth of `${t.name}` runs in the database only"
 
 		## A full-text index of the `Str` field at the path, over the
 		## analyzer: `notes.text_index(|n| n.body, clinical)`. Give it to
@@ -1979,7 +1922,7 @@ Surreal :: {}.{
 			ty = projection.graph().root_row().result
 			columns = |param| within_clause("`select`", column_list(within_clause("`select`", Translate.evaluate(own, projection.graph(), [base.now?], param))?, ty))
 			value = |param| within_clause("`select`", row_value(within_clause("`select`", Translate.evaluate(own, projection.graph(), [base.now?], param))?, ty))
-			selected_of({ ..q, watched: reached_watches(q.watched, projection.graph(), [base.reach]) }, { columns, value }, by_name, [], { ty, over: Projected(projected_rows(base, projection.graph())), nested: nested_row(ty) })
+			selected_of({ ..q, watched: reached_watches(q.watched, projection.graph(), [base.reach]) }, { columns, value, intrinsic: intrinsic_columns(projection.graph()) }, by_name, [], { ty, over: Projected(projected_rows(base, projection.graph())), nested: nested_row(ty) })
 		}
 
 		## One value per row: `SELECT VALUE e`. A whole row of a table, as
@@ -2007,7 +1950,7 @@ Surreal :: {}.{
 					other => Ok(other)
 				}
 			}
-			selected_of({ ..q, watched: reached_watches(q.watched, projection.graph(), [base.reach]) }, { columns, value }, results, [], { ty, over: Projected(projected_rows(base, projection.graph())), nested: nested_row(ty) })
+			selected_of({ ..q, watched: reached_watches(q.watched, projection.graph(), [base.reach]) }, { columns, value, intrinsic: intrinsic_columns(projection.graph()) }, results, [], { ty, over: Projected(projected_rows(base, projection.graph())), nested: nested_row(ty) })
 		}
 
 		## Group the rows by what the function returns: a value, or a record of
@@ -2075,7 +2018,7 @@ Surreal :: {}.{
 		## database always gives one.
 		prepare : Totals(p, out), p -> Try(Prepared(out), Error) where [p.encoder_for : Encode.Format -> (p, Encode.State -> Try(Encode.State, [])), out.Cbor.Readable(errs)]
 		prepare = |Totals.(selected), params| {
-			statement = bound_statement(|param| Selected.render(selected, param).map_ok(group_all), params)?
+			statement = with_intrinsic(bound_statement(|param| Selected.render(selected, param).map_ok(group_all), params)?, selected)
 			rows = result_rows(0)
 			read = |results| match rows(results)? {
 				[one] => Ok(one)
@@ -2108,6 +2051,7 @@ Surreal :: {}.{
 		groups : List(Clause),
 		columns : Clause,
 		value : Clause,
+		intrinsic : List(Str),
 		results : ResultOrder,
 		rows : ResultRow,
 		order : List(Clause),
@@ -2195,7 +2139,7 @@ Surreal :: {}.{
 		## `Session.run!` runs it, and `Prepared.statement` is its text.
 		prepare : Selected(p, out), p -> Try(Prepared(List(out)), Error) where [p.encoder_for : Encode.Format -> (p, Encode.State -> Try(Encode.State, [])), out.Cbor.Readable(errs)]
 		prepare = |selected, params| {
-			statement = bound_statement(|param| Selected.render(selected, param), params)?
+			statement = with_intrinsic(bound_statement(|param| Selected.render(selected, param), params)?, selected)
 			Ok(Prepared.({ statement, count: 1, atomic: No, read: result_rows(0) }))
 		}
 
@@ -2209,7 +2153,7 @@ Surreal :: {}.{
 				Record(_) => {}
 				Whole(_) | Range(_) | Sub(_) => return Err(Unsupported("`prepare_one` reads the row of one key, a query from `Table.at`; this query can return several rows: take `prepare`"))
 			}
-			statement = bound_statement(|param| Selected.render(selected, param), params)?
+			statement = with_intrinsic(bound_statement(|param| Selected.render(selected, param), params)?, selected)
 			rows = result_rows(0)
 			read = |results| match rows(results)? {
 				[] => Ok(Err(NotFound))
@@ -2376,8 +2320,10 @@ Surreal :: {}.{
 
 	## A statement ready for a driver: the text with a `$name` per parameter,
 	## the value each name is bound to, and the same text with the values
-	## written in. `surql` has no final `;`.
-	Statement := { surql : Str, lets : List({ name : Str, value : Ql.Value }), inlined : Str }.{
+	## written in. `surql` has no final `;`. `intrinsic` names the columns of
+	## its result that read an intrinsic (`intrinsic_columns`): SurrealDB
+	## computes them, and Roc has no value for them.
+	Statement := { surql : Str, lets : List({ name : Str, value : Ql.Value }), inlined : Str, intrinsic : List(Str) }.{
 
 		## What a script holds: a `LET` line per parameter, then the statement.
 		to_script : Statement -> Str
@@ -2387,9 +2333,15 @@ Surreal :: {}.{
 		}
 
 		## One block of a script that `check.py` runs: the header line, the
-		## directive lines (`-- ordered`, `-- roc: ..`), then the script.
+		## directive lines (`-- ordered`, `-- roc: ..`), then the script. A
+		## statement whose result has columns that read an intrinsic says so
+		## in `-- intrinsic: a, b`: a `-- roc:` literal may leave those out,
+		## and only those.
 		block : Statement, Str, List(Str) -> Str
-		block = |statement, header, directives| Str.join_with(List.concat([header], directives).append(statement.to_script()), "\n")
+		block = |Statement.(s), header, directives| {
+			named = if (s.intrinsic.is_empty()) [] else ["-- intrinsic: ${Str.join_with(s.intrinsic, ", ")}"]
+			Str.join_with(List.concat([header], named).concat(directives).append(Statement.(s).to_script()), "\n")
+		}
 	}
 
 	## A statement with the type of its result: what every query and
@@ -2510,7 +2462,7 @@ Surreal :: {}.{
 		select_star : Query(p, row) -> Selected(p, Unchecked.Row)
 		select_star = |Query.(q)| {
 			ty = Code.Ty.Named("Surreal.Unchecked.Row", [], Record([]))
-			selected_of(q, { columns: |_| Ok("*"), value: |_| Err(live_star) }, by_name, [], { ty, over: Projected(q.source), nested: Translate.Binding.Row({ at: "", of: Obj, edge: Bool.False }) })
+			selected_of(q, { columns: |_| Ok("*"), value: |_| Err(live_star), intrinsic: [] }, by_name, [], { ty, over: Projected(q.source), nested: Translate.Binding.Row({ at: "", of: Obj, edge: Bool.False }) })
 		}
 
 		## Replace the record ids at a result column with the rows they
@@ -2610,7 +2562,7 @@ Surreal :: {}.{
 			.map_try(|(k, pair)| Ok({ name: Translate.input_name(k), value: Translate.captured(pair.ty, pair.value)? }))?
 		# The last name first, so `$_1` never matches the start of `$_10`.
 		inlined = lets.fold_rev(built.surql, |l, text| text.replace_each("$${l.name}", Ql.literal(l.value)))
-		Ok(Prepared.({ statement: Statement.({ surql: built.surql, lets, inlined }), count: 1, atomic: No, read: result_rows(0) }))
+		Ok(Prepared.({ statement: Statement.({ surql: built.surql, lets, inlined, intrinsic: [] }), count: 1, atomic: No, read: result_rows(0) }))
 	}
 
 	## The table's rows, to start a query from.
@@ -3600,126 +3552,141 @@ Surreal :: {}.{
 ## a call in the reified description, and the translator knows its form:
 ## `get` is a traversal, `id` the record id, `==` on ids `=`, `key`
 ## `record::id`, and `<` and `<=` on datetimes the same operators. Their
-## bodies have no SurrealQL form (a `crash`, a byte loop, a field of the
-## backing record). Every type of `Surreal` with a method that takes
+## bodies have no SurrealQL form (a byte loop, a field of the backing
+## record). An intrinsic is not here: it has no body to look inside
+## (`intrinsic_forms`). Every type of `Surreal` with a method that takes
 ## `Code` names this one list as its `code_primitives`.
 cut : List(Code.PrimId)
-cut = [Code.prim(Link.get), Code.prim(Link.id), Code.prim(Id.is_eq), Code.prim(Id.key), Code.prim(Id.table), Code.prim(Datetime.is_lt), Code.prim(Datetime.is_lte), Code.prim(Text.is_email), Code.prim(Text.is_url), Code.prim(Text.is_domain), Code.prim(Text.is_ip), Code.prim(Text.is_ipv4), Code.prim(Text.is_ipv6), Code.prim(Text.is_uuid), Code.prim(Text.is_ulid), Code.prim(Text.is_semver), Code.prim(Text.is_alpha), Code.prim(Text.is_alphanum), Code.prim(Text.is_numeric), Code.prim(Text.is_latitude), Code.prim(Text.is_longitude), Code.prim(Text.is_datetime), Code.prim(Text.matches), Code.prim(Text.similarity_jaro), Code.prim(Text.similarity_jaro_winkler), Code.prim(Text.distance_levenshtein), Code.prim(Text.distance_damerau_levenshtein), Code.prim(Text.distance_normalized_levenshtein), Code.prim(Text.is_ascii), Code.prim(Text.is_hexadecimal), Code.prim(Hash.sha256), Code.prim(Hash.blake3), Code.prim(Hash.md5), Code.prim(Hash.sha1), Code.prim(Hash.sha512), Code.prim(Hash.argon2), Code.prim(Hash.argon2_matches), Code.prim(Auth.access), Code.prim(Auth.expires), Code.prim(Array.distinct), Code.prim(Array.union), Code.prim(Array.intersect), Code.prim(Array.complement), Code.prim(Time.now), Code.prim(Time.floor), Code.prim(Time.ceil), Code.prim(Time.round), Code.prim(Time.group), Code.prim(Time.plus), Code.prim(Time.minus), Code.prim(Time.wday), Code.prim(Time.yday), Code.prim(Time.week), Code.prim(Time.unix), Code.prim(Time.unix_millis), Code.prim(Time.unix_micros), Code.prim(Time.nano), Code.prim(Time.format), Code.prim(Time.from_unix), Code.prim(Time.year), Code.prim(Time.month), Code.prim(Time.day), Code.prim(Time.hour), Code.prim(Time.minute), Code.prim(Time.second), Code.prim(Math.mean), Code.prim(Math.median), Code.prim(Math.stddev), Code.prim(Math.variance), Code.prim(Math.percentile), Code.prim(Rand.uuid), Code.prim(Rand.ulid), Code.prim(Rand.int), Code.prim(DbFn.call1), Code.prim(DbFn.call2), Code.prim(DbFn.call3), Code.prim(TimeKey.series), Code.prim(TimeKey.time), Code.prim(Geo.area), Code.prim(Geo.bearing), Code.prim(Geo.centroid), Code.prim(Geo.distance), Code.prim(Geo.hash_encode), Code.prim(Geo.hash_decode), Code.prim(Geo.is_valid), Code.prim(Geo.contains), Code.prim(Geo.inside), Code.prim(Geo.outside), Code.prim(Geo.intersects), Code.prim(Vector.similarity_cosine), Code.prim(Vector.distance_euclidean), Code.prim(Vector.distance_manhattan), Code.prim(Vector.distance_chebyshev), Code.prim(Vector.dot), Code.prim(Vector.magnitude)]
+cut = [Code.prim(Link.get), Code.prim(Link.id), Code.prim(Id.is_eq), Code.prim(Id.key), Code.prim(Id.table), Code.prim(Datetime.is_lt), Code.prim(Datetime.is_lte), Code.prim(Text.is_ascii), Code.prim(Text.is_hexadecimal), Code.prim(Hash.sha256), Code.prim(Hash.blake3), Code.prim(Array.distinct), Code.prim(Array.union), Code.prim(Array.intersect), Code.prim(Array.complement), Code.prim(Time.floor), Code.prim(Time.ceil), Code.prim(Time.round), Code.prim(Time.year), Code.prim(Time.month), Code.prim(Time.day), Code.prim(Time.hour), Code.prim(Time.minute), Code.prim(Time.second), Code.prim(Math.mean), Code.prim(DbFn.call1), Code.prim(DbFn.call2), Code.prim(DbFn.call3), Code.prim(TimeKey.series), Code.prim(TimeKey.time), Code.prim(Geo.is_valid), Code.prim(Vector.similarity_cosine), Code.prim(Vector.distance_euclidean), Code.prim(Vector.distance_manhattan), Code.prim(Vector.distance_chebyshev), Code.prim(Vector.dot), Code.prim(Vector.magnitude)]
 
+
+## The forms of the intrinsics of `Surreal`: the functions with a type and
+## no body, which SurrealDB computes. They are `Prim`s of a description, as
+## builtins are, and need no place in the cut. This table is how the package
+## knows that a value reads an intrinsic (`intrinsic_ids`).
+intrinsic_forms : List({ prim : Code.PrimId, form : Translate.Form })
+intrinsic_forms = [
+	{ prim: Code.prim(Text.is_email), form: Function({ surql: "string::is_email", random: Bool.False }) },
+	{ prim: Code.prim(Text.is_url), form: Function({ surql: "string::is_url", random: Bool.False }) },
+	{ prim: Code.prim(Text.is_domain), form: Function({ surql: "string::is_domain", random: Bool.False }) },
+	{ prim: Code.prim(Text.is_ip), form: Function({ surql: "string::is_ip", random: Bool.False }) },
+	{ prim: Code.prim(Text.is_ipv4), form: Function({ surql: "string::is_ipv4", random: Bool.False }) },
+	{ prim: Code.prim(Text.is_ipv6), form: Function({ surql: "string::is_ipv6", random: Bool.False }) },
+	{ prim: Code.prim(Text.is_uuid), form: Function({ surql: "string::is_uuid", random: Bool.False }) },
+	{ prim: Code.prim(Text.is_ulid), form: Function({ surql: "string::is_ulid", random: Bool.False }) },
+	{ prim: Code.prim(Text.is_semver), form: Function({ surql: "string::is_semver", random: Bool.False }) },
+	{ prim: Code.prim(Text.is_alpha), form: Function({ surql: "string::is_alpha", random: Bool.False }) },
+	{ prim: Code.prim(Text.is_alphanum), form: Function({ surql: "string::is_alphanum", random: Bool.False }) },
+	{ prim: Code.prim(Text.is_numeric), form: Function({ surql: "string::is_numeric", random: Bool.False }) },
+	{ prim: Code.prim(Text.is_latitude), form: Function({ surql: "string::is_latitude", random: Bool.False }) },
+	{ prim: Code.prim(Text.is_longitude), form: Function({ surql: "string::is_longitude", random: Bool.False }) },
+	{ prim: Code.prim(Text.is_datetime), form: Function({ surql: "string::is_datetime", random: Bool.False }) },
+	{ prim: Code.prim(Text.matches), form: Function({ surql: "string::matches", random: Bool.False }) },
+	{ prim: Code.prim(Text.similarity_jaro), form: Function({ surql: "string::similarity::jaro", random: Bool.False }) },
+	{ prim: Code.prim(Text.similarity_jaro_winkler), form: Function({ surql: "string::similarity::jaro_winkler", random: Bool.False }) },
+	{ prim: Code.prim(Text.distance_levenshtein), form: Function({ surql: "string::distance::levenshtein", random: Bool.False }) },
+	{ prim: Code.prim(Text.distance_damerau_levenshtein), form: Function({ surql: "string::distance::damerau_levenshtein", random: Bool.False }) },
+	{ prim: Code.prim(Text.distance_normalized_levenshtein), form: Function({ surql: "string::distance::normalized_levenshtein", random: Bool.False }) },
+	{ prim: Code.prim(Hash.md5), form: Function({ surql: "crypto::md5", random: Bool.False }) },
+	{ prim: Code.prim(Hash.sha1), form: Function({ surql: "crypto::sha1", random: Bool.False }) },
+	{ prim: Code.prim(Hash.sha512), form: Function({ surql: "crypto::sha512", random: Bool.False }) },
+	{ prim: Code.prim(Hash.argon2), form: Function({ surql: "crypto::argon2::generate", random: Bool.True }) },
+	{ prim: Code.prim(Hash.argon2_matches), form: Function({ surql: "crypto::argon2::compare", random: Bool.False }) },
+	{ prim: Code.prim(Auth.access), form: Variable("$access") },
+	{ prim: Code.prim(Auth.expires), form: Variable("$token.exp") },
+	{ prim: Code.prim(Table.auth), form: Variable("$auth.id") },
+	{ prim: Code.prim(Time.now), form: Function({ surql: "time::now", random: Bool.False }) },
+	{ prim: Code.prim(Time.wday), form: Function({ surql: "time::wday", random: Bool.False }) },
+	{ prim: Code.prim(Time.yday), form: Function({ surql: "time::yday", random: Bool.False }) },
+	{ prim: Code.prim(Time.week), form: Function({ surql: "time::week", random: Bool.False }) },
+	{ prim: Code.prim(Time.unix), form: Function({ surql: "time::unix", random: Bool.False }) },
+	{ prim: Code.prim(Time.unix_millis), form: Function({ surql: "time::millis", random: Bool.False }) },
+	{ prim: Code.prim(Time.unix_micros), form: Function({ surql: "time::micros", random: Bool.False }) },
+	{ prim: Code.prim(Time.nano), form: Function({ surql: "time::nano", random: Bool.False }) },
+	{ prim: Code.prim(Time.format), form: Function({ surql: "time::format", random: Bool.False }) },
+	{ prim: Code.prim(Time.from_unix), form: Function({ surql: "time::from_unix", random: Bool.False }) },
+	{ prim: Code.prim(Rand.ulid), form: Function({ surql: "rand::ulid", random: Bool.True }) },
+	{ prim: Code.prim(Rand.int), form: Function({ surql: "rand::int", random: Bool.True }) },
+	{ prim: Code.prim(Math.median), form: Aggregate("math::median") },
+	{ prim: Code.prim(Math.stddev), form: Aggregate("math::stddev") },
+	{ prim: Code.prim(Math.variance), form: Aggregate("math::variance") },
+	{ prim: Code.prim(Geo.area), form: Function({ surql: "geo::area", random: Bool.False }) },
+	{ prim: Code.prim(Geo.bearing), form: Function({ surql: "geo::bearing", random: Bool.False }) },
+	{ prim: Code.prim(Geo.centroid), form: Function({ surql: "geo::centroid", random: Bool.False }) },
+	{ prim: Code.prim(Geo.distance), form: Function({ surql: "geo::distance", random: Bool.False }) },
+	{ prim: Code.prim(Geo.hash_encode), form: Function({ surql: "geo::hash::encode", random: Bool.False }) },
+	{ prim: Code.prim(Geo.hash_decode), form: Function({ surql: "geo::hash::decode", random: Bool.False }) },
+	{ prim: Code.prim(Math.percentile), form: Percentile },
+	{ prim: Code.prim(Rand.uuid), form: Uuid },
+	{ prim: Code.prim(Time.group), form: TimeGroup },
+	{ prim: Code.prim(Time.plus), form: Operator("+") },
+	{ prim: Code.prim(Time.minus), form: Operator("-") },
+	{ prim: Code.prim(Geo.contains), form: Operator("CONTAINS") },
+	{ prim: Code.prim(Geo.inside), form: Operator("INSIDE") },
+	{ prim: Code.prim(Geo.outside), form: Operator("OUTSIDE") },
+	{ prim: Code.prim(Geo.intersects), form: Operator("INTERSECTS") },
+	{ prim: Code.prim(Hit.score), form: Function({ surql: "search::score", random: Bool.False }) },
+	{ prim: Code.prim(Hit.highlight), form: Render(highlight_form) },
+	{ prim: Code.prim(Hit.offsets), form: Render(offsets_form) },
+	{ prim: Code.prim(Near.distance), form: Variable("vector::distance::knn()") },
+	{ prim: Code.prim(Table.rows), form: Rows },
+]
+
+## The ids of the intrinsics of `Surreal`, as `intrinsic_forms` binds them.
+intrinsic_ids : List(Code.PrimId)
+intrinsic_ids = intrinsic_forms.map(|entry| entry.prim)
 
 ## The forms of the functions of `Surreal` that a clause may call, by their
-## ids: the cut, and the tables a clause names. The translator cannot import
-## this module, so every call into it carries this extension (`own`), and
-## `select_where_with` adds the caller's after it.
+## ids: the intrinsics, the cut, and the tables a clause names. The translator
+## cannot import this module, so every call into it carries this extension
+## (`own`), and `select_where_with` adds the caller's after it.
 surreal_library : Translate.Extension
 surreal_library = Translate.forms(
-	[
-		{ prim: Code.prim(Link.get), form: LinkGet },
-		{ prim: Code.prim(Link.id), form: LinkId },
-		{ prim: Code.prim(Id.is_eq), form: IdEq },
-		{ prim: Code.prim(Id.key), form: IdKey },
-		{ prim: Code.prim(Id.table), form: IdTable },
-		{ prim: Code.prim(Datetime.is_lt), form: DatetimeOrder },
-		{ prim: Code.prim(Datetime.is_lte), form: DatetimeOrder },
-		{ prim: Code.prim(Text.is_email), form: Function({ surql: "string::is_email", random: Bool.False }) },
-		{ prim: Code.prim(Text.is_url), form: Function({ surql: "string::is_url", random: Bool.False }) },
-		{ prim: Code.prim(Text.is_domain), form: Function({ surql: "string::is_domain", random: Bool.False }) },
-		{ prim: Code.prim(Text.is_ip), form: Function({ surql: "string::is_ip", random: Bool.False }) },
-		{ prim: Code.prim(Text.is_ipv4), form: Function({ surql: "string::is_ipv4", random: Bool.False }) },
-		{ prim: Code.prim(Text.is_ipv6), form: Function({ surql: "string::is_ipv6", random: Bool.False }) },
-		{ prim: Code.prim(Text.is_uuid), form: Function({ surql: "string::is_uuid", random: Bool.False }) },
-		{ prim: Code.prim(Text.is_ulid), form: Function({ surql: "string::is_ulid", random: Bool.False }) },
-		{ prim: Code.prim(Text.is_semver), form: Function({ surql: "string::is_semver", random: Bool.False }) },
-		{ prim: Code.prim(Text.is_alpha), form: Function({ surql: "string::is_alpha", random: Bool.False }) },
-		{ prim: Code.prim(Text.is_alphanum), form: Function({ surql: "string::is_alphanum", random: Bool.False }) },
-		{ prim: Code.prim(Text.is_numeric), form: Function({ surql: "string::is_numeric", random: Bool.False }) },
-		{ prim: Code.prim(Text.is_latitude), form: Function({ surql: "string::is_latitude", random: Bool.False }) },
-		{ prim: Code.prim(Text.is_longitude), form: Function({ surql: "string::is_longitude", random: Bool.False }) },
-		{ prim: Code.prim(Text.is_datetime), form: Function({ surql: "string::is_datetime", random: Bool.False }) },
-		{ prim: Code.prim(Text.matches), form: Function({ surql: "string::matches", random: Bool.False }) },
-		{ prim: Code.prim(Text.is_ascii), form: Function({ surql: "string::is_ascii", random: Bool.False }) },
-		{ prim: Code.prim(Text.is_hexadecimal), form: Function({ surql: "string::is_hexadecimal", random: Bool.False }) },
-		{ prim: Code.prim(Text.similarity_jaro), form: Function({ surql: "string::similarity::jaro", random: Bool.False }) },
-		{ prim: Code.prim(Text.similarity_jaro_winkler), form: Function({ surql: "string::similarity::jaro_winkler", random: Bool.False }) },
-		{ prim: Code.prim(Text.distance_levenshtein), form: Function({ surql: "string::distance::levenshtein", random: Bool.False }) },
-		{ prim: Code.prim(Text.distance_damerau_levenshtein), form: Function({ surql: "string::distance::damerau_levenshtein", random: Bool.False }) },
-		{ prim: Code.prim(Text.distance_normalized_levenshtein), form: Function({ surql: "string::distance::normalized_levenshtein", random: Bool.False }) },
-		{ prim: Code.prim(Hash.sha256), form: Function({ surql: "crypto::sha256", random: Bool.False }) },
-		{ prim: Code.prim(Hash.blake3), form: Function({ surql: "crypto::blake3", random: Bool.False }) },
-		{ prim: Code.prim(Hash.md5), form: Function({ surql: "crypto::md5", random: Bool.False }) },
-		{ prim: Code.prim(Hash.sha1), form: Function({ surql: "crypto::sha1", random: Bool.False }) },
-		{ prim: Code.prim(Hash.sha512), form: Function({ surql: "crypto::sha512", random: Bool.False }) },
-		{ prim: Code.prim(Hash.argon2), form: Function({ surql: "crypto::argon2::generate", random: Bool.True }) },
-		{ prim: Code.prim(Hash.argon2_matches), form: Function({ surql: "crypto::argon2::compare", random: Bool.False }) },
-		{ prim: Code.prim(Auth.access), form: Variable("$access") },
-		{ prim: Code.prim(Auth.expires), form: Variable("$token.exp") },
-		{ prim: Code.prim(Table.auth), form: Variable("$auth.id") },
-		{ prim: Code.prim(Array.distinct), form: Function({ surql: "array::distinct", random: Bool.False }) },
-		{ prim: Code.prim(Array.union), form: Function({ surql: "array::union", random: Bool.False }) },
-		{ prim: Code.prim(Array.intersect), form: Function({ surql: "array::intersect", random: Bool.False }) },
-		{ prim: Code.prim(Array.complement), form: Function({ surql: "array::complement", random: Bool.False }) },
-		{ prim: Code.prim(Time.now), form: Function({ surql: "time::now", random: Bool.False }) },
-		{ prim: Code.prim(Time.floor), form: Function({ surql: "time::floor", random: Bool.False }) },
-		{ prim: Code.prim(Time.ceil), form: Function({ surql: "time::ceil", random: Bool.False }) },
-		{ prim: Code.prim(Time.round), form: Function({ surql: "time::round", random: Bool.False }) },
-		{ prim: Code.prim(Time.wday), form: Function({ surql: "time::wday", random: Bool.False }) },
-		{ prim: Code.prim(Time.yday), form: Function({ surql: "time::yday", random: Bool.False }) },
-		{ prim: Code.prim(Time.week), form: Function({ surql: "time::week", random: Bool.False }) },
-		{ prim: Code.prim(Time.unix), form: Function({ surql: "time::unix", random: Bool.False }) },
-		{ prim: Code.prim(Time.unix_millis), form: Function({ surql: "time::millis", random: Bool.False }) },
-		{ prim: Code.prim(Time.unix_micros), form: Function({ surql: "time::micros", random: Bool.False }) },
-		{ prim: Code.prim(Time.nano), form: Function({ surql: "time::nano", random: Bool.False }) },
-		{ prim: Code.prim(Time.format), form: Function({ surql: "time::format", random: Bool.False }) },
-		{ prim: Code.prim(Time.from_unix), form: Function({ surql: "time::from_unix", random: Bool.False }) },
-		{ prim: Code.prim(Time.year), form: Function({ surql: "time::year", random: Bool.False }) },
-		{ prim: Code.prim(Time.month), form: Function({ surql: "time::month", random: Bool.False }) },
-		{ prim: Code.prim(Time.day), form: Function({ surql: "time::day", random: Bool.False }) },
-		{ prim: Code.prim(Time.hour), form: Function({ surql: "time::hour", random: Bool.False }) },
-		{ prim: Code.prim(Time.minute), form: Function({ surql: "time::minute", random: Bool.False }) },
-		{ prim: Code.prim(Time.second), form: Function({ surql: "time::second", random: Bool.False }) },
-		{ prim: Code.prim(Rand.ulid), form: Function({ surql: "rand::ulid", random: Bool.True }) },
-		{ prim: Code.prim(Rand.int), form: Function({ surql: "rand::int", random: Bool.True }) },
-		{ prim: Code.prim(Math.mean), form: Aggregate("math::mean") },
-		{ prim: Code.prim(Math.median), form: Aggregate("math::median") },
-		{ prim: Code.prim(Math.stddev), form: Aggregate("math::stddev") },
-		{ prim: Code.prim(Math.variance), form: Aggregate("math::variance") },
-		{ prim: Code.prim(Geo.area), form: Function({ surql: "geo::area", random: Bool.False }) },
-		{ prim: Code.prim(Geo.bearing), form: Function({ surql: "geo::bearing", random: Bool.False }) },
-		{ prim: Code.prim(Geo.centroid), form: Function({ surql: "geo::centroid", random: Bool.False }) },
-		{ prim: Code.prim(Geo.distance), form: Function({ surql: "geo::distance", random: Bool.False }) },
-		{ prim: Code.prim(Geo.hash_encode), form: Function({ surql: "geo::hash::encode", random: Bool.False }) },
-		{ prim: Code.prim(Geo.hash_decode), form: Function({ surql: "geo::hash::decode", random: Bool.False }) },
-		{ prim: Code.prim(Geo.is_valid), form: Function({ surql: "geo::is_valid", random: Bool.False }) },
-		{ prim: Code.prim(Math.percentile), form: Percentile },
-		{ prim: Code.prim(Rand.uuid), form: Uuid },
-		{ prim: Code.prim(Time.group), form: TimeGroup },
-		{ prim: Code.prim(Time.plus), form: Operator("+") },
-		{ prim: Code.prim(Time.minus), form: Operator("-") },
-		{ prim: Code.prim(Geo.contains), form: Operator("CONTAINS") },
-		{ prim: Code.prim(Geo.inside), form: Operator("INSIDE") },
-		{ prim: Code.prim(Geo.outside), form: Operator("OUTSIDE") },
-		{ prim: Code.prim(Geo.intersects), form: Operator("INTERSECTS") },
-		{ prim: Code.prim(Vector.similarity_cosine), form: Function({ surql: "vector::similarity::cosine", random: Bool.False }) },
-		{ prim: Code.prim(Vector.distance_euclidean), form: Function({ surql: "vector::distance::euclidean", random: Bool.False }) },
-		{ prim: Code.prim(Vector.distance_manhattan), form: Function({ surql: "vector::distance::manhattan", random: Bool.False }) },
-		{ prim: Code.prim(Vector.distance_chebyshev), form: Function({ surql: "vector::distance::chebyshev", random: Bool.False }) },
-		{ prim: Code.prim(Vector.dot), form: Function({ surql: "vector::dot", random: Bool.False }) },
-		{ prim: Code.prim(Vector.magnitude), form: Function({ surql: "vector::magnitude", random: Bool.False }) },
-		{ prim: Code.prim(Hit.score), form: Function({ surql: "search::score", random: Bool.False }) },
-		{ prim: Code.prim(Hit.highlight), form: Render(highlight_form) },
-		{ prim: Code.prim(Hit.offsets), form: Render(offsets_form) },
-		{ prim: Code.prim(Near.distance), form: Variable("vector::distance::knn()") },
-		{ prim: Code.prim(DbFn.call1), form: CallDbFn },
-		{ prim: Code.prim(DbFn.call2), form: CallDbFn },
-		{ prim: Code.prim(DbFn.call3), form: CallDbFn },
-		{ prim: Code.prim(TimeKey.series), form: SeriesOf },
-		{ prim: Code.prim(TimeKey.time), form: TimeOf },
-		{ prim: Code.prim(Surreal.table), form: TableOf },
-		{ prim: Code.prim(Surreal.view), form: TableOf },
-		{ prim: Code.prim(Surreal.relation), form: RelationOf },
-		{ prim: Code.prim(Table.rows), form: Rows },
-		{ prim: Code.prim(Table.id), form: RecordOf },
-	],
+	intrinsic_forms.concat(
+		[
+			{ prim: Code.prim(Link.get), form: LinkGet },
+			{ prim: Code.prim(Link.id), form: LinkId },
+			{ prim: Code.prim(Id.is_eq), form: IdEq },
+			{ prim: Code.prim(Id.key), form: IdKey },
+			{ prim: Code.prim(Id.table), form: IdTable },
+			{ prim: Code.prim(Datetime.is_lt), form: DatetimeOrder },
+			{ prim: Code.prim(Datetime.is_lte), form: DatetimeOrder },
+			{ prim: Code.prim(Text.is_ascii), form: Function({ surql: "string::is_ascii", random: Bool.False }) },
+			{ prim: Code.prim(Text.is_hexadecimal), form: Function({ surql: "string::is_hexadecimal", random: Bool.False }) },
+			{ prim: Code.prim(Hash.sha256), form: Function({ surql: "crypto::sha256", random: Bool.False }) },
+			{ prim: Code.prim(Hash.blake3), form: Function({ surql: "crypto::blake3", random: Bool.False }) },
+			{ prim: Code.prim(Array.distinct), form: Function({ surql: "array::distinct", random: Bool.False }) },
+			{ prim: Code.prim(Array.union), form: Function({ surql: "array::union", random: Bool.False }) },
+			{ prim: Code.prim(Array.intersect), form: Function({ surql: "array::intersect", random: Bool.False }) },
+			{ prim: Code.prim(Array.complement), form: Function({ surql: "array::complement", random: Bool.False }) },
+			{ prim: Code.prim(Time.floor), form: Function({ surql: "time::floor", random: Bool.False }) },
+			{ prim: Code.prim(Time.ceil), form: Function({ surql: "time::ceil", random: Bool.False }) },
+			{ prim: Code.prim(Time.round), form: Function({ surql: "time::round", random: Bool.False }) },
+			{ prim: Code.prim(Time.year), form: Function({ surql: "time::year", random: Bool.False }) },
+			{ prim: Code.prim(Time.month), form: Function({ surql: "time::month", random: Bool.False }) },
+			{ prim: Code.prim(Time.day), form: Function({ surql: "time::day", random: Bool.False }) },
+			{ prim: Code.prim(Time.hour), form: Function({ surql: "time::hour", random: Bool.False }) },
+			{ prim: Code.prim(Time.minute), form: Function({ surql: "time::minute", random: Bool.False }) },
+			{ prim: Code.prim(Time.second), form: Function({ surql: "time::second", random: Bool.False }) },
+			{ prim: Code.prim(Math.mean), form: Aggregate("math::mean") },
+			{ prim: Code.prim(Geo.is_valid), form: Function({ surql: "geo::is_valid", random: Bool.False }) },
+			{ prim: Code.prim(Vector.similarity_cosine), form: Function({ surql: "vector::similarity::cosine", random: Bool.False }) },
+			{ prim: Code.prim(Vector.distance_euclidean), form: Function({ surql: "vector::distance::euclidean", random: Bool.False }) },
+			{ prim: Code.prim(Vector.distance_manhattan), form: Function({ surql: "vector::distance::manhattan", random: Bool.False }) },
+			{ prim: Code.prim(Vector.distance_chebyshev), form: Function({ surql: "vector::distance::chebyshev", random: Bool.False }) },
+			{ prim: Code.prim(Vector.dot), form: Function({ surql: "vector::dot", random: Bool.False }) },
+			{ prim: Code.prim(Vector.magnitude), form: Function({ surql: "vector::magnitude", random: Bool.False }) },
+			{ prim: Code.prim(DbFn.call1), form: CallDbFn },
+			{ prim: Code.prim(DbFn.call2), form: CallDbFn },
+			{ prim: Code.prim(DbFn.call3), form: CallDbFn },
+			{ prim: Code.prim(TimeKey.series), form: SeriesOf },
+			{ prim: Code.prim(TimeKey.time), form: TimeOf },
+			{ prim: Code.prim(Surreal.table), form: TableOf },
+			{ prim: Code.prim(Surreal.view), form: TableOf },
+			{ prim: Code.prim(Surreal.relation), form: RelationOf },
+			{ prim: Code.prim(Table.id), form: RecordOf },
+		],
+	),
 )
 
 own : List(Translate.Extension)
@@ -3876,7 +3843,7 @@ aggregated = |Grouped.(g), per_group, in_view| {
 	}
 	columns = |param| Ok(aliased(within_clause("`aggregate`", group_columns(key, per_group, base?, param, in_view))?))
 	ty = per_group.graph().root_row().result
-	selected_of(q, { columns, value: |_| Err(live_group) }, by_name, [groups], { ty, over: PerGroup, nested: nested_row(ty) })
+	selected_of(q, { columns, value: |_| Err(live_group), intrinsic: intrinsic_columns(per_group.graph()) }, by_name, [groups], { ty, over: PerGroup, nested: nested_row(ty) })
 }
 
 ## The query of `Query.totals`: the columns of the one function of the rows.
@@ -3885,7 +3852,7 @@ totalled = |Query.(q), per_total| {
 	base = q.source.now
 	columns = |param| Ok(aliased(within_clause("`totals`", Translate.total_columns(own, per_total.graph(), [Translate.Binding.Group(base?)], param))?))
 	ty = per_total.graph().root_row().result
-	Totals.(selected_of(q, { columns, value: |_| Err(live_group) }, by_name, [], { ty, over: PerGroup, nested: nested_row(ty) }))
+	Totals.(selected_of(q, { columns, value: |_| Err(live_group), intrinsic: intrinsic_columns(per_total.graph()) }, by_name, [], { ty, over: PerGroup, nested: nested_row(ty) }))
 }
 
 group_all : Str -> Str
@@ -4243,7 +4210,7 @@ writable = |t| match t.kind {
 }
 
 ## A `Selected` of a query. `shape` is its columns, and its result row as one value.
-selected_of : { target : Target, filters : List(Filter), source : Rows, watched : List(Watched) }, { columns : Clause, value : Clause }, ResultOrder, List(Clause), ResultRow -> Selected(p, out)
+selected_of : { target : Target, filters : List(Filter), source : Rows, watched : List(Watched) }, { columns : Clause, value : Clause, intrinsic : List(Str) }, ResultOrder, List(Clause), ResultRow -> Selected(p, out)
 selected_of = |q, shape, results, groups, rows| Selected.(
 	{
 		target: q.target,
@@ -4253,6 +4220,7 @@ selected_of = |q, shape, results, groups, rows| Selected.(
 		groups: groups,
 		columns: shape.columns,
 		value: shape.value,
+		intrinsic: shape.intrinsic,
 		results: results,
 		rows: rows,
 		order: [],
@@ -4384,7 +4352,7 @@ whole_rows = |Query.(q), ty| {
 		Row(_) | Fields(_) | WithEdges(_, _) => by_name(key, param)
 		_ => Err(value_order)
 	}
-	selected_of(q, { columns, value }, results, [], { ty, over: Projected(q.source), nested: nested_row(ty) })
+	selected_of(q, { columns, value, intrinsic: [] }, results, [], { ty, over: Projected(q.source), nested: nested_row(ty) })
 }
 
 aliased : List({ name : Str, surql : Str }) -> Str
@@ -4404,7 +4372,19 @@ set_list : List({ name : Str, surql : Str }) -> Str
 set_list = |sets| Str.join_with(sets.map(|a| "${a.name} = ${a.surql}"), ", ")
 
 statement_of : Str -> Statement
-statement_of = |surql| Statement.({ surql, lets: [], inlined: surql })
+statement_of = |surql| Statement.({ surql, lets: [], inlined: surql, intrinsic: [] })
+
+## The statement of a query, with the columns of its result that read an
+## intrinsic.
+with_intrinsic : Statement, Selected(p, out) -> Statement
+with_intrinsic = |Statement.(st), Selected.(s)| Statement.({ ..st, intrinsic: s.intrinsic })
+
+## The columns of the record a clause returns whose value reads an
+## intrinsic of `Surreal`, by their Roc names: the translator's own
+## binding of each intrinsic (`intrinsic_ids`) decides, through every
+## function the column calls.
+intrinsic_columns : Code.Graph -> List(Str)
+intrinsic_columns = |graph| Translate.column_prims(graph).keep_if(|c| c.prims.any(|id| intrinsic_ids.contains(id))).map(|c| c.name)
 
 ## The fields a row or a parameter record encodes to.
 object_of : a -> Try(List({ name : Str, value : Ql.Value }), Error) where [a.encoder_for : Encode.Format -> (a, Encode.State -> Try(Encode.State, []))]
@@ -4560,6 +4540,8 @@ then_statement = |Statement.(a), Statement.(b)| {
 						surql: "${a.surql};\n${b.surql}",
 						lets: a.lets.concat(b.lets.keep_if(|l| !a.lets.any(|m| m.name == l.name))),
 						inlined: "${a.inlined};\n${b.inlined}",
+						# check.py compares the result of the last statement.
+						intrinsic: b.intrinsic,
 					},
 				),
 			)
@@ -4607,7 +4589,7 @@ bound_statement = |render, params| {
 			Err(_) => Translate.variable(name)
 		},
 	)?
-	Ok(Statement.({ surql, lets, inlined }))
+	Ok(Statement.({ surql, lets, inlined, intrinsic: [] }))
 }
 
 ## The `LET` of each field of the parameter record, by name.

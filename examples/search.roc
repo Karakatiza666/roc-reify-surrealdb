@@ -6,8 +6,10 @@
 # the definitions and the queries. Which rows a search keeps has a Roc
 # meaning (`Analyzer.matches`, the `Vector` distances), so its `-- roc:`
 # reference is computed over the seed rows. A score, a highlight and the
-# distance of a KNN have none: their blocks name the column in `-- ignore:`,
-# and the order or the text is written by hand.
+# distance of a KNN have none: they are intrinsics, SurrealDB computes them,
+# and the block of each query says which columns read one (`-- intrinsic:`).
+# The literal leaves out such a column, or writes its value by hand, as the
+# order and the highlights are.
 #
 # `roc search.roc` prints a script in the block format of `check.py`, which
 # runs it after the script of `monitoring.roc`.
@@ -147,7 +149,7 @@ queries = [
 	# highlights are written by hand.
 	block(
 		"-- query: search_ranked",
-		["-- ordered", "-- ignore: score"],
+		["-- ordered"],
 		Surreal.from(charts)
 			.search(chart_text, "limping")
 			.select(|(c, hit)| { id: c.id, score: hit.score(), marked: hit.highlight("<b>", "</b>") })
@@ -183,7 +185,7 @@ queries = [
 	# the order of `from_limp`.
 	block(
 		"-- query: nearest_exact",
-		["-- ordered", "-- ignore: distance"],
+		["-- ordered"],
 		Surreal.from(charts).nearest(chart_vectors, limp_probe, Exact(3)).select(|(c, near)| { id: c.id, distance: near.distance() }).order_by(|r| r.distance, Asc).prepare({}),
 		Surreal.Mirror.literal(ids(nearest(seed_charts, 3))),
 	),

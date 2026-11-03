@@ -379,6 +379,85 @@ Translate :: {}.{
 		_ => Err(Unsupported("a result row is a record, so each field has a name"))
 	}
 
+	# ------------------------------------------------------------ reached primitives
+
+	## Where `prims_of` walks: the graph, the primitives that each parameter
+	## of the row stands for, the kept definitions read so far with the
+	## primitives each one reaches, and the rows on the way, so a row that
+	## calls itself is walked once.
+	Reaching : { graph : Code.Graph, params : List(List(Code.PrimId)), defs : List({ id : U32, value : Code.Tree, prims : List(Code.PrimId) }), rows : List(U32) }
+
+	## The ids of the primitives that the value of a tree reaches: its own
+	## `Prim` nodes, those of the kept definitions and the parameters it
+	## reads, and those of each row it calls or makes a closure of.
+	prims_of : Code.Tree, Reaching -> List(Code.PrimId)
+	prims_of = |tree, walk| match tree {
+		Param(k) => walk.params.get(k.to_u64()) ?? []
+		Def(n) => match walk.defs.find_last(|d| d.id == n) {
+			Ok(d) => d.prims
+			Err(_) => []
+		}
+		Input(_) | Arg(_) | Out(_) => []
+		Block(block) => {
+			inner = Translate.reaching_defs(block.defs, walk)
+			ends = match block.end {
+				Value(trees) | Continue(trees) | Break(trees) => trees
+				Jump(j) => j.args
+				Return(t) | Branch(t) => [t]
+			}
+			ends.join_map(|t| Translate.prims_of(t, inner))
+		}
+		Op(node) => {
+			held = node.args.map(|a| Translate.prims_of(a, walk))
+			own = held.join_map(|p| p)
+			match node.op {
+				Prim(call) => own.append(call.id)
+				Call(row) => own.concat(Translate.row_prims(row, held, walk))
+				Closure(row) => own.concat(Translate.row_prims(row, held, walk))
+				_ => own
+			}
+		}
+	}
+
+	## The kept definitions of a block, each with the primitives it reaches.
+	reaching_defs : List({ id : U32, value : Code.Tree }), Reaching -> Reaching
+	reaching_defs = |defs, walk| defs.fold(walk, |acc, def| { ..acc, defs: acc.defs.append({ id: def.id, value: def.value, prims: Translate.prims_of(def.value, acc) }) })
+
+	## The primitives that row `row` reaches, with its first parameters
+	## standing for `params` (a closure's captured values; the element it
+	## is called with is the list's, which the caller walks).
+	row_prims : U32, List(List(Code.PrimId)), Reaching -> List(Code.PrimId)
+	row_prims = |row, params, walk|
+		if walk.rows.contains(row) {
+			[]
+		} else {
+			count = walk.graph.row(row).params.len()
+			bound = params.concat(List.repeat([], count - params.len().min(count)))
+			Translate.prims_of(walk.graph.to_tree(row), { graph: walk.graph, params: bound, defs: [], rows: walk.rows.append(row) })
+		}
+
+	## The primitives that each field of the record a clause returns
+	## reaches, by the field's Roc name: one entry per column of a
+	## `SELECT`. A clause that returns no record built in it, such as a
+	## whole row, gives none.
+	column_prims : Code.Graph -> List({ name : Str, prims : List(Code.PrimId) })
+	column_prims = |graph| {
+		root = graph.root_row()
+		Translate.record_prims(graph.to_tree(root.id), { graph, params: root.params.map(|_| []), defs: [], rows: [root.id] })
+	}
+
+	record_prims : Code.Tree, Reaching -> List({ name : Str, prims : List(Code.PrimId) })
+	record_prims = |tree, walk| match tree {
+		Op({ op: Record(names), args, .. }) => List.map2(names, args, |name, value| { name, prims: Translate.prims_of(value, walk) })
+		Op({ op: Call(row), args, .. }) if !walk.rows.contains(row) => Translate.record_prims(walk.graph.to_tree(row), { graph: walk.graph, params: args.map(|a| Translate.prims_of(a, walk)), defs: [], rows: walk.rows.append(row) })
+		Def(n) => match walk.defs.find_last(|d| d.id == n) {
+			Ok(d) => Translate.record_prims(d.value, walk)
+			Err(_) => []
+		}
+		Block({ defs, end: Value([one]) }) => Translate.record_prims(one, Translate.reaching_defs(defs, walk))
+		_ => []
+	}
+
 	## The `SET` list of an update patch `|o| { ..o, f: .. }`, whose last
 	## parameter is the row. A field that reads the row's field of its own name
 	## is unchanged and left out; every other field is `f = <expr>`, in name
