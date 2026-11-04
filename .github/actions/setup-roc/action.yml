@@ -1,0 +1,54 @@
+name: Set up Roc
+description: Build the reify fork of the Roc compiler at the commit of .roc-version (or use the cached build), and put roc on the PATH
+runs:
+  using: composite
+  steps:
+    - name: Read .roc-version
+      id: version
+      shell: bash
+      run: |
+        set -euo pipefail
+        version="$(tr -d '\r\n' < .roc-version)"
+        if [[ ! "$version" =~ ^reify-[0-9a-f]{40}$ ]]; then
+          echo "Invalid .roc-version, expected reify-<40 hex digits of a commit of Karakatiza666/roc>: $version" >&2
+          exit 1
+        fi
+        echo "commit=${version#reify-}" >> "$GITHUB_OUTPUT"
+        echo "dir=$RUNNER_TEMP/roc-bin" >> "$GITHUB_OUTPUT"
+    - name: Cache the compiler
+      id: cache
+      uses: actions/cache@v6.1.0
+      with:
+        path: ${{ steps.version.outputs.dir }}
+        key: roc-reify-${{ runner.os }}-${{ runner.arch }}-${{ steps.version.outputs.commit }}
+    - name: Install Zig
+      if: steps.cache.outputs.cache-hit != 'true'
+      uses: xyzzylabs/setup-zig@09d85d9dbb73308882e7a26e61a8f706eed40df1 # v1.0.2
+      with:
+        version: 0.17.0
+        use-cache: false
+    - name: Build the compiler
+      if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        COMMIT: ${{ steps.version.outputs.commit }}
+        DIR: ${{ steps.version.outputs.dir }}
+      run: |
+        set -euo pipefail
+        src="$RUNNER_TEMP/roc-src"
+        git init --quiet "$src"
+        git -C "$src" fetch --quiet --depth 1 https://github.com/Karakatiza666/roc.git "$COMMIT"
+        git -C "$src" checkout --quiet FETCH_HEAD
+        (cd "$src" && zig build build-release)
+        mkdir -p "$DIR"
+        cp "$src/zig-out/bin/roc" "$DIR/roc"
+        rm -rf "$src"
+    - name: Put roc on the PATH
+      shell: bash
+      env:
+        DIR: ${{ steps.version.outputs.dir }}
+      run: |
+        chmod +x "$DIR/roc"
+        echo "$DIR" >> "$GITHUB_PATH"
+    - shell: bash
+      run: roc version

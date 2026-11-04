@@ -41,7 +41,7 @@ with it. See [Requirements](#requirements).
 | Modules | `Surreal` (the whole public API). `src/internal.roc` is a second header that also exposes `Ql`, `Encode`, `Types`, `Translate`, `Schema`, `Diff`, `Rpc` and `HttpRpc`, for the tests |
 | Dependencies | [roc-cbor](https://github.com/Karakatiza666/roc-cbor) 0.4.0, [roc-websocket](https://github.com/Karakatiza666/roc-websocket) 0.0.5 |
 | Examples only | [roc-basic-cli-websocket](https://github.com/Karakatiza666/roc-basic-cli-websocket) 0.0.3 (basic-cli 0.26.0), [roc-basic-webserver-websocket](https://github.com/Karakatiza666/roc-basic-webserver-websocket) 0.0.2 (basic-webserver 0.20.0) |
-| Compiler | the `reify` branch of [Karakatiza666/roc](https://github.com/Karakatiza666/roc), at or after commit `846019dd8d` (based on Roc nightly 2026-11-01) |
+| Compiler | the `reify` branch of [Karakatiza666/roc](https://github.com/Karakatiza666/roc), at commit `c1e6af27a2` (based on Roc nightly 2026-11-03), pinned in `.roc-version` |
 | Database | SurrealDB 3.3.4 |
 | Tests | `scripts/all_tests.sh` |
 | License | UPL-1.0 (`LICENSE`) |
@@ -63,16 +63,55 @@ rows, the queries, the writes the database must refuse, and the writes it must
 accept. `tests/check.py` runs it on a real server and compares each query with
 the result that Roc computes from the same functions over the same rows.
 
+## Use
+
+Add the package to the header of an app, next to a platform and the WebSocket
+adapter of that platform (see "Connect on basic-cli" and "Connect on
+basic-webserver" for the rest of an app):
+
+```roc
+app [main!] {
+	pf: platform "https://github.com/roc-lang/basic-cli/releases/download/0.26.0/GddgvsGjiNXrHFW6au5i5dUDbTs8FinQdrgE2Gqmw53t.tar.zst",
+	cli_ws: "https://github.com/Karakatiza666/roc-basic-cli-websocket/releases/download/0.0.3/9c6XLWHRSREuaoELdH1a835Yopw92Jxy2b5e151X6mZj.tar.zst",
+	surreal: "https://github.com/Karakatiza666/roc-reify-surrealdb/releases/download/0.0.1/7MmdAaAt5bThg6ih3nR9ewVgw4CtNGvuK5HNQhEgZoSV.tar.zst",
+}
+
+import pf.Stdout
+import surreal.Surreal
+```
+
+The app must be compiled with the compiler of the next section. The release
+URL (`<hash>` in `.../releases/download/0.0.1/<hash>.tar.zst`) is in the notes
+of each [release](https://github.com/Karakatiza666/roc-reify-surrealdb/releases),
+and `scripts/bundle.sh 0.0.1` prints it.
+
 ## Requirements
 
 The compiler is the `reify` branch of
-[github.com/Karakatiza666/roc](https://github.com/Karakatiza666/roc), at or
-after commit `846019dd8d`. It is based on Roc nightly 2026-11-01. Build it as
-the compiler repo says and point `ROC` at the `roc` binary it makes:
+[github.com/Karakatiza666/roc](https://github.com/Karakatiza666/roc), at commit
+`c1e6af27a2`. It is based on Roc nightly 2026-11-03 (upstream commit
+`34bd006`). A release of this package names its commit in `.roc-version`, in
+the form `reify-<the 40 digits of the commit>`:
+
+```
+reify-c1e6af27a29303f2e409b037aa1d4a32ebd68217
+```
+
+Build that commit with [Zig 0.17.0](https://ziglang.org/download/) and point
+`ROC` at the `roc` binary it makes:
 
 ```sh
-export ROC=/path/to/fork/zig-out/bin/roc
+git clone https://github.com/Karakatiza666/roc.git
+cd roc
+git checkout c1e6af27a29303f2e409b037aa1d4a32ebd68217
+zig build roc                     # a Debug compiler, zig-out/bin/roc
+./zig-out/bin/roc version         # debug-c1e6af27
+export ROC=$PWD/zig-out/bin/roc
 ```
+
+`zig build roc` is how the compiler's `BUILDING_FROM_SOURCE.md` builds it. The
+package is tested with that build. `zig build build-release` makes an optimized
+one, which the CI of this repository uses (it keeps the cached binary small).
 
 The language feature is described in
 [docs/langref/reifying.md](https://github.com/Karakatiza666/roc/blob/reify/docs/langref/reifying.md)
@@ -85,17 +124,17 @@ tested on is 3.3.4.
 
 ## Setup
 
-The package is not released yet. The examples name it by a local path, from
-the `examples/` folder:
+An app names the release URL, as in "Use". The examples of this repository
+name the checkout by a local path instead, from the `examples/` folder:
 
 ```roc
 surreal: "../src/main.roc",
 ```
 
-An app of your own names the path of this checkout, for example
-`surreal: "/path/to/roc-reify-surrealdb/src/main.roc"`. A release URL will
-replace the path when the package is released, as it does for the other
-packages of the header.
+so that they run on the sources of the commit. `scripts/test_bundle.sh` checks
+each of them against the bundle of the release (`--replace-dep` puts the bundle
+in place of that path). An app of your own that works on a checkout names its
+path, for example `surreal: "/path/to/roc-reify-surrealdb/src/main.roc"`.
 
 The package brings roc-cbor and roc-websocket. An app that uses `Cbor`
 itself (`Cbor.Value`, as `examples/client.roc` does for patch ops) names
@@ -114,7 +153,7 @@ The app names basic-cli and the WebSocket adapter
 app [main!] {
 	pf: platform "https://github.com/roc-lang/basic-cli/releases/download/0.26.0/GddgvsGjiNXrHFW6au5i5dUDbTs8FinQdrgE2Gqmw53t.tar.zst",
 	cli_ws: "https://github.com/Karakatiza666/roc-basic-cli-websocket/releases/download/0.0.3/9c6XLWHRSREuaoELdH1a835Yopw92Jxy2b5e151X6mZj.tar.zst",
-	surreal: "../src/main.roc",
+	surreal: "https://github.com/Karakatiza666/roc-reify-surrealdb/releases/download/0.0.1/7MmdAaAt5bThg6ih3nR9ewVgw4CtNGvuK5HNQhEgZoSV.tar.zst",
 }
 
 import pf.OsStr
@@ -123,8 +162,8 @@ import cli_ws.WsClient
 import surreal.Surreal
 ```
 
-The transport and the login, as in `examples/watch.roc` and
-`examples/client.roc`:
+(`examples/watch.roc` and `examples/client.roc` have `surreal: "../src/main.roc"`
+in place of the URL.) The transport and the login, as in those two files:
 
 ```roc
 login : Surreal.Login
@@ -172,7 +211,8 @@ A live query needs the WebSocket: over HTTP `live!` is `Unsupported`.
 
 The app names basic-webserver and
 [roc-basic-webserver-websocket](https://github.com/Karakatiza666/roc-basic-webserver-websocket),
-as in `examples/server.roc`:
+as in `examples/server.roc` (which has `surreal: "../src/main.roc"` in place
+of the URL):
 
 ```roc
 app [Context, program] {
@@ -180,7 +220,7 @@ app [Context, program] {
 	http: "https://github.com/roc-lang/http/releases/download/1.0.0/6ZUwqYhCS8PU9Mo6MF7oV82ET2o7KYb57CLKDq4cq4sS.tar.zst",
 	pf: platform "https://github.com/roc-lang/basic-webserver/releases/download/0.20.0/7dR2ewuEbpPQXTAZL3aH62weBwpNNjbCJtyyiRsufTNZ.tar.zst",
 	bws_ws: "https://github.com/Karakatiza666/roc-basic-webserver-websocket/releases/download/0.0.2/63RHisM5dNvGRLkMFurQZd7Gp1AqWpThfd5Dvtb2CTKj.tar.zst",
-	surreal: "../src/main.roc",
+	surreal: "https://github.com/Karakatiza666/roc-reify-surrealdb/releases/download/0.0.1/7MmdAaAt5bThg6ih3nR9ewVgw4CtNGvuK5HNQhEgZoSV.tar.zst",
 }
 
 import pf.Server
@@ -292,6 +332,8 @@ kennel b at 2026-03-01T10:00:00Z: pulse 120, temp_c 39.0
 | `tests/HttpTest.roc` | Tests of the posts of a session over HTTP, with the authentication of each login, of the replies in their responses, and of replies that SurrealDB sent over HTTP, read through the `Inbox` in another order than they were sent. |
 | `tests/fixtures/` | Messages of a live session that SurrealDB 3.3.4 sent, one file each, in `fixtures/queries/` the replies to the requests of `client.roc`, in `fixtures/http/` the same replies over HTTP (`client.roc -- --http`), in `fixtures/mux/` the frames of one session with two watches and requests in flight, and in `fixtures/errors/` a reply of each kind of error (`check.py --record fixtures`). |
 | `tests/check.py` | Runs the scripts of `examples/main.roc`, `tests/BuiltinsTest.roc`, `examples/monitoring.roc` and `examples/search.roc` on SurrealDB and compares every block, the live blocks in a WebSocket session, then runs `watch.roc`, `client.roc` on a WebSocket and over HTTP, and `server.roc`, which it asks for a query over HTTP. With `--record DIR`, it saves the messages of each live block, the replies to `client.roc` on both transports and the frames of `MuxTest.roc`. Python standard library only. |
+| `scripts/bundle.sh`, `scripts/test_bundle.sh` | The release bundle `dist/<hash>.tar.zst` and its release URL, and the check of the examples against it. |
+| `.roc-version`, `.github/` | The compiler commit that CI builds (`reify-<commit>`), the action that builds it, and the workflows that test and release. |
 | `scripts/all_tests.sh` | The local checks: `roc check` of the package and the examples, `roc test` of the package and of every test file, `roc tests/DeadlineTest.roc`, and `tests/check.py` when SurrealDB answers on 127.0.0.1:8000. |
 | `LICENSE` | UPL-1.0. |
 
@@ -318,6 +360,31 @@ docker run --rm -d --name surreal-roc -p 8000:8000 surrealdb/surrealdb:v3.3.4 st
 
 Without a server, the script skips `tests/check.py` and says so. Stop the
 server with `docker stop surreal-roc`.
+
+The release bundle has its own scripts:
+
+```sh
+ROC=/path/to/fork/zig-out/bin/roc scripts/bundle.sh 0.0.1  # dist/<hash>.tar.zst, its file list and its release URL
+ROC=/path/to/fork/zig-out/bin/roc scripts/test_bundle.sh   # checks the examples against the bundle
+```
+
+`bundle.sh` runs `roc bundle src/main.roc`. The bundle holds `src/main.roc` and
+the modules that it imports, `src/*.roc` except `src/internal.roc` (that is the
+header that the tests use, and no module imports it): no tests, no
+examples. An app that uses the bundle reaches `Surreal` only, because the
+header of `main.roc` exposes nothing else (`import surreal.Ql` is "package
+module is private"). `test_bundle.sh` serves the bundle on 127.0.0.1 and runs
+`roc check` on every `examples/*.roc` and on `examples/clinic/main.roc` with
+`--replace-dep ./src/main.roc <the URL>`. The hash is the hash of the content of
+`src/`, so a change there changes the URL: the headers in this file name the
+URL that `bundle.sh` printed for the release.
+
+`.github/workflows/tests.yaml` runs `all_tests.sh` (with a SurrealDB 3.3.4
+container, so that `check.py` runs), `bundle.sh` and `test_bundle.sh`.
+`.github/workflows/release.yml` runs on a tag `X.Y.Z`: it runs the tests, makes
+the bundle and the docs, publishes the GitHub Release with them, and runs
+`test_bundle.sh` against the published URL. Both build the compiler of
+`.roc-version` (`.github/actions/setup-roc`).
 
 One check at a time, from the repository root (`roc` is the fork's):
 
@@ -2423,3 +2490,36 @@ The cost of a new feature is small and local:
 - Nothing in `examples/main.roc` is SurrealQL-specific except the method
   names. Its queries use Roc's operators, its `match`, its optional fields
   and its `??`, and each query uses functions that the application also calls.
+
+## Changes
+
+### 0.0.1
+
+The first release: a SurrealDB ORM over reified Roc functions, for SurrealDB
+3.3.4, roc-cbor 0.4.0 and roc-websocket 0.0.5. It needs the reify fork of the
+Roc compiler, at commit `c1e6af27a2` (based on Roc nightly 2026-11-03, the pin
+in `.roc-version`). Stock Roc has no `Code` type.
+
+- `Surreal` is the whole public API. A row type is a plain Roc record, a
+  table is a `Surreal.Table(row)`, and every clause, projection and constraint
+  is a Roc function that the compiler describes as a `Code(f)` and the
+  translator turns into SurrealQL. The same functions stay ordinary Roc
+  functions, which the program calls on its own rows.
+- The schema (`DEFINE TABLE`, fields, `ASSERT`, `UNIQUE`, events, computed
+  fields, permissions, delete policies of links, access methods, analyzers,
+  indexes, database functions, views) comes from the row types and the clauses.
+- Queries and writes with parameters and captured values, links, edge tables
+  and read rows, keys that the server makes, time series keys, geometry,
+  full-text and vector search, and Roc functions as SurrealDB functions
+  (`Text`, `Hash`, `Array`, `Time`, `Math`, `Rand`, `Vector`).
+- Live queries (`live`, `live_raw`, `live_diff`), with the Roc prediction of
+  their notices (the `Mirror`).
+- Sessions over WebSocket (`Transport.websocket` and `websocket_timed`, with
+  `Session.next_within!`) or HTTP, with typed results (`Prepared`), typed
+  errors, transactions and record users.
+- Translator extensions for types the package does not know.
+- Examples for basic-cli 0.26.0 (roc-basic-cli-websocket 0.0.3) and
+  basic-webserver 0.20.0 (roc-basic-webserver-websocket 0.0.2), and
+  `scripts/all_tests.sh` with `tests/check.py`, which runs the scripts and the
+  apps against SurrealDB 3.3.4 and compares each result with the one that Roc
+  computes.

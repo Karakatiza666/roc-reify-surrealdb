@@ -1,0 +1,30 @@
+name: Tests
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+permissions: {}
+concurrency:
+  group: tests-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    permissions: { contents: read }
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-roc
+      - name: Start SurrealDB
+        run: |
+          docker run --rm -d --name surreal-roc -p 8000:8000 surrealdb/surrealdb:v3.3.4 start --user root --pass root memory
+          for _ in $(seq 100); do
+            (: >/dev/tcp/127.0.0.1/8000) 2>/dev/null && exit 0
+            sleep 0.2
+          done
+          docker logs surreal-roc
+          exit 1
+      - run: scripts/all_tests.sh
+      - run: scripts/bundle.sh
+      - run: scripts/test_bundle.sh

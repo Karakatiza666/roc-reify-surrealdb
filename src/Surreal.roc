@@ -893,7 +893,7 @@ Surreal :: {}.{
 	## index (`Table.text_index`) and a search (`Query.search`) cut a text
 	## into terms. Give `define()` to `schema`.
 	##
-	## clinical = Surreal.analyzer("clinical", [Class], [Lowercase])
+	## `clinical = Surreal.analyzer("clinical", [Class], [Lowercase])`
 	Analyzer :: { name : Str, tokenizers : List(Tokenizer), filters : List(TokenFilter) }.{
 
 		## `DEFINE ANALYZER OVERWRITE name TOKENIZERS .. FILTERS ..;`
