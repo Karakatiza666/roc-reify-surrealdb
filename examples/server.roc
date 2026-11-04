@@ -22,7 +22,7 @@ app [Context, program] {
 	cbor: "https://github.com/Karakatiza666/roc-cbor/releases/download/0.4.0/EnfRKFT7uPHmd3zT5PcwAiBWUtGmBXapJqFK5166U33J.tar.zst",
 	http: "https://github.com/roc-lang/http/releases/download/1.0.0/6ZUwqYhCS8PU9Mo6MF7oV82ET2o7KYb57CLKDq4cq4sS.tar.zst",
 	pf: platform "https://github.com/roc-lang/basic-webserver/releases/download/0.20.0/7dR2ewuEbpPQXTAZL3aH62weBwpNNjbCJtyyiRsufTNZ.tar.zst",
-	bws_ws: "https://github.com/Karakatiza666/roc-basic-webserver-websocket/releases/download/0.0.1/AZvwBodinTMyUrV1ikMs9qicuYd3p7EXvFCYcZ6Zwn2A.tar.zst",
+	bws_ws: "https://github.com/Karakatiza666/roc-basic-webserver-websocket/releases/download/0.0.2/63RHisM5dNvGRLkMFurQZd7Gp1AqWpThfd5Dvtb2CTKj.tar.zst",
 	surreal: "../src/main.roc",
 }
 
@@ -58,7 +58,8 @@ line = |r| "kennel ${r.kennel} at ${r.at}: pulse ${r.pulse.to_str()}, temp_c ${r
 # ------------------------------------------------------------- the platform
 
 ## The transport of each session: a WebSocket on `/rpc`, through
-## roc-basic-webserver-websocket (`WsClient`).
+## roc-basic-webserver-websocket (`WsClient`). It is `websocket`, not
+## `websocket_timed`: basic-webserver's adapter has no `receive_within!`.
 transport : Surreal.Transport
 transport = Surreal.Transport.websocket(WsClient.connect, WsClient.ops, "ws://127.0.0.1:8000")
 

@@ -39,8 +39,8 @@ with it. See [Requirements](#requirements).
 | Item | Value |
 | --- | --- |
 | Modules | `Surreal` (the whole public API). `src/internal.roc` is a second header that also exposes `Ql`, `Encode`, `Types`, `Translate`, `Schema`, `Diff`, `Rpc` and `HttpRpc`, for the tests |
-| Dependencies | [roc-cbor](https://github.com/Karakatiza666/roc-cbor) 0.4.0, [roc-websocket](https://github.com/Karakatiza666/roc-websocket) 0.0.4 |
-| Examples only | [roc-basic-cli-websocket](https://github.com/Karakatiza666/roc-basic-cli-websocket) 0.0.1 (basic-cli 0.26.0), [roc-basic-webserver-websocket](https://github.com/Karakatiza666/roc-basic-webserver-websocket) 0.0.1 (basic-webserver 0.20.0) |
+| Dependencies | [roc-cbor](https://github.com/Karakatiza666/roc-cbor) 0.4.0, [roc-websocket](https://github.com/Karakatiza666/roc-websocket) 0.0.5 |
+| Examples only | [roc-basic-cli-websocket](https://github.com/Karakatiza666/roc-basic-cli-websocket) 0.0.3 (basic-cli 0.26.0), [roc-basic-webserver-websocket](https://github.com/Karakatiza666/roc-basic-webserver-websocket) 0.0.2 (basic-webserver 0.20.0) |
 | Compiler | the `reify` branch of [Karakatiza666/roc](https://github.com/Karakatiza666/roc), at or after commit `846019dd8d` (based on Roc nightly 2026-11-01) |
 | Database | SurrealDB 3.3.4 |
 | Tests | `scripts/all_tests.sh` |
@@ -113,7 +113,7 @@ The app names basic-cli and the WebSocket adapter
 ```roc
 app [main!] {
 	pf: platform "https://github.com/roc-lang/basic-cli/releases/download/0.26.0/GddgvsGjiNXrHFW6au5i5dUDbTs8FinQdrgE2Gqmw53t.tar.zst",
-	cli_ws: "https://github.com/Karakatiza666/roc-basic-cli-websocket/releases/download/0.0.1/7GBAW8zCyUjhD1MuDzJpR4mYYNajtMjyNjvqSKUhKHmm.tar.zst",
+	cli_ws: "https://github.com/Karakatiza666/roc-basic-cli-websocket/releases/download/0.0.3/9c6XLWHRSREuaoELdH1a835Yopw92Jxy2b5e151X6mZj.tar.zst",
 	surreal: "../src/main.roc",
 }
 
@@ -131,12 +131,14 @@ login : Surreal.Login
 login = Root({ ns: "roc", db: "roc_surreal", user: "root", pass: "root" })
 
 transport : Surreal.Transport
-transport = Surreal.Transport.websocket(WsClient.connect, WsClient.ops, "ws://127.0.0.1:8000")
+transport = Surreal.Transport.websocket_timed(WsClient.connect, WsClient.ops, "ws://127.0.0.1:8000")
 ```
 
 `WsClient.connect` and `WsClient.ops` are the adapter's connect feature and
 its operations. The session connects to the URL plus `/rpc`, with the
-subprotocol `cbor`. Then open a session and run a prepared statement. Each
+subprotocol `cbor`. `websocket_timed` takes the adapter's `receive_within!`
+too, which basic-cli has, so that `Session.next_within!` can wait for a change
+with a deadline; `Transport.websocket` is the same without it. Then open a session and run a prepared statement. Each
 call gives the session back, and `result` holds the rows as the Roc type of
 the query:
 
@@ -158,7 +160,8 @@ main! = |_args| match run!(120) {
 `Reading` and `readings_above` are in `examples/server.roc`. The app above
 checks with the fork's compiler. `examples/client.roc` is the long form: plain
 queries and writes, each checked against the result that Roc computes.
-`examples/watch.roc` starts live queries on the same kind of session.
+`examples/watch.roc` starts live queries on the same kind of session, and
+waits for each change with a limit of 60 s.
 
 On basic-cli the same app runs over HTTP when the transport is
 `Surreal.Transport.http(http_client, "http://127.0.0.1:8000")`, with the
@@ -176,7 +179,7 @@ app [Context, program] {
 	cbor: "https://github.com/Karakatiza666/roc-cbor/releases/download/0.4.0/EnfRKFT7uPHmd3zT5PcwAiBWUtGmBXapJqFK5166U33J.tar.zst",
 	http: "https://github.com/roc-lang/http/releases/download/1.0.0/6ZUwqYhCS8PU9Mo6MF7oV82ET2o7KYb57CLKDq4cq4sS.tar.zst",
 	pf: platform "https://github.com/roc-lang/basic-webserver/releases/download/0.20.0/7dR2ewuEbpPQXTAZL3aH62weBwpNNjbCJtyyiRsufTNZ.tar.zst",
-	bws_ws: "https://github.com/Karakatiza666/roc-basic-webserver-websocket/releases/download/0.0.1/AZvwBodinTMyUrV1ikMs9qicuYd3p7EXvFCYcZ6Zwn2A.tar.zst",
+	bws_ws: "https://github.com/Karakatiza666/roc-basic-webserver-websocket/releases/download/0.0.2/63RHisM5dNvGRLkMFurQZd7Gp1AqWpThfd5Dvtb2CTKj.tar.zst",
 	surreal: "../src/main.roc",
 }
 
@@ -187,7 +190,8 @@ import surreal.Surreal
 ```
 
 The transport and the login are the same as on basic-cli, with the adapter of
-the platform:
+the platform. It is `websocket`, not `websocket_timed`: basic-webserver's
+adapter has no `receive_within!`.
 
 ```roc
 transport : Surreal.Transport
@@ -251,7 +255,7 @@ kennel b at 2026-03-01T10:00:00Z: pulse 120, temp_c 39.0
 
 | File | What it is |
 | --- | --- |
-| `src/main.roc` | The package header. It exposes `Surreal`, and depends on roc-cbor 0.4.0 for the CBOR of a live session and on roc-websocket 0.0.4 for the types of a WebSocket adapter. |
+| `src/main.roc` | The package header. It exposes `Surreal`, and depends on roc-cbor 0.4.0 for the CBOR of a live session and on roc-websocket 0.0.5 for the types of a WebSocket adapter. |
 | `src/Surreal.roc` | The public API: ids, links, read rows (`Linked`, `Out`, `In`), datetimes, tables, the schema builder, queries and writes, live queries, `Mirror` (the Roc prediction of their notices, and the `-- roc:` literals that `check.py` compares), and `Unchecked` (the escape hatch: `SELECT *`, `FETCH`, record ids by text, decoding, and a raw `query!` with its `result`). The `parser_for` of each SurrealDB value, the reading of the messages of a live session, the `Session` itself with its `Inbox` of the replies and the notices that it read, the `Connection` that it runs on (a WebSocket, or HTTP), the patches of `live_diff` (`Patch`, `DiffView`), and the typed results of plain queries and writes (`Prepared`). Also the package functions for SurrealDB (`Text`, `Hash`, `Array`, `Time`, `Math`, `Rand`, `Vector`), analyzers and the full-text and vector indexes with their searches (`Analyzer`, `FullText`, `VectorIndex`, `Hit`, `Near`), database functions (`DbFn`), time series keys (`TimeKey`), views, the geometry types (`Point`, `Polygon`, ..) and their functions (`Geo`). |
 | `src/Translate.roc` | The translator. A `Code` graph in, a SurrealQL expression out. It knows a call by the id of its definition: the builtins in its own table, the functions of `Surreal` in the extension `Surreal.library`, and an app's in the extensions it passes (see "Extending the translator"). |
 | `src/Schema.roc` | `DEFINE` statements from row types, builder clauses and database functions. It also writes the delete policy of every link. |
@@ -282,12 +286,13 @@ kennel b at 2026-03-01T10:00:00Z: pulse 120, temp_c 39.0
 | `tests/DecodeTest.roc` | Tests of the decoding of a live session: the values of SurrealDB, the reply to a watch, notices, changes and raw events, from messages that SurrealDB sent. |
 | `tests/PreparedTest.roc` | Tests of the typed results of plain queries and writes: the text of each request, and the replies that SurrealDB sent to `client.roc`, read as the type of each query, rows with a tag union too, and a search with its scores and the nearest notes. |
 | `tests/MuxTest.roc` | Tests of the `Inbox` of a session: the frames of one session with two watches and requests in flight, in the order that SurrealDB sent them. |
+| `tests/DeadlineTest.roc` | Tests of `Session.next_within!` over a scripted adapter (`Transport.websocket_timed`): a notice that the inbox holds comes before any wait, a silence is `TimedOut`, a later notice still comes, and `Transport.websocket` gives an `Unsupported` error. The frames are the ones of `MuxTest.roc`. `roc tests/DeadlineTest.roc` runs the session and prints an `ok` or `FAIL` line for each check. |
 | `tests/RpcTest.roc` | Tests of the RPC requests and the uuid. |
 | `tests/ErrorTest.roc` | Tests of the typed errors of the server: a reply of each kind of error that SurrealDB sent, read as a `ServerError`, the constraints of a schema read back as `Unique`, `Assert`, `Check` and `Referenced`, and the messages of the constraints. |
 | `tests/HttpTest.roc` | Tests of the posts of a session over HTTP, with the authentication of each login, of the replies in their responses, and of replies that SurrealDB sent over HTTP, read through the `Inbox` in another order than they were sent. |
 | `tests/fixtures/` | Messages of a live session that SurrealDB 3.3.4 sent, one file each, in `fixtures/queries/` the replies to the requests of `client.roc`, in `fixtures/http/` the same replies over HTTP (`client.roc -- --http`), in `fixtures/mux/` the frames of one session with two watches and requests in flight, and in `fixtures/errors/` a reply of each kind of error (`check.py --record fixtures`). |
 | `tests/check.py` | Runs the scripts of `examples/main.roc`, `tests/BuiltinsTest.roc`, `examples/monitoring.roc` and `examples/search.roc` on SurrealDB and compares every block, the live blocks in a WebSocket session, then runs `watch.roc`, `client.roc` on a WebSocket and over HTTP, and `server.roc`, which it asks for a query over HTTP. With `--record DIR`, it saves the messages of each live block, the replies to `client.roc` on both transports and the frames of `MuxTest.roc`. Python standard library only. |
-| `scripts/all_tests.sh` | The local checks: `roc check` of the package and the examples, `roc test` of the package and of every test file, and `tests/check.py` when SurrealDB answers on 127.0.0.1:8000. |
+| `scripts/all_tests.sh` | The local checks: `roc check` of the package and the examples, `roc test` of the package and of every test file, `roc tests/DeadlineTest.roc`, and `tests/check.py` when SurrealDB answers on 127.0.0.1:8000. |
 | `LICENSE` | UPL-1.0. |
 
 ## Testing
@@ -338,6 +343,8 @@ roc test tests/RpcTest.roc
 roc test tests/DecodeTest.roc
 roc test tests/PreparedTest.roc
 roc test tests/MuxTest.roc
+roc test tests/DeadlineTest.roc
+roc tests/DeadlineTest.roc            # the scripted session: an ok or FAIL line for each check
 roc test tests/HttpTest.roc
 python3 tests/check.py "$ROC"     # run the four scripts on SurrealDB 3.3.4, compare with Roc
 roc examples/watch.roc                 # check.py runs it: a live session on the server, checked against the Mirror
@@ -464,9 +471,9 @@ Roc tag unions with `match` in a query.
 | A key compared with a value of the statement | `.filter_by(\|p, v\| v.id == p.key)`, `.filter(\|v\| v.id == "ruth")`, or a captured key in `select_where` | `WHERE id = type::record('vet', $key)`, `WHERE id = vet:⟨ruth⟩`: a `SELECT` reads the one record, where `record::id(id) = $key` scans the table (`Translate.key_compare`) | `examples/main.roc:795` |
 | An update of a row with optional fields | `owners.update_at(owners.id("jon"), renamed)`, with `renamed = \|o\| { ..o, name: "Jon B. Berg" }` and `phone ?:`, `referred_by ?:` in `Owner`. The reifier gives `..o` over each optional field as a switch on its presence, with the row in each arm, and each arm keeps the field. A field that the arms set differently is an `IF` on the presence. An optional field that the patch's row leaves out is `NONE`. A record field built with `..` is set field by field | `UPDATE owner:⟨jon⟩ SET name = 'Jon B. Berg'`; `{ ..m, address: { ..m.address, city: "Rome" } }` is `SET address.city = 'Rome'` | `examples/main.roc:1018` |
 | A patch of only the fields it sets | `owners.set_at(owners.id("lena"), moved)`, with `moved = \|o\| { address: { ..o.address, zip: "69002" }, phone: Err(Missing) }`. `set` takes a condition instead of a key, and `set_by` and `set_at_by` read a parameter record. A `Try` sets an optional field, and `Err` removes it. Each field is checked against the row when the statement is built (see Design limits) | `UPDATE owner:⟨lena⟩ SET address.zip = '69002', phone = NONE` | `examples/main.roc:1027` |
-| A record merged into a row | `tallies.merge_at(tallies.id("t1"), { label: "Merged", meta: { a: 9 } })`, `upsert_merge_at` for a key with no row, `merge(\|t\| t.hits > 10, { tags: ["hot"] })` for a condition. The record is a value of the app, with only the fields to change; an object in it is merged into the stored object, so `meta.b` stays. `set_at` writes the same, each field as a clause, and stays the way to change a union field (a merged union keeps the keys of its old arm) or to remove an optional one. The fields are the server's to check, as Roc has no type for a record of some of the row's fields; `id` is refused | `UPDATE tally:⟨t1⟩ MERGE { label: 'Merged', meta: { a: 9 } } RETURN AFTER`, `UPSERT tally:⟨t4⟩ MERGE { .. }`, `UPDATE tally MERGE { tags: ['hot'] } WHERE hits > 10` | `examples/client.roc:1290` |
-| JSON Patch ops replayed on a row | `tallies.patch_at(tallies.id("t3"), patches)` takes the `Patch`es of `live_diff`, in order, so a client replays what another saw; `patch_ops_at` takes `Op`s that the app made, `[Replace(["label"], Cbor.Value.Text("Patched")), Add(["tags", "-"], ..)]`. A patch of another row, a patch of a delete, an op at `/id` and a `change` op (a text diff, read and not written) are refused when the statement is built. A path that the row does not have is the server's error | `UPDATE tally:⟨t3⟩ PATCH [{ op: 'replace', path: '/label', value: 'Patched' }, { op: 'add', path: '/tags/-', value: 'p' }, { op: 'replace', path: '/meta/b', value: 7 }] RETURN AFTER` | `examples/client.roc:1293`, `tests/DiffTest.roc:272` |
-| Insert, or update the row that exists | `tallies.insert_or_update(incoming, \|new, old\| { ..old, label: new.label, hits: old.hits + new.hits })`. The patch is translated as the one of `update` is, with the new row at `$input`; the row is the last argument, as in `update_by`. One transaction. A duplicate is the same record key: a row that repeats only the value of a unique index is `Unique`, as for `insert`. A relation table is refused | `BEGIN; INSERT INTO tally [..] ON DUPLICATE KEY UPDATE hits = IF id != NONE { hits + $input.hits }, label = IF id != NONE { $input.label } RETURN AFTER; COMMIT`. SurrealDB 3.3.4 evaluates the clause once with no stored row, where `hits + 1` is an error even for a new key (verified), so each item is guarded with `IF id != NONE` | `examples/client.roc:1288` |
+| A record merged into a row | `tallies.merge_at(tallies.id("t1"), { label: "Merged", meta: { a: 9 } })`, `upsert_merge_at` for a key with no row, `merge(\|t\| t.hits > 10, { tags: ["hot"] })` for a condition. The record is a value of the app, with only the fields to change; an object in it is merged into the stored object, so `meta.b` stays. `set_at` writes the same, each field as a clause, and stays the way to change a union field (a merged union keeps the keys of its old arm) or to remove an optional one. The fields are the server's to check, as Roc has no type for a record of some of the row's fields; `id` is refused | `UPDATE tally:⟨t1⟩ MERGE { label: 'Merged', meta: { a: 9 } } RETURN AFTER`, `UPSERT tally:⟨t4⟩ MERGE { .. }`, `UPDATE tally MERGE { tags: ['hot'] } WHERE hits > 10` | `examples/client.roc:1317` |
+| JSON Patch ops replayed on a row | `tallies.patch_at(tallies.id("t3"), patches)` takes the `Patch`es of `live_diff`, in order, so a client replays what another saw; `patch_ops_at` takes `Op`s that the app made, `[Replace(["label"], Cbor.Value.Text("Patched")), Add(["tags", "-"], ..)]`. A patch of another row, a patch of a delete, an op at `/id` and a `change` op (a text diff, read and not written) are refused when the statement is built. A path that the row does not have is the server's error | `UPDATE tally:⟨t3⟩ PATCH [{ op: 'replace', path: '/label', value: 'Patched' }, { op: 'add', path: '/tags/-', value: 'p' }, { op: 'replace', path: '/meta/b', value: 7 }] RETURN AFTER` | `examples/client.roc:1320`, `tests/DiffTest.roc:272` |
+| Insert, or update the row that exists | `tallies.insert_or_update(incoming, \|new, old\| { ..old, label: new.label, hits: old.hits + new.hits })`. The patch is translated as the one of `update` is, with the new row at `$input`; the row is the last argument, as in `update_by`. One transaction. A duplicate is the same record key: a row that repeats only the value of a unique index is `Unique`, as for `insert`. A relation table is refused | `BEGIN; INSERT INTO tally [..] ON DUPLICATE KEY UPDATE hits = IF id != NONE { hits + $input.hits }, label = IF id != NONE { $input.label } RETURN AFTER; COMMIT`. SurrealDB 3.3.4 evaluates the clause once with no stored row, where `hits + 1` is an error even for a new key (verified), so each item is guarded with `IF id != NONE` | `examples/client.roc:1315` |
 | Seeds through the derived encoder | `vets.insert(seed_vets)`, `treats.insert(seed_treats)` | `BEGIN; INSERT INTO vet [..] RETURN AFTER; COMMIT`, `BEGIN; INSERT RELATION INTO treats [..] RETURN AFTER; COMMIT` | `examples/main.roc:930`, `examples/main.roc:935` |
 | A Roc function as a database function | `fever_fn = Surreal.db_fn("fever", fever)`, `Surreal.function(\|_\| fever_fn)` in the schema | `DEFINE FUNCTION OVERWRITE fn::fever($a1: decimal, $a2: int) -> bool { RETURN ($a1 > 39.0dec) OR ($a2 > 120) };` | `examples/monitoring.roc:95` |
 | A database function in a filter | `.filter(\|v\| fever_fn.call2(v.temp_c, v.pulse))` | `WHERE fn::fever(temp_c, pulse)` | `examples/monitoring.roc:337` |
@@ -492,22 +499,22 @@ Roc tag unions with `match` in a query.
 | A live query of two edge tables | `Surreal.from(kennels).incoming(cares_for).and_incoming(checks).filter(no_one).select(neglected_line).live({}, definitions)` | A `LIVE` on `cares_for` and one on `checks`, each with the node after the write | `examples/monitoring.roc:490` |
 | The raw events of a live query | `.select(vital_line).live_raw({})` | `LIVE SELECT VALUE { at: record::id(id)[1], .. } FROM vital WHERE fn::fever(temp_c, pulse)` | `examples/monitoring.roc:508` |
 | The patches of the stored rows | `Surreal.from(vitals).live_diff({})` | `LIVE SELECT DIFF FROM vital` | `examples/monitoring.roc:512` |
-| A live session, on basic-cli | `Surreal.Session.open!(transport, ..)`, then `session.live!(watch)`, writes on the same session, and `next!` | `query` with the request of the watch, in CBOR over a WebSocket on `/rpc` | `examples/watch.roc:539` |
-| Requests in flight together | `session.send!(prepared)` for each, then `await!(ticket, prepared)`, the last first | Several `query` requests before the first reply | `examples/client.roc:719` |
+| A live session, on basic-cli | `Surreal.Session.open!(transport, ..)`, then `session.live!(watch)`, writes on the same session, and `next_within!` | `query` with the request of the watch, in CBOR over a WebSocket on `/rpc` | `examples/watch.roc:557` |
+| Requests in flight together | `session.send!(prepared)` for each, then `await!(ticket, prepared)`, the last first | Several `query` requests before the first reply | `examples/client.roc:720` |
 | A typed row of one key, in a session | `sites.at(sites.id("oslo")).select(\|r\| r).prepare_one({})` | `SELECT area, record::id(id) AS id, location, name FROM site:⟨oslo⟩`, read as `Try(Site, [NotFound])` | `examples/client.roc:185` |
 | A typed query result, in a session | `session.run!(Surreal.from(vitals).filter(..).select(vital_line).prepare({}))` | `query` with the request of the prepared statement, the reply read as `List(VitalLine)` | `examples/client.roc:163` |
-| A typed write result | `kennels.create(quay)`, `kennels.delete_at(kennels.id("q")).prepare({})`, `carers.delete(\|c\| ..).prepare({})` | `CREATE kennel:⟨q⟩ CONTENT { .. } RETURN AFTER`, `DELETE kennel:⟨q⟩ RETURN BEFORE`, `DELETE carer WHERE .. RETURN BEFORE`, each read as the stored rows | `examples/client.roc:799` |
+| A typed write result | `kennels.create(quay)`, `kennels.delete_at(kennels.id("q")).prepare({})`, `carers.delete(\|c\| ..).prepare({})` | `CREATE kennel:⟨q⟩ CONTENT { .. } RETURN AFTER`, `DELETE kennel:⟨q⟩ RETURN BEFORE`, `DELETE carer WHERE .. RETURN BEFORE`, each read as the stored rows | `examples/client.roc:826` |
 | Two statements in one request | `write.then(read)` | `LET $key = 'q'; LET $label = ..; UPDATE kennel SET .. RETURN AFTER; SELECT ..`, read as `(Try(List(Kennel), Error), Try(List(KennelLine), Error))`, each with its own error | `examples/client.roc:234` |
 | Statements in one transaction | `create.begin().then(insert)?.then(rows)?.commit()` | `BEGIN; CREATE bin:⟨b3⟩ .. RETURN AFTER; INSERT INTO bin [..] RETURN AFTER; SELECT .. FROM bin; COMMIT`, read as `((List(Bin), List(Bin)), List(Bin))`, or `Aborted({ at, error })` | `examples/client.roc:371` |
-| A typed read of a patch | `patch.field(\|v\| v.temp_c)` | `{ op: 'replace', path: '/temp_c', value: 37.9dec }` is `Set(37.9)` | `examples/watch.roc:590` |
+| A typed read of a patch | `patch.field(\|v\| v.temp_c)` | `{ op: 'replace', path: '/temp_c', value: 37.9dec }` is `Set(37.9)` | `examples/watch.roc:609` |
 | The notices of a write, in Roc | `Surreal.Mirror.notices(vitals, Replace(hot, cooled), is_fever, vital_line)` | `[{ action: 'UPDATE', now: false, ref: vital:[..], role: 'node', row: { .. } }]` | `Mirror.notices` |
 | A key that the server makes | `.default_by(\|n\| n.id, \|_\| Surreal.Rand.ulid())`, then `notes.insert_new(new_notes)` with rows that have no `id` | `DEFINE FIELD OVERWRITE id ON note TYPE string DEFAULT rand::ulid()`, `INSERT INTO note [{ text: .., vet: vet:⟨ruth⟩ }] RETURN AFTER`, each row read back as a `Created` with its `Id` | `examples/main.roc:1081` |
-| A link and an edge to a row with a key from the server | `tasks.insert_new([{ title: "Feed", shift: shifts.link(made.id.key()) }])`, `handovers.create_new({ from: .., to: .., notes: "keys" })` | `INSERT INTO task [{ shift: shift:⟨01M6..⟩, title: 'Feed' }] ..`, `RELATE shift:⟨01M6..⟩->handover->shift:⟨01M6..⟩ CONTENT { notes: 'keys' } RETURN AFTER` | `examples/client.roc:686` |
-| A record access method, typed | `accounts.define(users, \|v\| { email: v.email, pass: Surreal.Hash.argon2(v.pass) }, \|v, u\| u.email == v.email and Surreal.Hash.argon2_matches(u.pass, v.pass))` | `DEFINE ACCESS OVERWRITE account ON DATABASE TYPE RECORD SIGNUP (CREATE user CONTENT { email: $email, pass: crypto::argon2::generate($pass) }) SIGNIN (SELECT * FROM user WHERE (email = $email) AND crypto::argon2::compare(pass, $pass)) DURATION FOR TOKEN 3600000000000ns` | `examples/client.roc:949` |
-| A table permission over the row and the record user | `.permit([Select], \|m\| m.owner.id() == users.auth() or m.shared)`, `.permit([Create, Update, Delete], ..)` | `DEFINE TABLE OVERWRITE memo SCHEMAFULL PERMISSIONS FOR select WHERE (owner = $auth.id) OR shared, FOR create, update, delete WHERE owner = $auth.id` | `examples/client.roc:944` |
-| A field permission | `.deny_field(\|u\| u.pass, [Select])`, `.permit_field(\|m\| m.text, [Update], \|m\| !m.shared)` | `pass ON user TYPE string PERMISSIONS FOR select NONE`, `text ON memo TYPE string PERMISSIONS FOR update WHERE !shared` | `examples/client.roc:942` |
-| The record user in a query | `.filter(\|m\| m.owner.id() == users.auth())` | `WHERE owner = $auth.id` | `examples/client.roc:974` |
-| A session of a record user, on both transports | `Session.open!(transport, accounts.sign_up(scope, ann))`, then `Token(session.token()?)` and `session.invalidate!()` | RPC `signup`, `signin`, `authenticate`, `invalidate`; over HTTP each post has `Authorization: Bearer <token>` | `examples/client.roc:1061` |
+| A link and an edge to a row with a key from the server | `tasks.insert_new([{ title: "Feed", shift: shifts.link(made.id.key()) }])`, `handovers.create_new({ from: .., to: .., notes: "keys" })` | `INSERT INTO task [{ shift: shift:⟨01M6..⟩, title: 'Feed' }] ..`, `RELATE shift:⟨01M6..⟩->handover->shift:⟨01M6..⟩ CONTENT { notes: 'keys' } RETURN AFTER` | `examples/client.roc:687` |
+| A record access method, typed | `accounts.define(users, \|v\| { email: v.email, pass: Surreal.Hash.argon2(v.pass) }, \|v, u\| u.email == v.email and Surreal.Hash.argon2_matches(u.pass, v.pass))` | `DEFINE ACCESS OVERWRITE account ON DATABASE TYPE RECORD SIGNUP (CREATE user CONTENT { email: $email, pass: crypto::argon2::generate($pass) }) SIGNIN (SELECT * FROM user WHERE (email = $email) AND crypto::argon2::compare(pass, $pass)) DURATION FOR TOKEN 3600000000000ns` | `examples/client.roc:976` |
+| A table permission over the row and the record user | `.permit([Select], \|m\| m.owner.id() == users.auth() or m.shared)`, `.permit([Create, Update, Delete], ..)` | `DEFINE TABLE OVERWRITE memo SCHEMAFULL PERMISSIONS FOR select WHERE (owner = $auth.id) OR shared, FOR create, update, delete WHERE owner = $auth.id` | `examples/client.roc:971` |
+| A field permission | `.deny_field(\|u\| u.pass, [Select])`, `.permit_field(\|m\| m.text, [Update], \|m\| !m.shared)` | `pass ON user TYPE string PERMISSIONS FOR select NONE`, `text ON memo TYPE string PERMISSIONS FOR update WHERE !shared` | `examples/client.roc:969` |
+| The record user in a query | `.filter(\|m\| m.owner.id() == users.auth())` | `WHERE owner = $auth.id` | `examples/client.roc:1001` |
+| A session of a record user, on both transports | `Session.open!(transport, accounts.sign_up(scope, ann))`, then `Token(session.token()?)` and `session.invalidate!()` | RPC `signup`, `signin`, `authenticate`, `invalidate`; over HTTP each post has `Authorization: Bearer <token>` | `examples/client.roc:1088` |
 | An analyzer | `Surreal.analyzer("clinical", [Class], [Lowercase])`, `clinical.define()` in the schema list | `DEFINE ANALYZER OVERWRITE clinical TOKENIZERS class FILTERS lowercase;`, before the tables | `examples/search.roc:31` |
 | A full-text index | `chart_text = charts.text_index(\|c\| c.body, clinical)`, `.text_index(chart_text)` | `DEFINE INDEX OVERWRITE chart_body_fulltext ON chart FIELDS body FULLTEXT ANALYZER clinical BM25 HIGHLIGHTS` | `examples/search.roc:34` |
 | A full-text search, with a Roc meaning | `.search(chart_text, "limping").select(\|(c, _)\| { id: c.id })`, and `clinical.matches(c.body, "limping")` in Roc | `SELECT .. FROM chart WHERE body @1@ 'limping'` | `examples/search.roc:126` |
@@ -515,7 +522,7 @@ Roc tag unions with `match` in a query.
 | A vector index | `charts.vector_index(\|c\| c.embedding, { dimension: 3, distance: Cosine })`, `.vector_index(chart_vectors)` | `DEFINE INDEX OVERWRITE chart_embedding_hnsw ON chart FIELDS embedding HNSW DIMENSION 3 DIST COSINE TYPE F64` | `examples/search.roc:37` |
 | The nearest rows | `.nearest(chart_vectors, limp_probe, Exact(3)).select(\|(c, near)\| { id: c.id, distance: near.distance() })`, `Approx({ k: 3, ef: 40 })` | `vector::distance::knn() AS distance .. WHERE embedding <\|3,COSINE\|> [1f, 0f, 0f]`, `<\|3,40\|>` | `examples/search.roc:188` |
 | Vector functions | `Surreal.Vector.similarity_cosine(c.embedding, probe)` and the distances, the same to the bit in Roc | `vector::similarity::cosine(embedding, [0.5f, 0.25f, 0.125f])` | `examples/search.roc:174` |
-| A search in a session, on both transports | `session.run!(ranked_notes)`, read as `List(Ranked)`, and `close_notes` | The same statements, over RPC | `examples/client.roc:1162` |
+| A search in a session, on both transports | `session.run!(ranked_notes)`, read as `List(Ranked)`, and `close_notes` | The same statements, over RPC | `examples/client.roc:1189` |
 | Writes the database must refuse | ``rejects("check_as_assert", "field `weight_kg`", patients.create(light_patient))`` | the check reports a failed statement | `examples/main.roc:940` |
 
 `check.py` runs the whole script with the Roc result next to each query. A
@@ -974,6 +981,7 @@ from `fixtures/mux/`):
 | `pushes` | Whether the transport gives pushed messages, which a watch needs |
 | `live!(watch)` | A `Watch` (`Selected.live`), a `RawWatch` (`Selected.live_raw`) or a `DiffWatch` (`Query.live_diff`): the request of the watch, and its reply read, as `{ session, live, view }`. `live` is a `Live(out)`, `RawLive(out)` or `DiffLive(row)`, the state of the watch, as pure data. `view` is the snapshot `View(out)`, an empty `DiffView(row)`, or `{}` for a raw watch |
 | `next!(live)` | The next item of the watch: `Got(item)`, `Ended` when the watch was killed, or `Unread(error)` for a notice that does not read. `item` is the `List(Change(out))` of the next notice that has any, an `Event(out)` or a `Patch(row)`. `live.receive` reads each message |
+| `next_within!(live, ms)` | `next!` with a deadline: the same result with a fourth case, `TimedOut`, when no message arrives in `ms` milliseconds (a ping does not count). A notice that the inbox already holds comes first, with no wait. A timeout loses nothing, and the session and the watch it gives go on. On a session without `receive_within!` (`Transport.websocket`, HTTP) it is an `Unsupported` error before anything is read; the transport is `Transport.websocket_timed` |
 | `stream(live)` | The items as a stream, for any kind of watch. Each item has the item, and the session and the watch after it, so the app can stop and use that session |
 | `send!`, `await!` | A prepared statement sent with no wait, and its `Ticket(out)`. Then its reply, read as `out` |
 | `run!` | `send!`, then `await!`: `{ session, result }`, one `Try` |
@@ -988,6 +996,7 @@ from `fixtures/mux/`):
 | The notices of two writes can have no order | The reply to a write does not put its notice before the notices of the writes after it. A notice is before the notice of a write only when the app read it before it sent that write (see the note on order below) |
 | Each request has a new id | The id is a count. SurrealDB does not check that two requests have different ids |
 | The queued notices have no limit | The inbox keeps each notice of a watch until the app reads it or kills the watch |
+| `next_within!` bounds each wait, not the call | `ms` is the time that the session waits for one message. A message that gives no change (a reply, a notice of another watch, a notice with no change) starts the wait again, and a ping does not count. The inbox is read first, so a notice that it holds comes with no wait |
 
 Note on order. SurrealDB 3.3.4 can deliver the live notices of two writes
 out of order. This can happen when both writes come from the same client, and
@@ -1014,7 +1023,7 @@ of the readings on one session. For each watch, it writes rows of its own
 on the same session with `send!` and `await!`. Two writes of `fevered` that
 do not depend on each other are in flight together, and their replies are
 read the last first. After each group of writes, the app reads the changes
-of the group with `next!`: the inbox kept the notices that came
+of the group with `next_within!`: the inbox kept the notices that came
 while the writes ran. Then it starts the next group, because the notices of
 two writes have no order. The changes of
 each group of writes must equal the changes that the Mirror and
@@ -1056,24 +1065,31 @@ ok   Updated badge:⟨tag⟩ { note: "Tag", site: "Quay" }
 ok   Removed badge:⟨tag⟩ { note: "Tag", site: "Quay" }
 ```
 
-The exit code is 1 when a line fails. A notice that does not come is a
-wait with no end: the server pings the session every 5 s, so the read
-timeout of the adapter does not end the wait (verified), and `check.py`
-stops the app after 900 s. `check.py` runs `watch.roc` as its last block,
+The exit code is 1 when a line fails. `watch.roc` waits for each change with
+`next_within!` and a limit of 60 s (`Transport.websocket_timed`, over the
+`receive_within!` of the adapter). A change that does not come in that time
+is a line `FAIL no change in 60 s: ..` that names the changes that are
+missing, and the run ends. Without a deadline the wait would have no end:
+the server pings the session every 5 s, so the read timeout of the adapter
+does not end it (verified). `check.py` runs `watch.roc` as its last block,
 `app: watch.roc`, on the database that its scripts leave. The app connects
 to `127.0.0.1:8000` as `root`.
 
 #### Transports
 
 A session reaches the server through a `Transport`,
-a value of one type with two constructors. `Session.open!` takes either,
+a value of one type with three constructors. `Session.open!` takes any,
 so the session type, and the type of each function of the API, is the same
-on both. Only the transport that the app builds differs:
+on all. Only the transport that the app builds differs:
 
 ```roc
-# A WebSocket, through the adapter of the platform (`watch.roc` and
-# `client.roc` on basic-cli, `server.roc` on basic-webserver)
+# A WebSocket, through the adapter of the platform (`server.roc` on
+# basic-webserver, whose adapter has no `receive_within!`)
 transport = Surreal.Transport.websocket(WsClient.connect, WsClient.ops, "ws://127.0.0.1:8000")
+# The same, through an adapter that also has `receive_within!`, so that
+# `Session.next_within!` can wait with a deadline (`watch.roc` and
+# `client.roc` on basic-cli)
+transport = Surreal.Transport.websocket_timed(WsClient.connect, WsClient.ops, "ws://127.0.0.1:8000")
 # HTTP (`client.roc -- --http`, and the comment in `server.roc`)
 transport = Surreal.Transport.http(http_client, "http://127.0.0.1:8000")
 
@@ -1082,7 +1098,8 @@ session = Surreal.Session.open!(transport, Root({ ns: "roc", db: "roc_surreal", 
 
 | Constructor | Takes | From the platform |
 | --- | --- | --- |
-| `Transport.websocket(connect, ops, url)` | A `Ws.Connect` record of roc-websocket, `{ connect! }`, and a record with `send!` and `receive!` over the same connection type and error row, such as the adapter's `ops`. The session connects to `url` + `/rpc` with the subprotocol `cbor` | The adapter of the platform: `WsClient.connect` and `WsClient.ops` of roc-basic-cli-websocket 0.0.1 or roc-basic-webserver-websocket 0.0.1 |
+| `Transport.websocket(connect, ops, url)` | A `Ws.Connect` record of roc-websocket, `{ connect! }`, and a record with `send!` and `receive!` over the same connection type and error row, such as the adapter's `ops`. The session connects to `url` + `/rpc` with the subprotocol `cbor`. Its watch waits with no deadline: `next_within!` is an `Unsupported` error | The adapter of the platform: `WsClient.connect` and `WsClient.ops` of roc-basic-cli-websocket 0.0.3 or roc-basic-webserver-websocket 0.0.2 |
+| `Transport.websocket_timed(connect, ops, url)` | As `websocket`, with `ops` also holding `receive_within! : c, U64 => Try((c, [Message(Ws.Message), TimedOut]), Ws.Error(e))`, the `Ws.ReceiveWithin` feature of roc-websocket: the next message, or `TimedOut` when `ms` milliseconds have passed since the call, whatever pings arrive. `Session.next_within!` waits with it | An adapter with `receive_within!`: `WsClient.connect` and `WsClient.ops` of roc-basic-cli-websocket 0.0.3 (or the Cloudflare Workers adapter). roc-basic-webserver-websocket 0.0.2 has none |
 | `Transport.http(client, url)` | `HttpClient`: `{ post! }`, an `HttpRpc.Post` (the URI, the headers and the body) in, the status and the body of the response out | basic-cli's or basic-webserver's `Http.send!` |
 
 A transport sends nothing until `Session.open!` connects it. Connected,
@@ -1093,6 +1110,7 @@ only these fields:
 Connection :: {
 	request! : Credentials, List(U8) => Try({ connection : Connection, reply : [Sent, Replied(List(U8))] }, Error),
 	pushed : [Supported({ next! : {} => Try({ connection : Connection, message : List(U8) }, Error) }), Unsupported],
+	within : [Within(U64 => Try({ connection : Connection, got : [Message(List(U8)), TimedOut] }, Error)), NoDeadline],
 }
 ```
 
@@ -1100,6 +1118,7 @@ Connection :: {
 | --- | --- | --- | --- |
 | `request!` | Sends one RPC message, a CBOR `{ id, method, params }`, with the `Credentials` of the session | One `Binary` message: `Sent`. The reply comes later, as a message of `pushed`. The credentials are the connection's: the server keeps the login of the socket | One `POST /rpc` with the credentials in its headers: `Replied`, with the reply that its response holds |
 | `pushed` | The messages that the server sends when it wants: the replies to `Sent` requests, and the notices of live queries | `Supported`: the next message of the session (the adapter answers a `Ping`) | `Unsupported` |
+| `within` | The next pushed message with a deadline: the message, or `TimedOut` after `ms` milliseconds (a ping does not count). `Session.next_within!` calls it | `Within` for `Transport.websocket_timed`, which calls the adapter's `receive_within!`; `NoDeadline` for `Transport.websocket` | `NoDeadline` |
 
 A connection of roc-websocket is a value that each call gives back
 changed: it holds the state of the protocol, such as the bytes read past
@@ -1110,10 +1129,13 @@ of its errors stays inside those closures, so the `Session` has no type
 parameter, and one `Session` runs on any adapter and over HTTP.
 
 Every connection has `request!`, because a session needs `signin`, `use`
-and `query`. `pushed` is a tag and not a function that fails, so the
-session knows what the transport lacks before it sends anything. The
-WebSocket is one section of `Surreal.roc` (`websocket!`,
-`websocket_connection` and `ws_error`); the rest of the session knows only
+and `query`. `pushed` and `within` are tags and not functions that fail, so
+the session knows what the transport lacks before it sends anything.
+`Transport.websocket` and `Transport.websocket_timed` both hide the types of
+the adapter's connection and errors in closures, so the `Session` has no
+type parameter on either. The WebSocket is one section of `Surreal.roc`
+(`websocket!`, `websocket_connection`, `websocket_timed_connection` and
+`ws_error`); the rest of the session knows only
 the `Connection`. An error of the adapter is `WebSocket`: `Closed` with how
 the connection ended, `Closing`, or the adapter's own tag as text (see
 "Errors").
@@ -1144,6 +1166,7 @@ token that does not verify (`Denied`).
 | `send!` twice, then `await!` the last first | Both in flight together, with no order on the server | Works: the first runs to the end before the second is sent, so the requests run in order |
 | `live!` | Starts the watch | `Unsupported`, and nothing is sent |
 | `next!`, `stream` | The next notice | `Unsupported` |
+| `next_within!` | The next notice, or `TimedOut`, on a `websocket_timed` transport. `Unsupported` on `websocket` | `Unsupported` |
 | `kill!` | Ends the watch | `Unsupported` |
 
 `client.roc` runs its queries on either: `roc client.roc` on a WebSocket,
@@ -1170,7 +1193,9 @@ A limit of basic-webserver 0.20.0: each handler runs for one request, and
 its effects are scoped to that request, so a session does not outlive the
 request that opened it. The `Tcp` reads of the platform time out after
 30 s (the adapter's `receive!` waits on through them), and a watch, which
-waits for notices with no end, has no place in a handler. A comment next
+waits for notices with no end, has no place in a handler (the adapter also
+has no `receive_within!`, so the transport is `Transport.websocket` and
+`Session.next_within!` is an `Unsupported` error). A comment next
 to `transport` in `server.roc` gives the same server over HTTP
 (`Transport.http` with the platform's `Http.send!`), where a plain query
 takes one post, and a query that runs longer than the 30 s of
@@ -2375,6 +2400,7 @@ A reason that starts with "By design" is a limit of a live query that stays.
 | A live query needs a session on a platform with TCP | `/sql` has no live queries. The Echo platform has no TCP, so only `watch.roc` and `client.roc`, on basic-cli, and `server.roc`, on basic-webserver, open a session |
 | Requests in flight run with no order between them | SurrealDB runs the requests of a session at the same time, and their replies come out of order (verified). A step that needs another goes in one request (`Prepared.then`), or waits for the reply to the other |
 | The queued notices of a watch have no limit | The inbox of the session keeps each notice of a watch until the app reads it or kills the watch |
+| A watch waits with a deadline only on a transport with `receive_within!` | `Session.next!` waits with no end, and the read timeout of an adapter does not end the wait (the server pings). `Session.next_within!` gives `TimedOut` after `ms` on `Transport.websocket_timed` (basic-cli, Cloudflare). On `Transport.websocket` (basic-webserver, which has no `receive_within!`) and over HTTP it is an `Unsupported` error. `ms` bounds each wait for a message, not the whole call |
 | A `LIVE` statement in the text of `Unchecked.query!` is not watched | Its notices are dropped: only `live!` gives the uuids of a watch to the inbox |
 | A `Ref` with a key that the ORM does not write does not decode | A key is a `Ql.Value`, so a duration, bytes or a uuid key is a `Wire` error. A table of the ORM has a text key or a `TimeKey` |
 | A row of a message or of a typed result is read twice | The fields around it are read with fixed types, and the row as a `Cbor.Value` that is then read as `out`: the compiler derives no `parser_for` of `{ row : out }` with `out` a type variable |

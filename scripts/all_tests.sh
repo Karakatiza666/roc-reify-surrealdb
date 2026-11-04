@@ -32,6 +32,8 @@ done
 for f in tests/*Test.roc; do
 	"$ROC" test "$f"
 done
+# `DeadlineTest.roc` also runs a session over a scripted adapter (`main!`).
+"$ROC" tests/DeadlineTest.roc
 # The scripts and apps against a live SurrealDB.
 if (: >/dev/tcp/127.0.0.1/8000) 2>/dev/null; then
 	SURREAL_URL="${SURREAL_URL:-http://127.0.0.1:8000}" python3 -I tests/check.py "$ROC"

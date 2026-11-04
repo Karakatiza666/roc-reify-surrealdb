@@ -2998,9 +2998,20 @@ Surreal :: {}.{
 		## `WsClient.connect`), and `ops` sends and receives on it (any
 		## record with `send!` and `receive!`, such as `WsClient.ops`).
 		## `Session.open!` connects. The adapter answers pings and closes;
-		## its errors are `WebSocket` errors.
+		## its errors are `WebSocket` errors. A watch on this session
+		## waits with no deadline (`Session.next!`), and
+		## `Session.next_within!` is an `Unsupported` error. An adapter
+		## with `receive_within!` takes `websocket_timed`.
 		websocket : Ws.Connect(c, e, r), { send! : c, Ws.Message => Try(c, Ws.Error(e)), receive! : c => Try((c, Ws.Message), Ws.Error(e)), .. }, Str -> Transport
-		websocket = |connect, ops, url| Transport.({ connect!: |{}| websocket!(connect, ops, url) })
+		websocket = |connect, ops, url| Transport.({ connect!: |{}| websocket!(connect, url, |conn| websocket_connection(ops, conn)) })
+
+		## A WebSocket as `websocket`, through an adapter that also has
+		## `receive_within!` (the `Ws.ReceiveWithin` feature of
+		## roc-websocket, such as `WsClient.ops` of roc-basic-cli-websocket),
+		## so that `Session.next_within!` waits for a notice with a
+		## deadline.
+		websocket_timed : Ws.Connect(c, e, r), { send! : c, Ws.Message => Try(c, Ws.Error(e)), receive! : c => Try((c, Ws.Message), Ws.Error(e)), receive_within! : c, U64 => Try((c, [Message(Ws.Message), TimedOut]), Ws.Error(e)), .. }, Str -> Transport
+		websocket_timed = |connect, ops, url| Transport.({ connect!: |{}| websocket!(connect, url, |conn| websocket_timed_connection(ops, conn)) })
 
 		## HTTP: each request is one `POST /rpc` to `url`
 		## (`http://127.0.0.1:8000`), which carries the credentials of the
@@ -3017,6 +3028,7 @@ Surreal :: {}.{
 	## | --- | --- | --- | --- |
 	## | `request!` | Sends one RPC message, from the session's `Credentials` | A `Binary` message: `Sent`, and the reply comes later as a message of `pushed`. The credentials are the connection's, which the login set | A `POST /rpc` with the credentials in its headers: `Replied`, with the reply |
 	## | `pushed` | The messages that the server sends when it wants: the replies to `Sent` requests and the notices of live queries | `Supported`: the next message of the session | `Unsupported` |
+	## | `within` | The next pushed message with a deadline, for `Session.next_within!` | `Within` with `Transport.websocket_timed` (the adapter's `receive_within!`), else `NoDeadline` | `NoDeadline` |
 	##
 	## Each call gives the connection after it, which the session keeps: a
 	## connection of roc-websocket is a value that holds the state of the
@@ -3028,11 +3040,19 @@ Surreal :: {}.{
 	## A feature that a connection lacks is a tag, not a function that
 	## fails, so the session knows before it sends anything: a watch on a
 	## session with no `pushed` is an `Unsupported` error, and nothing is
-	## sent.
+	## sent. So is `Session.next_within!` on a session with `NoDeadline`:
+	## the error comes before anything is read.
 	Connection :: {
 		request! : Credentials, List(U8) => Try({ connection : Connection, reply : [Sent, Replied(List(U8))] }, Error),
 		pushed : Pushed,
+		within : Deadline,
 	}
+
+	## The next pushed message with a deadline, when the connection has
+	## one: each call of `Within` gives the next message, or `TimedOut`
+	## when none came in `ms` milliseconds (a ping does not count), with
+	## the connection after it. A timeout loses nothing.
+	Deadline : [Within(U64 => Try({ connection : Connection, got : [Message(List(U8)), TimedOut] }, Error)), NoDeadline]
 
 	## The messages that a connection pushes, when it does: each call of
 	## `next!` gives the next one, with the connection after it. A
@@ -3228,7 +3248,7 @@ Surreal :: {}.{
 	## on both, but over HTTP the requests run one after the other, in the
 	## order they were sent. A watch needs `pushed`: on a session over
 	## HTTP, `live!`, `next!`, `stream` and `kill!` give an `Unsupported`
-	## error.
+	## error. `next_within!` also needs `within` (`Transport.websocket_timed`). `next_within!` also needs `within` (`Transport.websocket_timed`).
 	Session :: { connection : Connection, next_id : U64, inbox : Inbox, known : List(Schema.Known), auth : Credentials }.{
 
 		## Connects the transport (the opening request of a WebSocket), then
@@ -3324,6 +3344,34 @@ Surreal :: {}.{
 					match live.receive(bytes) {
 						Ok(Got(g)) => Ok({ session: got.session, live: g.live, next: Got(g.item) })
 						Ok(Skip(later)) => Session.next!(got.session, later)
+						Ok(Ended) => Ok({ session: got.session, live, next: Ended })
+						Err(e) => Ok({ session: got.session, live, next: Unread(e) })
+					}
+			}
+		}
+
+		## `next!` with a deadline: what the watch gives next, or `TimedOut`
+		## when no message arrives in `ms` milliseconds. A notice that the
+		## inbox already holds is returned before any wait. Otherwise the
+		## session reads messages (a reply or a notice of another watch
+		## goes into the inbox), and each wait for a message takes up to
+		## `ms`: a notice that gives no change, or a message for another
+		## call, starts the wait again, and a ping does not count. A
+		## timeout loses nothing: the session and the watch it gives go on.
+		## A session whose transport has no `receive_within!` (a session
+		## over HTTP, or `Transport.websocket`) is an `Unsupported` error,
+		## before anything is read.
+		next_within! : Session, live, U64 => Try({ session : Session, live : live, next : [Got(item), Ended, Unread(Error), TimedOut] }, Error) where [live.lives : live -> Lives, live.receive : live, List(U8) -> Try([Got({ item : item, live : live }), Skip(live), Ended], Error)]
+		next_within! = |session, live, ms| {
+			_ = within_of(session)?
+			got = notice_within!(session, live.lives(), ms)?
+			match got.notice {
+				Ended => Ok({ session: got.session, live, next: Ended })
+				TimedOut => Ok({ session: got.session, live, next: TimedOut })
+				Notice(bytes) =>
+					match live.receive(bytes) {
+						Ok(Got(g)) => Ok({ session: got.session, live: g.live, next: Got(g.item) })
+						Ok(Skip(later)) => Session.next_within!(got.session, later, ms)
 						Ok(Ended) => Ok({ session: got.session, live, next: Ended })
 						Err(e) => Ok({ session: got.session, live, next: Unread(e) })
 					}
@@ -5007,7 +5055,20 @@ push_of = |Session.(s)| match s.connection.pushed {
 }
 
 no_push : Error
-no_push = Unsupported("a watch reads the messages that the server pushes, and this session's connection gives none: a session over HTTP (`Transport.http`) has only requests and replies. Watch on a WebSocket session (`Transport.websocket`)")
+no_push = Unsupported("a watch reads the messages that the server pushes, and this session's connection gives none: a session over HTTP (`Transport.http`) has only requests and replies. Watch on a WebSocket session (`Transport.websocket`, or `Transport.websocket_timed` for a deadline)")
+
+## The wait with a deadline of the connection (`Transport.websocket_timed`),
+## or the `Unsupported` error of a connection that has none. Pure: it reads
+## nothing, so `Session.next_within!` fails before it waits.
+within_of : Session -> Try(U64 => Try({ connection : Connection, got : [Message(List(U8)), TimedOut] }, Error), Error)
+within_of = |Session.(s)| match (s.connection.pushed, s.connection.within) {
+	(Unsupported, _) => Err(no_push)
+	(Supported(_), NoDeadline) => Err(no_deadline)
+	(Supported(_), Within(wait!)) => Ok(wait!)
+}
+
+no_deadline : Error
+no_deadline = Unsupported("a watch with a deadline waits with the `receive_within!` of the adapter, and this session's transport has none: a session built with `Transport.websocket` waits with no deadline. Build the transport with `Transport.websocket_timed` over an adapter with `receive_within!`, such as roc-basic-cli-websocket's")
 
 ## `kill` for each live query, one at a time, each reply read.
 kill_each! : Session, Lives => Try(Session, Error)
@@ -5158,6 +5219,40 @@ notice_for! = |session, lives| {
 	}
 }
 
+## The next notice of one of `lives`, as `notice_for!` gives it, with a
+## deadline: the inbox first, so a notice it holds comes before any wait;
+## else one message is read with a wait of `ms` (`TimedOut` when none
+## comes), and the search starts again with the inbox.
+notice_within! : Session, Lives, U64 => Try({ session : Session, notice : [Notice(List(U8)), Ended, TimedOut] }, Error)
+notice_within! = |session, lives, ms| {
+	Session.(s) = session
+	match s.inbox.take_notice(lives) {
+		Taken(t) => Ok({ session: Session.({ ..s, inbox: t.inbox }), notice: Notice(t.bytes) })
+		Ended => Ok({ session, notice: Ended })
+		Waiting => {
+			read = read_within!(session, ms)?
+			match read {
+				Read(later) => notice_within!(later, lives, ms)
+				TimedOut(later) => Ok({ session: later, notice: TimedOut })
+			}
+		}
+	}
+}
+
+## One message of the session, read into its inbox, or `TimedOut` when none
+## came in `ms` milliseconds. The session after it holds the connection that
+## the adapter gave back either way.
+read_within! : Session, U64 => Try([Read(Session), TimedOut(Session)], Error)
+read_within! = |session, ms| {
+	Session.(s) = session
+	wait! = within_of(session)?
+	got = wait!(ms)?
+	match got.got {
+		Message(message) => Ok(Read(Session.({ ..s, connection: got.connection, inbox: s.inbox.accept(message)? })))
+		TimedOut => Ok(TimedOut(Session.({ ..s, connection: got.connection })))
+	}
+}
+
 ## One message of the session, read into its inbox.
 read_one! : Session => Try(Session, Error)
 read_one! = |session| {
@@ -5293,48 +5388,82 @@ http_connection = |client, url| Connection.({
 		Ok({ connection: http_connection(client, url), reply: Replied(reply) })
 	},
 	pushed: Unsupported,
+	within: NoDeadline,
 })
 
-## The WebSocket of `Transport.websocket`: opens it on `/rpc` with the
-## subprotocol `cbor`, which the server must choose.
-websocket! : Ws.Connect(c, e, a), WsOps(c, e, r), Str => Try(Connection, Error)
-websocket! = |connect, ops, url| {
+## The WebSocket of `Transport.websocket` and `Transport.websocket_timed`:
+## opens it on `/rpc` with the subprotocol `cbor`, which the server must
+## choose, and makes the `Connection` of the opened value with `wrap`.
+websocket! : Ws.Connect(c, e, a), Str, (c -> Connection) => Try(Connection, Error)
+websocket! = |connect, url, wrap| {
 	opened = (connect.connect!)({ url: "${url.drop_suffix("/")}/rpc", protocols: ["cbor"] }).map_err(ws_error)?
 	if opened.protocol != "cbor" {
 		return Err(Wire("the server did not choose the WebSocket subprotocol `cbor`"))
 	}
-	Ok(websocket_connection(ops, opened.conn))
+	Ok(wrap(opened.conn))
 }
 
 ## A connection over the WebSocket `conn` of an adapter: each request is
 ## one `Binary` message, and each message of the server, a reply or a
 ## notice, is one message that `pushed` reads. The adapter answers pings
 ## and the closing handshake. Each call gives the connection over the
-## value of `conn` that the adapter gave back.
+## value of `conn` that the adapter gave back. It has no deadline.
 websocket_connection : WsOps(c, e, r), c -> Connection
 websocket_connection = |ops, conn| Connection.({
-	request!: |_auth, message| websocket_send!(ops, conn, message),
-	pushed: Supported({ next!: |{}| websocket_next!(ops, conn) }),
+	request!: |_auth, message| websocket_send!(ops, |after| websocket_connection(ops, after), conn, message),
+	pushed: Supported({ next!: |{}| websocket_next!(ops, |after| websocket_connection(ops, after), conn) }),
+	within: NoDeadline,
+})
+
+## The connection of `websocket_connection` over an adapter with
+## `receive_within!`, which `within` calls.
+websocket_timed_connection : WsTimedOps(c, e, r), c -> Connection
+websocket_timed_connection = |ops, conn| Connection.({
+	request!: |_auth, message| websocket_send!(ops, |after| websocket_timed_connection(ops, after), conn, message),
+	pushed: Supported({ next!: |{}| websocket_next!(ops, |after| websocket_timed_connection(ops, after), conn) }),
+	within: Within(|ms| websocket_within!(ops, conn, ms)),
 })
 
 ## The send and the receive of a WebSocket adapter that a session uses.
 WsOps(c, e, r) : { send! : c, Ws.Message => Try(c, Ws.Error(e)), receive! : c => Try((c, Ws.Message), Ws.Error(e)), ..r }
 
-## One request, in a `Binary` message.
-websocket_send! : WsOps(c, e, r), c, List(U8) => Try({ connection : Connection, reply : [Sent, Replied(List(U8))] }, Error)
-websocket_send! = |ops, conn, message| {
+## `WsOps` with the receive that has a deadline.
+WsTimedOps(c, e, r) : WsOps(c, e, { receive_within! : c, U64 => Try((c, [Message(Ws.Message), TimedOut]), Ws.Error(e)), ..r })
+
+## One request, in a `Binary` message. `wrap` makes the connection of the
+## value that the adapter gave back.
+websocket_send! : WsOps(c, e, r), (c -> Connection), c, List(U8) => Try({ connection : Connection, reply : [Sent, Replied(List(U8))] }, Error)
+websocket_send! = |ops, wrap, conn, message| {
 	sent = (ops.send!)(conn, Binary(message)).map_err(ws_error)?
-	Ok({ connection: websocket_connection(ops, sent), reply: Sent })
+	Ok({ connection: wrap(sent), reply: Sent })
 }
 
 ## The next message of the server, a `Binary` one.
-websocket_next! : WsOps(c, e, r), c => Try({ connection : Connection, message : List(U8) }, Error)
-websocket_next! = |ops, conn| {
+websocket_next! : WsOps(c, e, r), (c -> Connection), c => Try({ connection : Connection, message : List(U8) }, Error)
+websocket_next! = |ops, wrap, conn| {
 	(after, message) = (ops.receive!)(conn).map_err(ws_error)?
-	match message {
-		Binary(bytes) => Ok({ connection: websocket_connection(ops, after), message: bytes })
-		Text(_) => Err(Wire("a text message on a session with the subprotocol `cbor`"))
+	Ok({ connection: wrap(after), message: binary_of(message)? })
+}
+
+## The next message of the server, or `TimedOut` when none comes in `ms`
+## milliseconds, however many pings come meanwhile. The adapter gives the
+## connection back either way.
+websocket_within! : WsTimedOps(c, e, r), c, U64 => Try({ connection : Connection, got : [Message(List(U8)), TimedOut] }, Error)
+websocket_within! = |ops, conn, ms| {
+	(after, got) = (ops.receive_within!)(conn, ms).map_err(ws_error)?
+	connection = websocket_timed_connection(ops, after)
+	match got {
+		Message(message) => Ok({ connection, got: Message(binary_of(message)?) })
+		TimedOut => Ok({ connection, got: TimedOut })
 	}
+}
+
+## The bytes of a message of a session with the subprotocol `cbor`: a
+## `Binary` one.
+binary_of : Ws.Message -> Try(List(U8), Error)
+binary_of = |message| match message {
+	Binary(bytes) => Ok(bytes)
+	Text(_) => Err(Wire("a text message on a session with the subprotocol `cbor`"))
 }
 
 ## An error of the WebSocket adapter. `Closed` and `Closing`, the tags
@@ -5486,4 +5615,41 @@ expect {
 	refused : Ws.Error([Refused(Str), Tcp(Str)])
 	refused = Refused("HTTP/1.1 403 Forbidden")
 	ws_error(refused) == WebSocket(Adapter("Refused(\"HTTP/1.1 403 Forbidden\")"))
+}
+
+# The message of a session with the subprotocol `cbor` is a `Binary` one.
+expect binary_of(Binary([1, 2])) == Ok([1, 2])
+expect binary_of(Text("a")) == Err(Wire("a text message on a session with the subprotocol `cbor`"))
+
+# `Session.next_within!` needs a connection with a deadline, and is an
+# `Unsupported` error before it reads on any other: on a connection that
+# pushes nothing (HTTP) with the error of a watch, on one that pushes
+# with `NoDeadline` with the error that names `Transport.websocket_timed`.
+scripted : Pushed, Deadline -> Session
+scripted = |pushed, within| Session.({
+	connection: Connection.({ request!: |_auth, _message| Err(Wire("scripted")), pushed, within }),
+	next_id: 1,
+	inbox: Inbox.empty({}),
+	known: [],
+	auth: { who: Anonymous, scope: FromToken },
+})
+
+pushing : Pushed
+pushing = Supported({ next!: |{}| Err(Wire("scripted")) })
+
+expect match within_of(scripted(Unsupported, NoDeadline)) {
+	Err(e) => e == no_push
+	Ok(_) => Bool.False
+}
+expect match within_of(scripted(pushing, NoDeadline)) {
+	Err(e) => e == no_deadline
+	Ok(_) => Bool.False
+}
+expect match no_deadline {
+	Unsupported(why) => why.contains("Transport.websocket_timed")
+	_ => Bool.False
+}
+expect match within_of(scripted(pushing, Within(|_ms| Err(Wire("scripted"))))) {
+	Ok(_) => Bool.True
+	Err(_) => Bool.False
 }

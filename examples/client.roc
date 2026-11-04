@@ -24,7 +24,7 @@ app [main!] {
 	cbor: "https://github.com/Karakatiza666/roc-cbor/releases/download/0.4.0/EnfRKFT7uPHmd3zT5PcwAiBWUtGmBXapJqFK5166U33J.tar.zst",
 	http: "https://github.com/roc-lang/http/releases/download/1.0.0/6ZUwqYhCS8PU9Mo6MF7oV82ET2o7KYb57CLKDq4cq4sS.tar.zst",
 	pf: platform "https://github.com/roc-lang/basic-cli/releases/download/0.26.0/GddgvsGjiNXrHFW6au5i5dUDbTs8FinQdrgE2Gqmw53t.tar.zst",
-	cli_ws: "https://github.com/Karakatiza666/roc-basic-cli-websocket/releases/download/0.0.1/7GBAW8zCyUjhD1MuDzJpR4mYYNajtMjyNjvqSKUhKHmm.tar.zst",
+	cli_ws: "https://github.com/Karakatiza666/roc-basic-cli-websocket/releases/download/0.0.3/9c6XLWHRSREuaoELdH1a835Yopw92Jxy2b5e151X6mZj.tar.zst",
 	surreal: "../src/main.roc",
 }
 
@@ -597,12 +597,13 @@ label_taken = |e| match e {
 # ------------------------------------------------------------- the platform
 
 ## The transport of the session: a WebSocket through
-## roc-basic-cli-websocket (`WsClient`), or HTTP through the platform's
+## roc-basic-cli-websocket (`WsClient`, with `receive_within!`, so
+## `Session.next_within!` can wait with a deadline), or HTTP through the platform's
 ## `Http.send!`. `Session.open!` takes either, and each query and write
 ## after it is the same on both.
 transport : [WebSocket, Http] -> Surreal.Transport
 transport = |over| match over {
-	WebSocket => Surreal.Transport.websocket(WsClient.connect, WsClient.ops, "ws://127.0.0.1:8000")
+	WebSocket => Surreal.Transport.websocket_timed(WsClient.connect, WsClient.ops, "ws://127.0.0.1:8000")
 	Http => Surreal.Transport.http(http_client, "http://127.0.0.1:8000")
 }
 
@@ -750,6 +751,31 @@ watch_over_http! = |run|
 		tell!(run, run.session, "watch_over_http", judged)
 	}
 
+## A watch that nothing writes to: `next_within!` gives `TimedOut` after
+## 300 ms, and the watch goes on (it is killed after). A session over HTTP
+## has no watch (`watch_over_http!`), and the line is left out.
+watch_idle! : Run => Try(Run, Str)
+watch_idle! = |run|
+	if run.session.pushes() {
+		match carer_watch {
+			Ok(watch) => {
+				started = run.session.live!(watch).map_err(Str.inspect)?
+				waited = started.session.next_within!(started.live, 300).map_err(Str.inspect)?
+				killed = waited.session.kill!(waited.live.lives()).map_err(Str.inspect)?
+				judged = match waited.next {
+					TimedOut => { agrees: Bool.True, text: "TimedOut after 300 ms, no change" }
+					Got(changes) => { agrees: Bool.False, text: "${changes.len().to_str()} change(s) of a watch nothing writes to" }
+					Ended => { agrees: Bool.False, text: "the watch ended" }
+					Unread(e) => { agrees: Bool.False, text: Str.inspect(e) }
+				}
+				tell!(run, killed, "watch_idle", judged)
+			}
+			Err(e) => tell!(run, run.session, "watch_idle", { agrees: Bool.False, text: Str.inspect(e) })
+		}
+	} else {
+		Ok(run)
+	}
+
 ## Runs a script of statements with no rows, such as a schema. The line
 ## is `ok` when each statement is OK.
 script! : Run, Str, Try(Str, Surreal.Error) => Try(Run, Str)
@@ -795,6 +821,7 @@ run! = |record, over| {
 	$run = check!($run, "kennel_carers", kennel_carers, same_rows(seed_kennels.map(|k| { label: k.kennel.label, site: k.site, carers: k.carers.map(Surreal.linked), leads: k.leads })))?
 	$run = pipelined!($run, fevers, same_rows(kept_vitals.keep_if(|v| fever(v.temp_c, v.pulse)).map(vital_line)), sites_covering, same_rows(["oslo"]))?
 	$run = watch_over_http!($run)?
+	$run = watch_idle!($run)?
 	# Writes of rows of its own, each deleted again.
 	$run = check!($run, "create_kennel", kennels.create(quay), same_rows([quay]))?
 	$run = check!($run, "create_kennel_again", kennels.create(quay), refused(quay_exists, "`Exists` of `kennel:q`"))?

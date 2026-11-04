@@ -5,8 +5,9 @@
 # roc-basic-cli-websocket, starts a watch, and makes groups of writes on
 # the same session (`send!` and `await!`, as `run!` does, and two writes
 # in flight together). After each group, it reads the changes of the
-# result that the server reported for the group (`next!`), then it starts
-# the next group.
+# result that the server reported for the group (`next_within!`, which
+# gives up after 60 s: the line is then a `FAIL` that names the change
+# that did not come), then it starts the next group.
 #
 # It also checks itself. The changes that the Roc Mirror predicts for the
 # same writes stand next to the real ones: a line starts with `ok` when the
@@ -22,7 +23,7 @@
 app [main!] {
 	cbor: "https://github.com/Karakatiza666/roc-cbor/releases/download/0.4.0/EnfRKFT7uPHmd3zT5PcwAiBWUtGmBXapJqFK5166U33J.tar.zst",
 	pf: platform "https://github.com/roc-lang/basic-cli/releases/download/0.26.0/GddgvsGjiNXrHFW6au5i5dUDbTs8FinQdrgE2Gqmw53t.tar.zst",
-	cli_ws: "https://github.com/Karakatiza666/roc-basic-cli-websocket/releases/download/0.0.1/7GBAW8zCyUjhD1MuDzJpR4mYYNajtMjyNjvqSKUhKHmm.tar.zst",
+	cli_ws: "https://github.com/Karakatiza666/roc-basic-cli-websocket/releases/download/0.0.3/9c6XLWHRSREuaoELdH1a835Yopw92Jxy2b5e151X6mZj.tar.zst",
 	surreal: "../src/main.roc",
 }
 
@@ -410,9 +411,16 @@ badged_carers_steps = {
 # ------------------------------------------------------------- the platform
 
 ## The transport of each session: a WebSocket on `/rpc`, through
-## roc-basic-cli-websocket (`WsClient`).
+## roc-basic-cli-websocket (`WsClient`), whose `receive_within!` lets
+## `Session.next_within!` wait for a change with a deadline.
 transport : Surreal.Transport
-transport = Surreal.Transport.websocket(WsClient.connect, WsClient.ops, "ws://127.0.0.1:8000")
+transport = Surreal.Transport.websocket_timed(WsClient.connect, WsClient.ops, "ws://127.0.0.1:8000")
+
+## How long the app waits for a change: a change that does not come in this
+## time is a `FAIL`, not a wait with no end. The server sends it in
+## milliseconds, not minutes; the limit only ends a run that hangs.
+change_limit_ms : U64
+change_limit_ms = 60_000
 
 # ------------------------------------------------------------------ the run
 
@@ -507,21 +515,31 @@ write_group! = |session, writes| {
 	Ok($session)
 }
 
-## Changes of the watch, read until there are `count`, after those in
-## `have`. The notices came while the session ran the writes: the inbox
-## of the session kept them.
-take_changes! : Surreal.Session, Surreal.Live(out), List(Surreal.Change(out)), U64 => Try({ session : Surreal.Session, live : Surreal.Live(out), changes : List(Surreal.Change(out)) }, Str) where [out.Cbor.Readable(errs)]
-take_changes! = |session, live, have, count|
-	if have.len() >= count {
+## Changes of the watch, read until there are as many as `want` holds, after
+## those in `have`. The notices came while the session ran the writes: the
+## inbox of the session kept them. A change that does not come in
+## `change_limit_ms` is an error that names the changes still missing.
+take_changes! : Surreal.Session, Surreal.Live(out), List(Surreal.Change(out)), List(Surreal.Change(out)) => Try({ session : Surreal.Session, live : Surreal.Live(out), changes : List(Surreal.Change(out)) }, Str) where [out.Cbor.Readable(errs), out.is_eq : out, out -> Bool]
+take_changes! = |session, live, have, want|
+	if have.len() >= want.len() {
 		Ok({ session, live, changes: have })
 	} else {
-		got = session.next!(live).map_err(Str.inspect)?
+		got = session.next_within!(live, change_limit_ms).map_err(Str.inspect)?
 		match got.next {
-			Got(more) => take_changes!(got.session, got.live, have.concat(more), count)
-			Ended => Err("the watch ended before ${count.to_str()} changes")
+			Got(more) => take_changes!(got.session, got.live, have.concat(more), want)
+			Ended => Err("the watch ended before ${want.len().to_str()} changes")
 			Unread(e) => Err(Str.inspect(e))
+			TimedOut => Err("no change in ${(change_limit_ms // 1000).to_str()} s: ${have.len().to_str()} of ${want.len().to_str()} came, and the Mirror predicts ${Str.join_with(missing(want, have).map(change_line), "; ")} for the rest")
 		}
 	}
+
+## The predicted changes that none of `have` equals, each `have` taking one.
+missing : List(Surreal.Change(out)), List(Surreal.Change(out)) -> List(Surreal.Change(out)) where [out.is_eq : out, out -> Bool]
+missing = |want, have| have.fold(want, |left, got|
+	match left.find_first_index(|one| one == got) {
+		Ok(at) => left.drop_at(at)
+		Err(_) => left
+	})
 
 ## Runs one watch: for each group of writes, the writes on the session,
 ## then the changes of the group, read from the session. The changes of a
@@ -545,7 +563,7 @@ check_watch! = |session, name, watch, groups| {
 	var $failures = 0
 	for (group, want) in groups.map2(predicted, |g, w| (g, w)) {
 		$session = write_group!($session, group.map(|step| step.write))?
-		read = take_changes!($session, $live, $have, want.len())?
+		read = take_changes!($session, $live, $have, want)?
 		$session = read.session
 		$live = read.live
 		$have = read.changes.drop_first(want.len())
@@ -581,10 +599,11 @@ check_patches! = |session| {
 	var $failures = 0
 	for step in patch_steps {
 		$session = write_group!($session, [Vital(step.edit)])?
-		got_patch = $session.next!($live).map_err(Str.inspect)?
+		got_patch = $session.next_within!($live, change_limit_ms).map_err(Str.inspect)?
 		$session = got_patch.session
 		$live = got_patch.live
 		match got_patch.next {
+			TimedOut => return Err("no patch in ${(change_limit_ms // 1000).to_str()} s for ${Str.inspect(step.edit)}")
 			Got(patch) => {
 				$view = $view.apply(patch).map_err(Str.inspect)?
 				temp = patch.field(|v| v.temp_c).map_err(Str.inspect)?
