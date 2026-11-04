@@ -1891,9 +1891,9 @@ Translate :: {}.{
 						Tag(name) => match u.variants.find_first(|v| v.name == name) {
 							Ok({ payloads: [], .. }) => Ok({ test: "${u.at} = ${Ql.quote(name)}", value: Translate.expr(a.tree, env)? })
 							Ok(_) => Ok({ test: "${u.at}.kind = ${Ql.quote(name)}", value: Translate.expr(a.tree, env)? })
-							Err(_) => Err(Ql.Error.Unsupported("the union has no `${name}`"))
+							Err(_) => Err(Unsupported("the union has no `${name}`"))
 						}
-						_ => Err(Ql.Error.Unsupported("a union is matched by its tags"))
+						_ => Err(Unsupported("a union is matched by its tags"))
 					},
 				)?
 				Ok(Translate.chain(tests, Free))
@@ -1907,7 +1907,7 @@ Translate :: {}.{
 						|a| match a.key {
 							Lit(literal) => Ok({ test: "${s} = ${Translate.literal(literal)?}", value: Translate.expr(a.tree, env)? })
 							Default => Ok({ test: "", value: Translate.expr(a.tree, env)? })
-							_ => Err(Ql.Error.Unsupported("a list pattern has no SurrealQL form"))
+							_ => Err(Unsupported("a list pattern has no SurrealQL form"))
 						},
 					)?
 					Ok(Translate.chain(tests, Fixed))

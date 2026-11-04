@@ -2022,7 +2022,7 @@ Surreal :: {}.{
 			rows = result_rows(0)
 			read = |results| match rows(results)? {
 				[one] => Ok(one)
-				more => Err(Ql.Error.Wire("`GROUP ALL` returned ${more.len().to_str()} rows instead of one"))
+				more => Err(Wire("`GROUP ALL` returned ${more.len().to_str()} rows instead of one"))
 			}
 			Ok(Prepared.({ statement, count: 1, atomic: No, read }))
 		}
@@ -2158,7 +2158,7 @@ Surreal :: {}.{
 			read = |results| match rows(results)? {
 				[] => Ok(Err(NotFound))
 				[one] => Ok(Ok(one))
-				more => Err(Ql.Error.Wire("the record of one key returned ${more.len().to_str()} rows"))
+				more => Err(Wire("the record of one key returned ${more.len().to_str()} rows"))
 			}
 			Ok(Prepared.({ statement, count: 1, atomic: No, read }))
 		}
@@ -3879,12 +3879,12 @@ aggregated = |Grouped.(g), per_group, in_view| {
 		parts = parts_of(within_clause("`group_by`", Translate.evaluate(own, key.graph(), [base?], param))?)?
 		columns = within_clause("`aggregate`", group_columns(key, per_group, base?, param, in_view))?
 		if parts.is_empty() {
-			return Err(Ql.Error.Unsupported("`group_by(|_| {})` groups by a key of no parts, and SurrealDB has no `GROUP BY` of nothing. `GROUP ALL` is not the same: it gives one row for no rows. Take `totals`"))
+			return Err(Unsupported("`group_by(|_| {})` groups by a key of no parts, and SurrealDB has no `GROUP BY` of nothing. `GROUP ALL` is not the same: it gives one row for no rows. Take `totals`"))
 		}
 		named = parts.map_try(
 			|part| match columns.find_first(|c| c.surql == part) {
 				Ok(c) => Ok(Ql.ident(c.name))
-				Err(_) => Err(Ql.Error.Unsupported("the group key part `${part}` is not a column of the result: SurrealDB groups by a selected column only (\"Missing group idiom\"). Return the key, or its part, from the function of `aggregate`"))
+				Err(_) => Err(Unsupported("the group key part `${part}` is not a column of the result: SurrealDB groups by a selected column only (\"Missing group idiom\"). Return the key, or its part, from the function of `aggregate`"))
 			},
 		)?
 		Ok(Str.join_with(named, ", "))
@@ -3977,7 +3977,7 @@ read_lives = |watched, registry, rows| {
 			LinkAt(l) =>
 				match Types.lookup(registry, l.target) {
 					Ok(found) => Ok([{ table: found, test: Test(link_test(l.path, l.lists)), read: l.read }])
-					Err(message) => Err(Ql.Error.BadSchema("a live query watches the table of each link of its row, and the tables it takes do not name the one at `${l.path}`: ${message}"))
+					Err(message) => Err(BadSchema("a live query watches the table of each link of its row, and the tables it takes do not name the one at `${l.path}`: ${message}"))
 				}
 		},
 	)?.join()
@@ -5334,7 +5334,7 @@ read_created = |t| |results|
 						fields = row_of(Cbor.Value.Map(entries.keep_if(|(k, _)| k != Cbor.Value.Text("id"))))?
 						Ok({ id: Id.({ table, key }), fields })
 					}
-					_ => Err(Ql.Error.Wire("a row that a write of `${t.name}` made has no text key of `${t.name}`"))
+					_ => Err(Wire("a row that a write of `${t.name}` made has no text key of `${t.name}`"))
 				}
 			}
 			_ => Err(Wire("a row that a write of `${t.name}` made is not an object"))
