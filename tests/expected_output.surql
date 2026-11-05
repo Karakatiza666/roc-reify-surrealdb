@@ -36,15 +36,14 @@ DEFINE FIELD OVERWRITE chip.implanted_by ON patient TYPE record<vet> ASSERT reco
 DEFINE FIELD OVERWRITE name ON patient TYPE string;
 DEFINE FIELD OVERWRITE owner ON patient TYPE record<owner> REFERENCE ON DELETE CASCADE ASSERT record::exists($value);
 DEFINE FIELD OVERWRITE species ON patient TYPE { kind: "Bird", wingspan_cm: int } | "Cat" | "Dog" | { kind: "Exotic", latin: string } ASSERT ((IF $value.kind = 'Bird' THEN $value.wingspan_cm >= 0 AND $value.wingspan_cm <= 255 ELSE true END)) AND ((IF $value.kind = 'Bird' THEN $value.wingspan_cm > 0 ELSE true END));
-DEFINE FIELD OVERWRITE vaccines ON patient TYPE array<object> ASSERT $value.all(|$e| object::keys($e).all(|$k| $k IN ['given', 'name', 'vet']));
-DEFINE FIELD OVERWRITE vaccines[*].given ON patient TYPE string;
-DEFINE FIELD OVERWRITE vaccines[*].name ON patient TYPE string ASSERT $value != '';
-DEFINE FIELD OVERWRITE vaccines[*].vet ON patient TYPE record<vet> ASSERT record::exists($value);
+DEFINE FIELD OVERWRITE vaccines ON patient TYPE array<{ given: string, name: string, vet: record<vet> }>;
+DEFINE FIELD OVERWRITE vaccines[*].name ON patient ASSERT $value != '';
+DEFINE FIELD OVERWRITE vaccines[*].vet ON patient ASSERT record::exists($value);
 DEFINE FIELD OVERWRITE weight_kg ON patient TYPE decimal ASSERT $value > 0.0dec;
-DEFINE FIELD OVERWRITE fee ON visit TYPE decimal ASSERT $value >= 0.0dec;
-DEFINE FIELD OVERWRITE items ON visit TYPE array<object> ASSERT $value.all(|$e| object::keys($e).all(|$k| $k IN ['doses', 'medication']));
-DEFINE FIELD OVERWRITE items[*].doses ON visit TYPE int ASSERT $value > 0;
-DEFINE FIELD OVERWRITE items[*].medication ON visit TYPE record<medication> ASSERT record::exists($value);
+DEFINE FIELD OVERWRITE fee ON visit TYPE decimal ASSERT (($this.items.len() = 0) OR ($value > 0.0dec)) AND ($value >= 0.0dec);
+DEFINE FIELD OVERWRITE items ON visit TYPE array<{ doses: int, medication: record<medication> }>;
+DEFINE FIELD OVERWRITE items[*].doses ON visit ASSERT $value > 0;
+DEFINE FIELD OVERWRITE items[*].medication ON visit ASSERT record::exists($value);
 DEFINE FIELD OVERWRITE outcome ON visit TYPE { kind: "Followup", days: int } | { kind: "Referred", reason: string, to: record<vet> } | "Treated" ASSERT ((IF $value.kind = 'Followup' THEN $value.days >= 0 AND $value.days <= 255 ELSE true END)) AND ((IF $value.kind = 'Referred' THEN record::exists($value.to) ELSE true END)) AND ((IF $value.kind = 'Followup' THEN ($value.days > 0) AND ($value.days <= 90) ELSE true END));
 DEFINE FIELD OVERWRITE patient ON visit TYPE record<patient> REFERENCE ON DELETE CASCADE ASSERT record::exists($value);
 DEFINE FIELD OVERWRITE seen ON visit TYPE datetime;
@@ -65,10 +64,9 @@ DEFINE INDEX OVERWRITE patient_vaccines_vet_link ON patient FIELDS vaccines[*].v
 DEFINE INDEX OVERWRITE visit_seen_index ON visit FIELDS seen;
 DEFINE INDEX OVERWRITE visit_items_medication_link ON visit FIELDS items[*].medication;
 DEFINE INDEX OVERWRITE treats_in_out_unique ON treats FIELDS in, out UNIQUE;
-DEFINE EVENT OVERWRITE visit_check_items_need_a_fee ON visit WHEN $event IN ['CREATE', 'UPDATE'] THEN { IF !(($after.items.len() = 0) OR ($after.fee > 0.0dec)) { THROW 'visit: items need a fee' } };
 DEFINE EVENT OVERWRITE patient_chip_implanted_by_on_delete ON vet WHEN $event = 'DELETE' THEN { IF (SELECT VALUE id FROM patient WHERE chip.implanted_by = $before.id LIMIT 1) != [] { THROW <string>$before.id + ' is referenced by patient.chip.implanted_by' } };
-DEFINE EVENT OVERWRITE patient_vaccines_vet_on_delete ON vet WHEN $event = 'DELETE' THEN { IF (SELECT VALUE id FROM patient WHERE vaccines.any(|$e1| $e1.vet = $before.id) LIMIT 1) != [] { THROW <string>$before.id + ' is referenced by patient.vaccines[*].vet' } };
-DEFINE EVENT OVERWRITE visit_items_medication_on_delete ON medication WHEN $event = 'DELETE' THEN { IF (SELECT VALUE id FROM visit WHERE items.any(|$e1| $e1.medication = $before.id) LIMIT 1) != [] { THROW <string>$before.id + ' is referenced by visit.items[*].medication' } };
+DEFINE EVENT OVERWRITE patient_vaccines_vet_on_delete ON vet WHEN $event = 'DELETE' THEN { IF (SELECT VALUE id FROM patient WHERE $before.id IN vaccines[*].vet LIMIT 1) != [] { THROW <string>$before.id + ' is referenced by patient.vaccines[*].vet' } };
+DEFINE EVENT OVERWRITE visit_items_medication_on_delete ON medication WHEN $event = 'DELETE' THEN { IF (SELECT VALUE id FROM visit WHERE $before.id IN items[*].medication LIMIT 1) != [] { THROW <string>$before.id + ' is referenced by visit.items[*].medication' } };
 DEFINE EVENT OVERWRITE visit_outcome_Referred_to_on_delete ON vet WHEN $event = 'DELETE' THEN { IF (SELECT VALUE id FROM visit WHERE (outcome.kind = 'Referred' AND outcome.to = $before.id) LIMIT 1) != [] { THROW <string>$before.id + ' is referenced by visit.outcome.to' } };
 
 -- seed: vet
@@ -113,7 +111,7 @@ SELECT record::id(id) AS id, name AS name, phone ?? 'none' AS phone FROM owner W
 
 -- query: referrals
 -- roc: [{ by: 'Mara Ito', id: 'noor' }]
-SELECT (IF referred_by IS NONE THEN 'nobody' ELSE referred_by.name END) AS by, record::id(id) AS id FROM owner WHERE referred_by IS NOT NONE;
+SELECT referred_by.name ?? 'nobody' AS by, record::id(id) AS id FROM owner WHERE referred_by IS NOT NONE;
 
 -- query: pet_roster
 -- ordered
@@ -135,11 +133,11 @@ SELECT VALUE name FROM patient WHERE (IF species.kind = 'Bird' THEN species.wing
 
 -- query: chips
 -- roc: [{ by: 'nobody', chip: 'none', id: 'bo' }, { by: 'nobody', chip: 'none', id: 'kiwi' }, { by: 'Sam Petrov', chip: '985-112', id: 'luna' }, { by: 'nobody', chip: 'none', id: 'mimi' }, { by: 'Ruth Okafor', chip: '985-100', id: 'rex' }, { by: 'nobody', chip: 'none', id: 'zed' }]
-SELECT (IF chip IS NONE THEN 'nobody' ELSE chip.implanted_by.name END) AS by, (IF chip IS NONE THEN 'none' ELSE chip.code END) AS chip, record::id(id) AS id FROM patient;
+SELECT chip.implanted_by.name ?? 'nobody' AS by, chip.code ?? 'none' AS chip, record::id(id) AS id FROM patient;
 
 -- query: vaccinated_by_ruth
 -- roc: [{ id: 'bo', vets: ['Ruth Okafor'] }, { id: 'rex', vets: ['Ruth Okafor', 'Sam Petrov'] }]
-SELECT record::id(id) AS id, vaccines.map(|$v1| $v1.vet.name) AS vets FROM patient WHERE vaccines.any(|$v1| $v1.vet = vet:⟨ruth⟩);
+SELECT record::id(id) AS id, vaccines.map(|$v1| $v1.vet.name) AS vets FROM patient WHERE vet:⟨ruth⟩ IN vaccines[*].vet;
 
 -- query: recent_visits
 -- ordered
@@ -153,15 +151,15 @@ SELECT VALUE record::id(id) FROM visit WHERE seen < time::now();
 
 -- query: follow_ups
 -- roc: [{ id: 'v2', text: 'follow-up' }, { id: 'v3', text: 'referred to Tia Brandt' }, { id: 'v6', text: 'follow-up' }]
-SELECT record::id(id) AS id, (IF outcome.kind = 'Followup' THEN 'follow-up' ELSE IF outcome.kind = 'Referred' THEN 'referred to ' + outcome.to.name ELSE 'treated' END) AS text FROM visit WHERE (IF outcome = 'Treated' THEN false ELSE true END);
+SELECT record::id(id) AS id, (IF outcome.kind = 'Followup' THEN 'follow-up' ELSE IF outcome.kind = 'Referred' THEN 'referred to ' + outcome.to.name ELSE 'treated' END) AS text FROM visit WHERE outcome != 'Treated';
 
 -- query: case_load
 -- roc: [{ name: 'Ruth Okafor', patients: 4, primary: 4 }, { name: 'Sam Petrov', patients: 3, primary: 2 }, { name: 'Tia Brandt', patients: 1, primary: 0 }]
-SELECT name AS name, ->treats.len() AS patients, ->treats.filter(|$v1| $v1.primary).len() AS primary FROM vet;
+SELECT name AS name, ->treats.len() AS patients, ->treats[WHERE primary].len() AS primary FROM vet;
 
 -- query: teams
 -- roc: [{ lead: ['Ruth Okafor'], name: 'Bo', team: 1 }, { lead: ['Ruth Okafor'], name: 'Kiwi', team: 1 }, { lead: ['Sam Petrov'], name: 'Luna', team: 2 }, { lead: ['Sam Petrov'], name: 'Mimi', team: 1 }, { lead: ['Ruth Okafor'], name: 'Rex', team: 2 }, { lead: ['Ruth Okafor'], name: 'Zed', team: 1 }]
-SELECT <-treats.filter(|$v1| $v1.primary).map(|$v2| $v2.in.name) AS lead, name AS name, <-treats.len() AS team FROM patient;
+SELECT <-treats[WHERE primary]<-vet.name AS lead, name AS name, <-treats.len() AS team FROM patient;
 
 -- query: ledger
 -- ordered
@@ -180,7 +178,7 @@ SELECT VALUE label FROM medication ORDER BY label;
 
 -- query: whole_vets
 -- roc: [{ contact: { email: 'ruth@paws.example', phone: '555-0101' }, id: 'ruth', license: 'VET-1001', name: 'Ruth Okafor', rate: 80.0dec, specialty: 'General', years: 12 }, { contact: { email: 'sam@paws.example', phone: '555-0102' }, id: 'sam', license: 'VET-1002', name: 'Sam Petrov', rate: 140.0dec, specialty: { kind: 'Surgery', board: 'ACVS' }, years: 8 }, { contact: { email: 'tia@paws.example', phone: '555-0103' }, id: 'tia', license: 'VET-1003', name: 'Tia Brandt', rate: 95.5dec, specialty: 'Dental', years: 3 }]
-SELECT VALUE { contact: contact, id: record::id(id), license: license, name: name, rate: rate, specialty: specialty, years: years } FROM vet;
+SELECT contact, record::id(id) AS id, license, name, rate, specialty, years FROM vet;
 
 -- query: second_page
 -- ordered
@@ -215,13 +213,31 @@ SELECT address, email, record::id(id) AS id, name, phone, referred_by, tags FROM
 LET $_1 = { city: 'Lyon', line: 'Rue Merciere 9' };
 SELECT address, email, record::id(id) AS id, name, phone, referred_by, tags FROM owner WHERE (address.city = $_1.city) AND (address.line = $_1.line) AND (address.zip = $_1.zip);
 
+-- query: primary_owners
+-- intrinsic: owners
+-- roc: [{ name: 'Ruth Okafor', owners: ['Mara Ito', 'Jon Berg', 'Lena Roux', 'Noor Haddad'] }, { name: 'Sam Petrov', owners: ['Mara Ito', 'Noor Haddad'] }, { name: 'Tia Brandt', owners: [] }]
+SELECT name AS name, ->treats[WHERE primary]->patient.owner.name AS owners FROM vet;
+
+-- query: lead_patients
+-- intrinsic: patients
+-- roc: [{ name: 'Bo', patients: ['Rex', 'Bo', 'Kiwi', 'Zed'] }, { name: 'Kiwi', patients: ['Rex', 'Bo', 'Kiwi', 'Zed'] }, { name: 'Luna', patients: ['Rex', 'Luna', 'Mimi'] }, { name: 'Mimi', patients: ['Rex', 'Luna', 'Mimi'] }, { name: 'Rex', patients: ['Rex', 'Bo', 'Kiwi', 'Zed'] }, { name: 'Zed', patients: ['Rex', 'Bo', 'Kiwi', 'Zed'] }]
+SELECT name AS name, <-treats[WHERE primary]<-vet->treats->patient.name AS patients FROM patient;
+
+-- query: treats_for_oslo
+-- roc: ['Ruth Okafor', 'Sam Petrov']
+SELECT VALUE name FROM vet WHERE ->treats[WHERE primary]->patient.owner.address.city CONTAINS 'Oslo';
+
 -- rejects: check_as_assert
 -- error: field `weight_kg`
 CREATE patient:⟨bad⟩ CONTENT { age: 12, allergies: [], name: 'Featherweight', owner: owner:⟨jon⟩, species: 'Dog', vaccines: [{ given: '2025-05-02', name: 'rabies', vet: vet:⟨ruth⟩ }], weight_kg: 0.0dec } RETURN AFTER;
 
--- rejects: check_as_event
--- error: visit: items need a fee
+-- rejects: check_over_two_fields
+-- error: field `fee`
 CREATE visit:⟨v8⟩ CONTENT { fee: 0.0dec, items: [{ doses: 14, medication: medication:⟨amoxicillin⟩ }], outcome: 'Treated', patient: patient:⟨rex⟩, seen: d'2026-01-10T09:00:00Z', vet: vet:⟨ruth⟩ } RETURN AFTER;
+
+-- rejects: check_over_two_fields_on_update
+-- error: field `fee`
+UPDATE visit:⟨v1⟩ SET fee = 0.0dec RETURN AFTER;
 
 -- rejects: assert_email
 -- error: field `email`

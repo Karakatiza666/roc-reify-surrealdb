@@ -2,7 +2,7 @@ DEFINE TABLE OVERWRITE owner SCHEMAFULL;
 DEFINE TABLE OVERWRITE pet SCHEMAFULL;
 DEFINE TABLE OVERWRITE visit SCHEMAFULL;
 DEFINE FIELD OVERWRITE age ON owner TYPE int ASSERT $value >= 0;
-DEFINE FIELD OVERWRITE city ON owner TYPE string;
+DEFINE FIELD OVERWRITE city ON owner TYPE string ASSERT (IF $value = 'oslo' THEN string::contains($this.email, '@') ELSE true END);
 DEFINE FIELD OVERWRITE email ON owner TYPE string;
 DEFINE FIELD OVERWRITE name ON pet TYPE string;
 DEFINE FIELD OVERWRITE owner ON pet TYPE record<owner> REFERENCE ON DELETE REJECT ASSERT record::exists($value);
@@ -11,5 +11,5 @@ DEFINE FIELD OVERWRITE by.vet ON visit TYPE record<owner> ASSERT record::exists(
 DEFINE INDEX OVERWRITE owner_email_unique ON owner FIELDS email UNIQUE;
 DEFINE INDEX OVERWRITE owner_age_city_unique ON owner FIELDS age, city UNIQUE;
 DEFINE INDEX OVERWRITE visit_by_vet_link ON visit FIELDS by.vet;
-DEFINE EVENT OVERWRITE owner_check_adult_in_town ON owner WHEN $event IN ['CREATE', 'UPDATE'] THEN { IF !(($after.age >= 18) OR ($after.city != 'oslo')) { THROW 'owner: adult in town' } };
+DEFINE EVENT OVERWRITE owner_check_adult_in_town ON owner WHEN $event IN ['CREATE', 'UPDATE'] THEN { IF !(($after.age >= 18) OR (record::id($after.id) != 'kid')) { THROW 'owner: adult in town' } };
 DEFINE EVENT OVERWRITE visit_by_vet_on_delete ON owner WHEN $event = 'DELETE' THEN { IF (SELECT VALUE id FROM visit WHERE by.vet = $before.id LIMIT 1) != [] { THROW <string>$before.id + ' is referenced by visit.by.vet' } };

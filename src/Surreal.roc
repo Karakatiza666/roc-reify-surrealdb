@@ -3,6 +3,7 @@ import Encode
 import Types
 import Translate
 import Schema
+import Migrate
 import Diff
 import Rpc
 import HttpRpc
@@ -800,12 +801,20 @@ Surreal :: {}.{
 		digits = |Datetime.(d), start, count| d.iso.to_utf8().drop_first(start).take_first(count).fold(0, |acc, b| acc * 10 + (b - 48).to_i64())
 	}
 
-	## The `math::` statistics on a list of floats. Convert an `I64` or `Dec` field with `to_f64()`.
+	## The `math::` statistics on a list of floats. Convert an `I64` field with `to_f64()`.
 	Math :: {}.{
 
 		## `math::mean`. A list with no value has no mean: the result is not a number.
 		mean : List(F64) -> F64
 		mean = |values| values.sum() / values.len().to_f64()
+
+		## `math::mean` of decimals, as a float: the mean of `v.to_f64()` of each
+		## value, as `mean` has it. SurrealDB gives a decimal mean of decimals with 28
+		## digits, which a `Dec` of 18 digits cannot hold, so the values go to
+		## floats first. A list with no value has no mean: the result is `NaN`, which a
+		## `Dec` cannot be.
+		mean_dec : List(Dec) -> F64
+		mean_dec = |values| Math.mean(values.map(|v| v.to_f64()))
 
 		## `math::median`. An intrinsic: SurrealDB computes it.
 		median : List(F64) -> F64
@@ -1145,6 +1154,21 @@ Surreal :: {}.{
 		## `visits.rows().keep_if(|v| v.patient.get().id == p.id).len()`.
 		## An intrinsic: SurrealDB computes it.
 		rows : Table(row) -> List(row)
+
+		## The edges of this edge table that leave the row, inside a clause:
+		## `->treats` off the row, `$v1.out->treats` off a row that a link
+		## points at. A filter of them is `[WHERE ..]`, and their `to.get()`
+		## is the next hop, so a clause writes a graph path of any length:
+		## `treats.edges_from(v).keep_if(|e| e.primary).map(|e| e.to.get().owner.get().name)`
+		## is `->treats[WHERE primary]->patient.owner.name`. The edge row's
+		## `from` links to the row, so edges that leave another table are a
+		## type error. An intrinsic: SurrealDB computes it.
+		edges_from : Table({ from : Link(a), ..e }), a -> List({ from : Link(a), ..e })
+
+		## The edges of this edge table that end at the row: `<-treats`. The
+		## edge row's `to` links to the row, and `from.get()` is the next hop
+		## back: `<-treats<-vet`. An intrinsic: SurrealDB computes it.
+		edges_to : Table({ to : Link(b), ..e }), b -> List({ to : Link(b), ..e })
 
 		## The record user of the session, a row of this table, inside a
 		## clause: `$auth.id`. `|m| m.owner.id() == users.auth()` is
@@ -1764,6 +1788,152 @@ Surreal :: {}.{
 	schema : List(Defined) -> Try(Str, Error)
 	schema = |defined| Schema.script(defined)
 
+	## The server that a migration file is for: `V4` is SurrealDB 4 at
+	## compatibility level 4 (`MIGRATE EXISTING ROWS`, sections), `V3` is
+	## SurrealDB 3.3 and SurrealDB 4 at level 3 (`UPDATE` fills). An app
+	## keeps it as a constant; each file records it in its header.
+	MigrationTarget : Migrate.Target
+
+	## What a person reads before a migration file runs (`Plan.warnings`).
+	## Each is a `-- warning:` line of the file.
+	Warning : Migrate.Warning
+
+	## The diff from the snapshot `from` (the text of `schema` that the
+	## migrations make, "" for an empty database) to the schema `to`, for
+	## `target`. Only a statement that is new or changed is in it, so an
+	## index or a view that did not change is not built again. A rename is
+	## a drop and a definition.
+	plan : Str, List(Defined), MigrationTarget -> Try(Plan, Error)
+	plan = |from, to, target| {
+		old = Migrate.lines(from)
+		new = Schema.script_lines(to)?
+		Ok(Plan.({ p: { steps: Schema.migration_steps(old, new, Schema.field_infos(to)?), target, old, new, from, replaces: [] } }))
+	}
+
+	## Whether the snapshot is the schema: `Ok` with the tables and fields
+	## that a `KeepData` file kept and the schema dropped, else a
+	## `Migration` error with `Unplanned` and the statements that a new
+	## file needs. For an `expect` next to the schema.
+	check : Str, List(Defined) -> Try({ pending_drops : List(Str) }, Error)
+	check = |snapshot, defined| {
+		planned = Surreal.plan(snapshot, defined, V4)?
+		match planned.statements(KeepData).join() {
+			[] => Ok({ pending_drops: planned.dropped() })
+			pending => Err(Migration({ name: "", problem: Unplanned(pending) }))
+		}
+	}
+
+	## The text of a file that raises a database on SurrealDB 4 from
+	## compatibility level 3 to 4. Run it as the last `V3` file.
+	raise_compatibility : Str
+	raise_compatibility = "ALTER DATABASE COMPATIBILITY 4;"
+
+	## The steps of `plan`. A removed index, event, function, analyzer,
+	## access or view loses no row, and always runs. A dropped table or
+	## field loses its data, so it runs only with `DropData`. With
+	## `KeepData` it stays in the database and in the snapshot.
+	##
+	## | Change | `V3` | `V4` |
+	## | --- | --- | --- |
+	## | New field that is not optional, on a table that was there | `DEFINE FIELD`, then `UPDATE .. SET f = <DEFAULT> WHERE f IS NONE` | `DEFINE FIELD .. MIGRATE EXISTING ROWS AS .. USING <DEFAULT>` |
+	## | A type that does not take every old value | `DEFINE FIELD`, then `UPDATE .. SET f = <type> f` | `MIGRATE EXISTING ROWS .. USING <type> $value FALLBACK <DEFAULT>` |
+	## | Dropped field (`DropData`) | `REMOVE FIELD`, then `UPDATE .. UNSET f` | `REMOVE FIELD` (level 4 clears the values) |
+	##
+	## With no `DEFAULT`, or no cast, the file has a `-- reify: edit` line
+	## and a placeholder: the runner refuses it until a person writes the
+	## value and removes the line.
+	Plan :: { p : Migrate.Plan }.{
+
+		## The statements of each section, in order, with no `;`. Section 2
+		## has what SurrealDB 4 refuses in the transaction of section 1:
+		## an index on a table that section 1 writes to or migrates, a view
+		## over a migrated table, a `REBUILD INDEX`.
+		statements : Plan, [KeepData, DropData] -> List(List(Str))
+		statements = |Plan.(m), mode| Migrate.sections(m.p, mode).map(|part| part.map(|i| i.line))
+
+		## The tables and the fields (`table.path`) that the schema dropped:
+		## what `DropData` removes with their data.
+		dropped : Plan -> List(Str)
+		dropped = |Plan.(m)| Migrate.dropped(m.p)
+
+		## What a person reads before the file runs.
+		warnings : Plan -> List(Warning)
+		warnings = |Plan.(m)| Migrate.warnings(m.p)
+
+		## Whether the plan has no statement.
+		is_empty : Plan, [KeepData, DropData] -> Bool
+		is_empty = |Plan.(m), mode| Migrate.sections(m.p, mode).is_empty()
+
+		## The migration file `name`: the header, the warnings as comments,
+		## the sections split by `-- reify: commit`, and a `-- reify: edit`
+		## line before each statement that needs a value.
+		to_file : Plan, Str, [KeepData, DropData] -> Str
+		to_file = |Plan.(m), name, mode| Migrate.file(name, m.p, mode)
+
+		## The snapshot after the file: the statements of the schema, with
+		## no `MIGRATE` clause. With `KeepData` the dropped tables and
+		## fields stay in it.
+		snapshot : Plan, [KeepData, DropData] -> Str
+		snapshot = |Plan.(m), mode| Migrate.snapshot(m.p, mode)
+
+		## A squashed file: the header names the files it replaces. A
+		## database that applied all of them records it and does not run
+		## it; an empty database runs it.
+		replacing : Plan, List(Str) -> Plan
+		replacing = |Plan.(m), names| Plan.({ p: { ..m.p, replaces: names } })
+
+		## Each section as one transaction, for `Session.run!`: all of a
+		## section runs, or none. A statement that fails is a `Server`
+		## error. A plan that needs an edit is a `Migration` error.
+		prepare : Plan, [KeepData, DropData] -> Try(List(Prepared({})), Error)
+		prepare = |Plan.(m), mode| {
+			parts = Migrate.sections(m.p, mode)
+			if parts.any(|part| part.any(|i| i.edit.is_ok())) {
+				return Err(Migration({ name: "", problem: Edit }))
+			}
+			Ok(parts.map(|part| Prepared.({ statement: statement_of(Str.join_with(part.map(|i| i.line), ";\n")), count: part.len(), atomic: Whole, read: |_| Ok({}) })))
+		}
+	}
+
+	## A migration file, read for `Session.migrate!`: its name, its text
+	## (`import "db/migrations/0002_bin_size.surql" as m0002 : Str`), its
+	## sections and its checksum.
+	Migration :: { file : Migrate.File }.{
+		is_eq : _
+
+		name : Migration -> Str
+		name = |Migration.(m)| m.file.name
+
+		## The SHA-256 of the text, as the history records it.
+		checksum : Migration -> Str
+		checksum = |Migration.(m)| m.file.checksum
+
+		target : Migration -> MigrationTarget
+		target = |Migration.(m)| m.file.target
+
+		## The count of the sections: each is one transaction.
+		sections : Migration -> U64
+		sections = |Migration.(m)| m.file.sections.len()
+
+		## The files that a squashed file replaces.
+		replaces : Migration -> List(Str)
+		replaces = |Migration.(m)| m.file.replaces
+	}
+
+	## Reads a migration file: its header (`-- reify-surrealdb migration
+	## <name> target <V3|V4> from <hash> [replaces <name> ..]`) must name
+	## `name`. A `-- reify: edit` line is a `Migration` error with `Edit`;
+	## a `BEGIN`, `COMMIT` or `CANCEL` is a `Text` error, as the runner
+	## makes each section a transaction, and so is an index on a table
+	## that the same section of a `V4` file writes to.
+	migration : Str, Str -> Try(Migration, Error)
+	migration = |name, text| Migrate.parse(name, text).map_ok(|file| Migration.({ file: file }))
+
+	## What `Session.migrate!` did: the files it ran, the squashed files
+	## it recorded and did not run, the records of the history that no
+	## file of the list has (a newer app applied them), and the server.
+	Applied : { ran : List(Str), adopted : List(Str), ahead : List(Str), server : [V3x, V4x(U64)] }
+
 	# ======================================================== queries
 
 	## A clause is written when its statement is, because the spelling of a
@@ -1803,7 +1973,7 @@ Surreal :: {}.{
 		filter = |Query.(q), predicate| {
 			base = q.source
 			clause = |at, param| within_clause("`filter`", Translate.evaluate(own, predicate.graph(), [pick(base, at)?], param))
-			Query.({ ..q, filters: q.filters.append(clause), watched: reached_watches(q.watched, predicate.graph(), [base.reach]) })
+			Query.({ ..q, filters: q.filters.append(clause), watched: reached_watches(q.watched, predicate.graph(), [base.reach], narrowed(predicate.graph(), base.now.map_ok(|row| [row]))) })
 		}
 
 		## A filter that reads the parameter record, its first argument. Each
@@ -1812,7 +1982,7 @@ Surreal :: {}.{
 		filter_by = |Query.(q), predicate| {
 			base = q.source
 			clause = |at, param| within_clause("`filter_by`", Translate.evaluate(own, predicate.graph(), [Translate.Binding.Params, pick(base, at)?], param))
-			Query.({ ..q, filters: q.filters.append(clause), watched: reached_watches(q.watched, predicate.graph(), [Translate.Reach.Nothing, base.reach]) })
+			Query.({ ..q, filters: q.filters.append(clause), watched: reached_watches(q.watched, predicate.graph(), [Translate.Reach.Nothing, base.reach], narrowed(predicate.graph(), base.now.map_ok(|row| [Translate.Binding.Params, row]))) })
 		}
 
 		## The row and its edges in `edges`, `->edges`. The row becomes the pair
@@ -1821,7 +1991,7 @@ Surreal :: {}.{
 		## table are a type error.
 		outgoing : Query(p, a), Table({ from : Link(a), ..e }) -> Query(p, (a, List({ from : Link(a), ..e })))
 		outgoing = |Query.(q), Table.(t)| {
-			rows = { now: with_edges(q.source.now, |at| Translate.outgoing(at, t.name)), before: with_edges(q.source.before, |at| Translate.outgoing(at, t.name)), reach: Translate.with_edges(q.source.reach, "->", t.name) }
+			rows = { now: with_edges(q.source.now, |at| Translate.edge_list(at, "->", t.name, ends_of(t.kind))), before: with_edges(q.source.before, |at| Translate.edge_list(at, "->", t.name, ends_of(t.kind))), reach: Translate.with_edges(q.source.reach, "->", t.name) }
 			Query.({ ..q, source: rows, watched: add_watched(q.watched, Edge({ name: t.name, node: "in" })) })
 		}
 
@@ -1829,7 +1999,7 @@ Surreal :: {}.{
 		## edge row's `to` links to `b`.
 		incoming : Query(p, b), Table({ to : Link(b), ..e }) -> Query(p, (b, List({ to : Link(b), ..e })))
 		incoming = |Query.(q), Table.(t)| {
-			rows = { now: with_edges(q.source.now, |at| Translate.incoming(at, t.name)), before: with_edges(q.source.before, |at| Translate.incoming(at, t.name)), reach: Translate.with_edges(q.source.reach, "<-", t.name) }
+			rows = { now: with_edges(q.source.now, |at| Translate.edge_list(at, "<-", t.name, ends_of(t.kind))), before: with_edges(q.source.before, |at| Translate.edge_list(at, "<-", t.name, ends_of(t.kind))), reach: Translate.with_edges(q.source.reach, "<-", t.name) }
 			Query.({ ..q, source: rows, watched: add_watched(q.watched, Edge({ name: t.name, node: "out" })) })
 		}
 
@@ -1840,14 +2010,14 @@ Surreal :: {}.{
 		## or `In` field for each.
 		and_outgoing : Query(p, (a, List(x))), Table({ from : Link(a), ..e }) -> Query(p, (a, List(x), List({ from : Link(a), ..e })))
 		and_outgoing = |Query.(q), Table.(t)| {
-			rows = { now: with_edges(q.source.now, |at| Translate.outgoing(at, t.name)), before: with_edges(q.source.before, |at| Translate.outgoing(at, t.name)), reach: Translate.with_edges(q.source.reach, "->", t.name) }
+			rows = { now: with_edges(q.source.now, |at| Translate.edge_list(at, "->", t.name, ends_of(t.kind))), before: with_edges(q.source.before, |at| Translate.edge_list(at, "->", t.name, ends_of(t.kind))), reach: Translate.with_edges(q.source.reach, "->", t.name) }
 			Query.({ ..q, source: rows, watched: add_watched(q.watched, Edge({ name: t.name, node: "in" })) })
 		}
 
 		## As `and_outgoing`, with the edges that point at the row.
 		and_incoming : Query(p, (b, List(x))), Table({ to : Link(b), ..e }) -> Query(p, (b, List(x), List({ to : Link(b), ..e })))
 		and_incoming = |Query.(q), Table.(t)| {
-			rows = { now: with_edges(q.source.now, |at| Translate.incoming(at, t.name)), before: with_edges(q.source.before, |at| Translate.incoming(at, t.name)), reach: Translate.with_edges(q.source.reach, "<-", t.name) }
+			rows = { now: with_edges(q.source.now, |at| Translate.edge_list(at, "<-", t.name, ends_of(t.kind))), before: with_edges(q.source.before, |at| Translate.edge_list(at, "<-", t.name, ends_of(t.kind))), reach: Translate.with_edges(q.source.reach, "<-", t.name) }
 			Query.({ ..q, source: rows, watched: add_watched(q.watched, Edge({ name: t.name, node: "out" })) })
 		}
 
@@ -1922,7 +2092,7 @@ Surreal :: {}.{
 			ty = projection.graph().root_row().result
 			columns = |param| within_clause("`select`", column_list(within_clause("`select`", Translate.evaluate(own, projection.graph(), [base.now?], param))?, ty))
 			value = |param| within_clause("`select`", row_value(within_clause("`select`", Translate.evaluate(own, projection.graph(), [base.now?], param))?, ty))
-			selected_of({ ..q, watched: reached_watches(q.watched, projection.graph(), [base.reach]) }, { columns, value, intrinsic: intrinsic_columns(projection.graph()) }, by_name, [], { ty, over: Projected(projected_rows(base, projection.graph())), nested: nested_row(ty) })
+			selected_of({ ..q, watched: reached_watches(q.watched, projection.graph(), [base.reach], narrowed(projection.graph(), base.now.map_ok(|row| [row]))) }, { columns, value, intrinsic: intrinsic_columns(projection.graph()) }, by_name, [], { ty, over: Projected(projected_rows(base, projection.graph())), nested: nested_row(ty) })
 		}
 
 		## One value per row: `SELECT VALUE e`. A whole row of a table, as
@@ -1950,7 +2120,7 @@ Surreal :: {}.{
 					other => Ok(other)
 				}
 			}
-			selected_of({ ..q, watched: reached_watches(q.watched, projection.graph(), [base.reach]) }, { columns, value, intrinsic: intrinsic_columns(projection.graph()) }, results, [], { ty, over: Projected(projected_rows(base, projection.graph())), nested: nested_row(ty) })
+			selected_of({ ..q, watched: reached_watches(q.watched, projection.graph(), [base.reach], narrowed(projection.graph(), base.now.map_ok(|row| [row]))) }, { columns, value, intrinsic: intrinsic_columns(projection.graph()) }, results, [], { ty, over: Projected(projected_rows(base, projection.graph())), nested: nested_row(ty) })
 		}
 
 		## Group the rows by what the function returns: a value, or a record of
@@ -1969,6 +2139,33 @@ Surreal :: {}.{
 		## refused.
 		totals : Query(p, row), Code(List(row) -> out) -> Totals(p, out)
 		totals = |query, per_total| totalled(query, per_total)
+
+		## The whole rows of the query: the `prepare` of `select(|r| r)`
+		## (see `Selected.prepare`).
+		prepare : Query(p, row), p -> Try(Prepared(List(row)), Error) where [p.encoder_for : Encode.Format -> (p, Encode.State -> Try(Encode.State, [])), row.Cbor.Readable(errs)]
+		prepare = |query, params| whole_of(query).prepare(params)
+
+		## The whole rows of a query that has no parameter: `prepare({})`.
+		ready : Query({}, row) -> Try(Prepared(List(row)), Error) where [row.Cbor.Readable(errs)]
+		ready = |query| whole_of(query).prepare({})
+
+		## The whole row of a query of one key: `select(|r| r)` and
+		## `Selected.prepare_one`.
+		prepare_one : Query(p, row), p -> Try(Prepared(Try(row, [NotFound])), Error) where [p.encoder_for : Encode.Format -> (p, Encode.State -> Try(Encode.State, [])), row.Cbor.Readable(errs)]
+		prepare_one = |query, params| whole_of(query).prepare_one(params)
+
+		## `prepare_one` of a query that has no parameter.
+		ready_one : Query({}, row) -> Try(Prepared(Try(row, [NotFound])), Error) where [row.Cbor.Readable(errs)]
+		ready_one = |query| whole_of(query).prepare_one({})
+
+		## The whole rows of the query, kept current: `select(|r| r)` and
+		## `Selected.live`.
+		live : Query(p, row), p, List(Defined) -> Try(Watch(row), Error) where [p.encoder_for : Encode.Format -> (p, Encode.State -> Try(Encode.State, []))]
+		live = |query, params, tables| whole_of(query).live(params, tables)
+
+		## `live` of a query that has no parameter.
+		ready_live : Query({}, row), List(Defined) -> Try(Watch(row), Error)
+		ready_live = |query, tables| whole_of(query).live({}, tables)
 
 		## Escape hatch: the patches of each write to the stored rows that the
 		## filters keep, `LIVE SELECT DIFF`. It takes no projection, so it is
@@ -2026,6 +2223,10 @@ Surreal :: {}.{
 			}
 			Ok(Prepared.({ statement, count: 1, atomic: No, read }))
 		}
+
+		## `prepare` of a query that has no parameter.
+		ready : Totals({}, out) -> Try(Prepared(out), Error) where [out.Cbor.Readable(errs)]
+		ready = |totals| totals.prepare({})
 	}
 
 	## What `order_by` reads a result row as, given the key: the binding of
@@ -2092,7 +2293,7 @@ Surreal :: {}.{
 			match (s.rows.over, s.limit, s.start) {
 				(Projected(fields), Unlimited, FromFirst) => {
 					clause = |at, param| within_clause("`filter`", Translate.evaluate(own, predicate.graph(), [pick(fields, at)?], param))
-					Selected.({ ..s, filters: s.filters.append(clause), watched: reached_watches(s.watched, predicate.graph(), [fields.reach]) })
+					Selected.({ ..s, filters: s.filters.append(clause), watched: reached_watches(s.watched, predicate.graph(), [fields.reach], narrowed(predicate.graph(), fields.now.map_ok(|row| [row]))) })
 				}
 				_ => whole_rows(Selected.query(selected).filter(predicate), s.rows.ty)
 			}
@@ -2143,6 +2344,10 @@ Surreal :: {}.{
 			Ok(Prepared.({ statement, count: 1, atomic: No, read: result_rows(0) }))
 		}
 
+		## `prepare` of a query that has no parameter: `prepare({})`.
+		ready : Selected({}, out) -> Try(Prepared(List(out)), Error) where [out.Cbor.Readable(errs)]
+		ready = |selected| selected.prepare({})
+
 		## `prepare` of a query of one key (`Table.at`): the row, or
 		## `NotFound` when the table has no row with the key. Any other
 		## query can return several rows, so it is refused.
@@ -2163,6 +2368,10 @@ Surreal :: {}.{
 			Ok(Prepared.({ statement, count: 1, atomic: No, read }))
 		}
 
+		## `prepare_one` of a query that has no parameter.
+		ready_one : Selected({}, out) -> Try(Prepared(Try(out, [NotFound])), Error) where [out.Cbor.Readable(errs)]
+		ready_one = |selected| selected.prepare_one({})
+
 		## The rows of the query, kept current: the twin of `prepare`. A
 		## `LIVE SELECT` on the table, and one on each other table that
 		## the rows read (see `Watched`), report every write that changes
@@ -2174,6 +2383,11 @@ Surreal :: {}.{
 		##
 		## The guard is necessary: a filter that reads `$before` of a
 		## `CREATE` fails, and SurrealDB then sends nothing (verified).
+		## A filter that reads the row only through its id and its edges
+		## has the same value before and after a write of the row, so the
+		## statement tests it once, and each notice has `now: true`:
+		##
+		## `LIVE SELECT VALUE { row: <row>, now: true } FROM t WHERE <p>`
 		## `tables` are the definitions that `Surreal.schema` takes: a link
 		## of the row finds its table there, as in the schema.
 		live : Selected(p, out), p, List(Defined) -> Try(Watch(out), Error) where [p.encoder_for : Encode.Format -> (p, Encode.State -> Try(Encode.State, []))]
@@ -2186,21 +2400,30 @@ Surreal :: {}.{
 			now = all_of(s.filters.map_try(|f| f(Now, param))?)?
 			before = all_of(s.filters.map_try(|f| f(Before, param))?)?
 			now_text = condition_text(now)?
-			watched = match (now, before) {
-				(When(p), When(q)) => " WHERE ${Translate.operand(p)?} OR ($before IS NOT NONE AND ${Translate.operand(q)?})"
-				_ => ""
+			(watched, node_now) = match (now, before) {
+				(When(p), When(q)) =>
+					if keyed_only(Translate.text(q)?) {
+						(" WHERE ${Translate.text(p)?}", "true")
+					} else {
+						(" WHERE ${Translate.operand(p)?} OR ($before IS NOT NONE AND ${Translate.operand(q)?})", now_text)
+					}
+				_ => ("", now_text)
 			}
-			node = { role: Node, surql: "LIVE SELECT VALUE { row: ${row}, now: ${now_text} } FROM ${name}${watched}" }
+			node = { role: Node, surql: "LIVE SELECT VALUE { row: ${row}, now: ${node_now} } FROM ${name}${watched}" }
 			edges = s.watched.keep_oks(
 				|w| match w {
 					Edge(e) => Ok({ role: Edge, surql: "LIVE SELECT VALUE { ref: ${e.node}, node: (SELECT VALUE { row: ${row}, now: ${now_text} } FROM ONLY $parent.${e.node}) } FROM ${Ql.ident(e.name)}" })
-					LinkAt(_) | Rows(_) => Err(NotEdge)
+					LinkAt(_) | Rows(_) | Near(_) => Err(NotEdge)
 				},
 			)
-			reads = read_lives(s.watched, Schema.tables(tables), "SELECT VALUE { ref: id, row: ${row}, now: ${now_text} } FROM ${name}")?
+			reads = read_lives(s.watched, Schema.tables(tables), "SELECT VALUE { ref: id, row: ${row}, now: ${now_text} }", name)?
 			snapshot = "SELECT VALUE { ref: id, row: ${row} } FROM ${name}${where_text(now)?}"
 			Ok(Watch.({ lets, lives: [node].concat(edges).concat(reads), snapshot }))
 		}
+
+		## `live` of a query that has no parameter: `live({}, tables)`.
+		ready_live : Selected({}, out), List(Defined) -> Try(Watch(out), Error)
+		ready_live = |selected, tables| selected.live({}, tables)
 
 		## Escape hatch: the server's own events for the rows of the query.
 		## There is no snapshot and no `$before`, so a row that no longer
@@ -2276,6 +2499,10 @@ Surreal :: {}.{
 
 		prepare : Started(p, out), p -> Try(Prepared(List(out)), Error) where [p.encoder_for : Encode.Format -> (p, Encode.State -> Try(Encode.State, [])), out.Cbor.Readable(errs)]
 		prepare = |Started.(selected), params| selected.prepare(params)
+
+		## `prepare` of a query that has no parameter.
+		ready : Started({}, out) -> Try(Prepared(List(out)), Error) where [out.Cbor.Readable(errs)]
+		ready = |Started.(selected)| selected.prepare({})
 	}
 
 	## The rows of a `Selected` after `limit`: no more `order_by`, `limit`
@@ -2295,6 +2522,10 @@ Surreal :: {}.{
 
 		prepare : Limited(p, out), p -> Try(Prepared(List(out)), Error) where [p.encoder_for : Encode.Format -> (p, Encode.State -> Try(Encode.State, [])), out.Cbor.Readable(errs)]
 		prepare = |Limited.(selected), params| selected.prepare(params)
+
+		## `prepare` of a query that has no parameter.
+		ready : Limited({}, out) -> Try(Prepared(List(out)), Error) where [out.Cbor.Readable(errs)]
+		ready = |Limited.(selected)| selected.prepare({})
 	}
 
 	## A write that reads a clause: an update or a delete. `gives` is the
@@ -2316,6 +2547,10 @@ Surreal :: {}.{
 			statement = bound_statement(|param| (w.build)(param).map_ok(|text| "${text}${back}"), params)?
 			Ok(Prepared.({ statement, count: 1, atomic: No, read: read_stored(0, w.edge) }))
 		}
+
+		## `prepare` of a write that has no parameter.
+		ready : Write({}, row) -> Try(Prepared(List(row)), Error) where [row.Cbor.Readable(errs)]
+		ready = |write| write.prepare({})
 	}
 
 	## A statement ready for a driver: the text with a `$name` per parameter,
@@ -2329,7 +2564,7 @@ Surreal :: {}.{
 		to_script : Statement -> Str
 		to_script = |Statement.(s)| {
 			lets = s.lets.map(|l| "LET $${l.name} = ${Ql.literal(l.value)};")
-			Str.join_with(lets.append("${s.surql};"), "\n")
+			Str.join_with(if (s.surql.is_empty()) lets else lets.append("${s.surql};"), "\n")
 		}
 
 		## One block of a script that `check.py` runs: the header line, the
@@ -2365,6 +2600,8 @@ Surreal :: {}.{
 	## | `Surreal.bind_captured` | `List(row)` | The rows of `select_where` |
 	## | `Prepared.then` | `(Try(a, Error), Try(b, Error))` | The result of each of two prepared statements, which run on their own |
 	## | `Transaction.commit` | `(a, b)`, `((a, b), c)`, .. | The results of the statements of one transaction, or one `Aborted` error |
+	## | `Surreal.transaction` | `List(out)` | The result of each statement of one transaction, or one `Aborted` error |
+	## | `Plan.prepare` | `{}` | Nothing, or the `Server` error of the statement that failed the section |
 	Prepared(out) :: { statement : Statement, count : U64, atomic : [No, Whole, Parts(List(U64))], read : List(Outcome) -> Try(out, Error) }.{
 
 		## The statement, for a script or a `check.py` block: in a
@@ -2439,6 +2676,24 @@ Surreal :: {}.{
 		## The transaction as one prepared statement, for `Session.run!`.
 		commit : Transaction(out) -> Prepared(out)
 		commit = |Transaction.(t)| Prepared.({ statement: t.statement, count: t.count, atomic: Parts(t.parts), read: t.read })
+	}
+
+	## Prepared statements with one type of result, as one transaction
+	## (`Transaction`): the result is the result of each, in order, or
+	## `Aborted` with the place of the one that failed it. A list with no
+	## statement is an `Unsupported` error.
+	transaction : List(Prepared(out)) -> Try(Prepared(List(out)), Error)
+	transaction = |all| {
+		Prepared.(first) = all.first() ? |_| Unsupported("a transaction needs a statement")
+		start = Transaction.({ statement: first.statement, count: first.count, parts: [first.count], read: |outcomes| (first.read)(outcomes).map_ok(|x| [x]) })
+		Transaction.(whole) = all.drop_first(1).fold_try(
+			start,
+			|Transaction.(t), Prepared.(p)| {
+				read = |outcomes| Ok((t.read)(outcomes.take_first(t.count))?.append((p.read)(outcomes.drop_first(t.count))?))
+				Ok(Transaction.({ statement: then_statement(t.statement, p.statement)?, count: t.count + p.count, parts: t.parts.append(p.count), read }))
+			},
+		)?
+		Ok(Transaction.(whole).commit())
 	}
 
 	## The result of one statement of a reply: its value, or its error, by
@@ -3420,6 +3675,56 @@ Surreal :: {}.{
 			Err(e) => { session, result: Err(e) }
 		}
 
+		## Applies the migration files that the database does not have, in
+		## the order of the list. The first request makes the history table
+		## `_reify_migration` (`IF NOT EXISTS`), reads the compatibility
+		## level (`INFO FOR DB`) and the history; when all files are applied
+		## it is the only request. Each section of a file is one transaction
+		## that also writes the history record, so a crash between sections
+		## goes on at the next section. Two runners at once: the record of
+		## the first section is created once, so one of them fails on it,
+		## reads the history again and goes on; no section runs twice. A
+		## file that the database applied and whose text changed, a file
+		## before an applied one, a `V4` file on a server that cannot run
+		## it and a squashed file over a part of its files are `Migration`
+		## errors, and nothing runs.
+		migrate! : Session, List(Migration) => Try({ session : Session, applied : Applied }, Error)
+		migrate! = |session, migrations| {
+			files = migrations.map(|Migration.(m)| m.file)
+			start = migration_state!(session)?
+			decided = Migrate.decide(start.history, files, start.server)?
+			var $session = start.session
+			var $ran = []
+			var $adopted = []
+			for action in decided.actions {
+				match action {
+					Run(r) =>
+						match files.find_first(|f| f.name == r.name) {
+							Ok(file) => {
+								done = run_sections!($session, file, r.from)?
+								$session = done.session
+								if done.mine {
+									$ran = $ran.append(r.name)
+								}
+							}
+							Err(_) => {}
+						}
+					Adopt(name) =>
+						match files.find_first(|f| f.name == name) {
+							Ok(file) => {
+								done = adopt_file!($session, file)?
+								$session = done.session
+								if done.mine {
+									$adopted = $adopted.append(name)
+								}
+							}
+							Err(_) => {}
+						}
+				}
+			}
+			Ok({ session: $session, applied: { ran: $ran, adopted: $adopted, ahead: decided.ahead, server: start.server } })
+		}
+
 		## Ends the live queries of a watch with the RPC method `kill`. Their
 		## queued notices are dropped, and so is a notice of them that comes
 		## later, `KILLED` too. The notices of other watches stay.
@@ -3512,7 +3817,9 @@ Surreal :: {}.{
 		## the result read, through a link or with `rows()`. `reached` are
 		## the rows of the result's table that the write reaches, as they
 		## are after the write, each with its record: the rows whose link
-		## is the written record, or every row for `rows()`. An update that
+		## is the written record; for `rows()`, the rows that the clause
+		## relates to the written row (`related`), or every row when the
+		## clause has no such relation (see `Watched`). An update that
 		## changes no field that the clauses read of the record reaches
 		## none (`read_lives`). Each sends one
 		## notice with the action of the write. A write that changes no
@@ -3525,6 +3832,21 @@ Surreal :: {}.{
 				Delete(_) => Delete
 			}
 			Ok(reached.map(|r| { action, role: Read, ref: r.ref, row: Ok(show(r.row)), now: keep(r.row) }))
+		}
+
+		## The rows of the result's table that one write reaches, when a
+		## clause reads the written table with `rows()` and relates its rows
+		## to the row of the result with an equality (`Near` in `Watched`):
+		## each of `rows` that `relates` holds for with the written row,
+		## before or after the write. A write that moves a row from one row
+		## of the result to another reaches both.
+		related : Edit(row), List({ ref : Ref, row : m }), (row, m -> Bool) -> List({ ref : Ref, row : m })
+		related = |change, rows, relates| {
+			written = match change {
+				Create(r) | Delete(r) => [r]
+				Replace(old, new) => [old, new]
+			}
+			rows.keep_if(|n| written.any(|w| relates(w, n.row)))
 		}
 
 		## The events one write of the table sends to a raw live
@@ -3577,7 +3899,8 @@ Surreal :: {}.{
 	## | `Edge({ name, node })` | An edge table of `outgoing` or `incoming`, or of an `Out` or `In` field of a read row. `node` is the end of an edge that is the row: `in` for `outgoing`, `out` for `incoming` | The row at the end of the edge |
 	## | `LinkAt({ path, target, lists, read })` | The table of the row type `target`, which a link that a clause reads through points at, a `Link` with `.get()` or a `Linked` (`Translate.reads`, `Types.lookup`). `read` is the field of the record that the clause reads, or `Whole` | The rows whose link at `path` is the written record |
 	## | `Rows(name)` | A table that a clause reads with `rows()` | Every row |
-	Watched : [Edge({ name : Str, node : Str }), LinkAt({ path : Str, target : Code.Ty, lists : U64, read : [Field(Str), Whole] }), Rows(Try(Str, Error))]
+	## | `Near({ name, related })` | A table that a clause reads with `rows()`, where each read keeps, finds or tests the rows with an equality to a value of the row (`Translate.narrowings`) | The rows that `related` gives, for the written record before and after the write |
+	Watched : [Edge({ name : Str, node : Str }), LinkAt({ path : Str, target : Code.Ty, lists : U64, read : [Field(Str), Whole] }), Rows(Try(Str, Error)), Near({ name : Str, related : Translate.Related })]
 
 	expect link_test("site", 0) == "site = $parent.id"
 	expect link_test("items[*].product", 1) == "$parent.id IN items[*].product"
@@ -3605,7 +3928,7 @@ Surreal :: {}.{
 ## (`intrinsic_forms`). Every type of `Surreal` with a method that takes
 ## `Code` names this one list as its `code_primitives`.
 cut : List(Code.PrimId)
-cut = [Code.prim(Link.get), Code.prim(Link.id), Code.prim(Id.is_eq), Code.prim(Id.key), Code.prim(Id.table), Code.prim(Datetime.is_lt), Code.prim(Datetime.is_lte), Code.prim(Text.is_ascii), Code.prim(Text.is_hexadecimal), Code.prim(Hash.sha256), Code.prim(Hash.blake3), Code.prim(Array.distinct), Code.prim(Array.union), Code.prim(Array.intersect), Code.prim(Array.complement), Code.prim(Time.floor), Code.prim(Time.ceil), Code.prim(Time.round), Code.prim(Time.year), Code.prim(Time.month), Code.prim(Time.day), Code.prim(Time.hour), Code.prim(Time.minute), Code.prim(Time.second), Code.prim(Math.mean), Code.prim(DbFn.call1), Code.prim(DbFn.call2), Code.prim(DbFn.call3), Code.prim(TimeKey.series), Code.prim(TimeKey.time), Code.prim(Geo.is_valid), Code.prim(Vector.similarity_cosine), Code.prim(Vector.distance_euclidean), Code.prim(Vector.distance_manhattan), Code.prim(Vector.distance_chebyshev), Code.prim(Vector.dot), Code.prim(Vector.magnitude)]
+cut = [Code.prim(Link.get), Code.prim(Link.id), Code.prim(Id.is_eq), Code.prim(Id.key), Code.prim(Id.table), Code.prim(Datetime.is_lt), Code.prim(Datetime.is_lte), Code.prim(Text.is_ascii), Code.prim(Text.is_hexadecimal), Code.prim(Hash.sha256), Code.prim(Hash.blake3), Code.prim(Array.distinct), Code.prim(Array.union), Code.prim(Array.intersect), Code.prim(Array.complement), Code.prim(Time.floor), Code.prim(Time.ceil), Code.prim(Time.round), Code.prim(Time.year), Code.prim(Time.month), Code.prim(Time.day), Code.prim(Time.hour), Code.prim(Time.minute), Code.prim(Time.second), Code.prim(Math.mean), Code.prim(Math.mean_dec), Code.prim(DbFn.call1), Code.prim(DbFn.call2), Code.prim(DbFn.call3), Code.prim(TimeKey.series), Code.prim(TimeKey.time), Code.prim(Geo.is_valid), Code.prim(Vector.similarity_cosine), Code.prim(Vector.distance_euclidean), Code.prim(Vector.distance_manhattan), Code.prim(Vector.distance_chebyshev), Code.prim(Vector.dot), Code.prim(Vector.magnitude)]
 
 
 ## The forms of the intrinsics of `Surreal`: the functions with a type and
@@ -3678,6 +4001,8 @@ intrinsic_forms = [
 	{ prim: Code.prim(Hit.offsets), form: Render(offsets_form) },
 	{ prim: Code.prim(Near.distance), form: Variable("vector::distance::knn()") },
 	{ prim: Code.prim(Table.rows), form: Rows },
+	{ prim: Code.prim(Table.edges_from), form: EdgesOf("->") },
+	{ prim: Code.prim(Table.edges_to), form: EdgesOf("<-") },
 ]
 
 ## The ids of the intrinsics of `Surreal`, as `intrinsic_forms` binds them.
@@ -3717,6 +4042,7 @@ surreal_library = Translate.forms(
 			{ prim: Code.prim(Time.minute), form: Function({ surql: "time::minute", random: Bool.False }) },
 			{ prim: Code.prim(Time.second), form: Function({ surql: "time::second", random: Bool.False }) },
 			{ prim: Code.prim(Math.mean), form: Aggregate("math::mean") },
+			{ prim: Code.prim(Math.mean_dec), form: FloatAggregate("math::mean") },
 			{ prim: Code.prim(Geo.is_valid), form: Function({ surql: "geo::is_valid", random: Bool.False }) },
 			{ prim: Code.prim(Vector.similarity_cosine), form: Function({ surql: "vector::similarity::cosine", random: Bool.False }) },
 			{ prim: Code.prim(Vector.distance_euclidean), form: Function({ surql: "vector::distance::euclidean", random: Bool.False }) },
@@ -3939,6 +4265,27 @@ is_edge = |kind| match kind {
 	Normal | View => Bool.False
 }
 
+## Whether a filter over `$before` reads the row only through its record
+## id (`$before.id`) and its edges (`$before<-e`, `$before->e`), which a
+## write of the row does not change.
+keyed_only : Str -> Bool
+keyed_only = |text| {
+	parts = text.split_on("$before")
+	parts.drop_first(1).all(
+		|rest| {
+			after_id = rest.drop_prefix(".id")
+			ends_id = rest.starts_with(".id") and (after_id.is_empty() or !Ql.is_plain(Str.from_utf8(after_id.to_utf8().take_first(1)) ?? ""))
+			ends_id or rest.starts_with("<-") or rest.starts_with("->")
+		},
+	)
+}
+
+expect keyed_only("type::record('kennel', record::id($before.id)).chain(|$v1| $v1)")
+expect keyed_only("$before<-cares_for.len() = 0")
+expect !keyed_only("$before.site.name = 'Oslo'")
+expect !keyed_only("$before.identity = 1")
+expect !keyed_only("fn::fever($before.temp_c, $before.pulse)")
+
 ## The text after `FROM`.
 from_text : Target, (Str -> Str) -> Try(Str, Error)
 from_text = |target, param| match target {
@@ -3951,7 +4298,7 @@ from_text = |target, param| match target {
 is_edge_of : Watched -> Bool
 is_edge_of = |w| match w {
 	Edge(_) => Bool.True
-	LinkAt(_) | Rows(_) => Bool.False
+	LinkAt(_) | Rows(_) | Near(_) => Bool.False
 }
 
 ## The `LIVE` of each table that the rows read, after those of the
@@ -3968,12 +4315,20 @@ is_edge_of = |w| match w {
 ## delete always send (verified):
 ##
 ## `LIVE SELECT VALUE (..) FROM site WHERE $before IS NONE OR $after IS NONE OR $before.name != $after.name`
-read_lives : List(Watched), Types.Registry, Str -> Try(List({ role : Role, surql : Str }), Error)
-read_lives = |watched, registry, rows| {
+##
+## A table of `Near` gives the rows that its relations reach, where the
+## relation reads the written record before and after the write (see
+## `near_rows`). When the rows are records of the result's table, the
+## subquery reads them, and no other row:
+##
+## `LIVE SELECT VALUE (SELECT VALUE { ref: id, .. } FROM record::id($parent.id)[0]) FROM vital`
+read_lives : List(Watched), Types.Registry, Str, Str -> Try(List({ role : Role, surql : Str }), Error)
+read_lives = |watched, registry, select, table| {
 	reached = watched.map_try(
 		|w| match w {
 			Edge(_) => Ok([])
 			Rows(name) => Ok([{ table: name?, test: Whole, read: Whole }])
+			Near(n) => Ok([{ table: n.name, test: Near(n.related), read: Whole }])
 			LinkAt(l) =>
 				match Types.lookup(registry, l.target) {
 					Ok(found) => Ok([{ table: found, test: Test(link_test(l.path, l.lists)), read: l.read }])
@@ -3987,17 +4342,20 @@ read_lives = |watched, registry, rows| {
 		names.map(
 			|named| {
 				of_table = reached.keep_if(|r| r.table == named)
-				tests = of_table.map(|r| r.test)
-				condition = if tests.contains(Whole) {
-					""
-				} else {
-					texts = tests.keep_oks(
-						|t| match t {
-							Test(text) => Ok(text)
-							Whole => Err(NoTest)
-						},
-					)
-					" WHERE ${Str.join_with(distinct(texts), " OR ")}"
+				tests = distinct(of_table.map(|r| r.test))
+				rows = match tests {
+					_ if tests.contains(Whole) => "${select} FROM ${table}"
+					[Near(r)] if r.node == "id" => "${select} FROM ${near_rows(r)}"
+					_ => {
+						texts = tests.keep_oks(
+							|t| match t {
+								Test(text) => Ok(text)
+								Near(r) => Ok(near_test(r))
+								Whole => Err(NoTest)
+							},
+						)
+						"${select} FROM ${table} WHERE ${Str.join_with(texts, " OR ")}"
+					}
 				}
 				reads = of_table.map(|r| r.read)
 				changed = if reads.contains(Whole) {
@@ -4011,11 +4369,32 @@ read_lives = |watched, registry, rows| {
 					)
 					" WHERE $before IS NONE OR $after IS NONE OR ${Str.join_with(distinct(fields).map(|f| "$before.${f} != $after.${f}"), " OR ")}"
 				}
-				{ role: Read, surql: "LIVE SELECT VALUE (${rows}${condition}) FROM ${Ql.ident(named)}${changed}" }
+				{ role: Read, surql: "LIVE SELECT VALUE (${rows}) FROM ${Ql.ident(named)}${changed}" }
 			},
 		),
 	)
 }
+
+## The values of a relation of `Near` over the written record: of the
+## record, `$parent`, when the relation reads only its id; else of the
+## record before and after the write, so that a row the write moves from
+## one row of the result to another reaches both. `$before` of a `CREATE`
+## and `$after` of a `DELETE` are NONE, and are left out (verified on
+## SurrealDB 3.3.5 and 4.0.0).
+near_rows : Translate.Related -> Str
+near_rows = |r| {
+	docs = "[$before, $after].filter(|$w| $w != NONE).map(|$w| ${r.each})"
+	match (r.fixed, r.many) {
+		(Bool.True, Bool.False) => r.written
+		(Bool.True, Bool.True) => "array::distinct(${r.written})"
+		(Bool.False, Bool.False) => "array::distinct(${docs})"
+		(Bool.False, Bool.True) => "array::distinct(array::flatten(${docs}))"
+	}
+}
+
+## The test of a relation of `Near` over a row of the result.
+near_test : Translate.Related -> Str
+near_test = |r| if (r.fixed and !r.many) "${r.node} = ${r.written}" else "${r.node} IN ${near_rows(r)}"
 
 ## The test that the link at `path` is the written record. Under
 ## `lists` lists, the path gives a list of lists, which
@@ -4037,15 +4416,42 @@ add_watched = |kept, w| if (kept.contains(w)) kept else kept.append(w)
 ## the table of each row that it reads through a link, at the path of
 ## the link (`Translate.reads`), and each table that it reads with
 ## `rows()`. `params` are what the clause's parameters are.
-reached_watches : List(Watched), Code.Graph, List(Translate.Reach) -> List(Watched)
-reached_watches = |watched, graph, params| {
+reached_watches : List(Watched), Code.Graph, List(Translate.Reach), Try(List(Translate.Narrow), [Unknown]) -> List(Watched)
+reached_watches = |watched, graph, params, narrows| {
 	reads = Translate.reads(own, graph, params).reads.map(
 		|r| match r {
 			Hop(site) => LinkAt(site)
 			Edges(e) => Edge(e)
+			Every(name) => Rows(Ok(name))
 		},
 	)
-	reads.concat(rows_read(graph)).fold(watched, add_watched)
+	reads.concat(rows_read(graph).join_map(|w| near(w, narrows))).fold(watched, add_watched)
+}
+
+## A table of `rows()` as the rows that a write to it reaches: `Near`
+## when each read of the table in the clause is `Related`, else every
+## row. A read that the walk did not find is every row.
+near : Watched, Try(List(Translate.Narrow), [Unknown]) -> List(Watched)
+near = |w, narrows| match (w, narrows) {
+	(Rows(Ok(name)), Ok(found)) => {
+		mine = found.keep_if(|n| n.table == Ql.ident(name))
+		related = mine.keep_oks(
+			|n| match n.reach {
+				Related(r) => Ok(r)
+				Every => Err(Every)
+			},
+		)
+		if mine.is_empty() or related.len() != mine.len() [w] else related.map(|r| Near({ name, related: r }))
+	}
+	_ => [w]
+}
+
+## The reads of `rows()` in a clause over `bindings`, as a live query
+## spells them (`Translate.narrowings`).
+narrowed : Code.Graph, Try(List(Translate.Binding), Error) -> Try(List(Translate.Narrow), [Unknown])
+narrowed = |graph, bindings| match bindings {
+	Ok(found) => Translate.narrowings(own, graph, found, Translate.variable).map_err(|_| Unknown)
+	Err(_) => Err(Unknown)
 }
 
 ## The tables that a clause reads with `rows()`, each by the literal
@@ -4110,6 +4516,13 @@ with_edges = |row, edges| match row? {
 	Row({ at, of: Doc(named), edge }) => Ok(Translate.Binding.WithEdges(Translate.Binding.Row({ at, of: Doc(named), edge }), [edges(at)]))
 	WithEdges(Row({ at, of: Doc(named), edge }), lists) => Ok(Translate.Binding.WithEdges(Translate.Binding.Row({ at, of: Doc(named), edge }), lists.append(edges(at))))
 	_ => Err(Unsupported("only a row of a table has edges; take `outgoing` or `incoming` before `select`"))
+}
+
+## The tables at the ends of an edge table, for a hop to an end.
+ends_of : TableKind -> Translate.Ends
+ends_of = |kind| match kind {
+	Relation(ends) => ends
+	_ => Translate.any_ends
 }
 
 ## The row of `Query.search` and `Query.nearest`: the pair of the table
@@ -4401,6 +4814,15 @@ whole_rows = |Query.(q), ty| {
 		_ => Err(value_order)
 	}
 	selected_of(q, { columns, value, intrinsic: [] }, results, [], { ty, over: Projected(q.source), nested: nested_row(ty) })
+}
+
+## The whole rows of a query, as `select(|r| r)` has them. `ty` is the
+## type of the row: `Code.ty_of` describes it where the call fixes `row`.
+whole_of : Query(p, row) -> Selected(p, row)
+whole_of = |query| {
+	proxy : Code.Proxy(row)
+	proxy = Code.proxy()
+	whole_rows(query, Code.ty_of(proxy))
 }
 
 aliased : List({ name : Str, surql : Str }) -> Str
@@ -5652,4 +6074,106 @@ expect match no_deadline {
 expect match within_of(scripted(pushing, Within(|_ms| Err(Wire("scripted"))))) {
 	Ok(_) => Bool.True
 	Err(_) => Bool.False
+}
+
+# ========================================================= migrations
+
+## A request of migration statements: the session after it, and the
+## result of each statement. Only a failed read is an error here.
+migration_request! : Session, Str => Try({ session : Session, outcomes : List(Outcome) }, Error)
+migration_request! = |session, text| {
+	got = Unchecked.query!(session, text)?
+	Ok({ session: got.session, outcomes: reply_outcomes(got.reply, [])? })
+}
+
+## The error that failed a request: the first that does not follow
+## another one.
+first_failure : List(Outcome) -> Try(ServerError, [NoFailure])
+first_failure = |outcomes| {
+	errors = outcomes.keep_oks(
+		|o| match o {
+			Err(f) => Ok(f)
+			Ok(_) => Err(Fine)
+		},
+	)
+	match errors.find_first(|f| !f.follows) {
+		Ok(f) => Ok(f.error)
+		Err(_) => errors.first().map_ok(|f| f.error).map_err(|_| NoFailure)
+	}
+}
+
+## The result at `at`, read as `out`.
+outcome_at : List(Outcome), U64 -> Try(out, Error) where [out.Cbor.Readable(errs)]
+outcome_at = |outcomes, place| match outcomes.get(place) {
+	Ok(Ok(value)) => row_of(value)
+	Ok(Err(f)) => Err(Server(f.error))
+	Err(_) => Err(Wire("the reply to the migration history has ${outcomes.len().to_str()} results"))
+}
+
+## The history table, the server and the history (`Migrate.bootstrap`).
+## Two runners that make the table at once can conflict: it tries again.
+migration_state! : Session => Try({ session : Session, history : List(Migrate.Row), server : Migrate.Server }, Error)
+migration_state! = |session| {
+	var $session = session
+	var $tries = 0
+	while $tries < 3 {
+		got = migration_request!($session, Migrate.bootstrap)?
+		$session = got.session
+		match first_failure(got.outcomes) {
+			Ok(Conflict(_)) => {}
+			Ok(error) => return Err(Server(error))
+			Err(_) => {
+				count = got.outcomes.len()
+				level : Str
+				level = outcome_at(got.outcomes, count - 2)?
+				history : List(Migrate.Row)
+				history = outcome_at(got.outcomes, count - 1)?
+				return Ok({ session: $session, history, server: Migrate.server_of(level) })
+			}
+		}
+		$tries = $tries + 1
+	}
+	Err(Wire("the migration history conflicted three times"))
+}
+
+## Runs the sections of a file from `from`. A section that fails because
+## another runner applied it (the history shows it) is not an error.
+## `mine` is true when this runner applied a section.
+run_sections! : Session, Migrate.File, U64 => Try({ session : Session, mine : Bool }, Error)
+run_sections! = |session, file, from| {
+	var $session = session
+	var $mine = Bool.False
+	var $k = from
+	while $k <= file.sections.len() {
+		got = migration_request!($session, Migrate.request(file, $k))?
+		$session = got.session
+		match first_failure(got.outcomes) {
+			Ok(error) => {
+				state = migration_state!($session)?
+				$session = state.session
+				match state.history.find_first(|h| h.name == file.name) {
+					Ok(h) if h.checksum == file.checksum and h.done >= $k => {}
+					_ => return Err(Server(error))
+				}
+			}
+			Err(_) => {
+				$mine = Bool.True
+			}
+		}
+		$k = $k + 1
+	}
+	Ok({ session: $session, mine: $mine })
+}
+
+## Records a squashed file without running it.
+adopt_file! : Session, Migrate.File => Try({ session : Session, mine : Bool }, Error)
+adopt_file! = |session, file| {
+	got = migration_request!(session, Migrate.adopt(file))?
+	match first_failure(got.outcomes) {
+		Ok(error) => {
+			state = migration_state!(got.session)?
+			if state.history.any(|h| h.name == file.name) Ok({ session: state.session, mine: Bool.False }) else Err(Server(error))
+		}
+		Err(_) => Ok({ session: got.session, mine: Bool.True })
+	}
 }

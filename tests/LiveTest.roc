@@ -124,7 +124,29 @@ kelvin = { ..celsius, unit: "K" }
 reached : List({ ref : Surreal.Ref, row : Sensor })
 reached = [{ ref: ref_a, row: hot_a }, { ref: ref_b, row: sensor_b }]
 
-read_notices_of : Surreal.Edit(Gauge), List({ ref : Surreal.Ref, row : Sensor }) -> List(([Create, Update, Delete], Surreal.Ref, Bool, Try(Line, [Gone])))
+## A probe names its sensor by key. A clause that reads the probes with
+## `rows()` and this equality reaches only the sensors that a write names.
+Probe : { id : Str, sensor : Str }
+
+on_probe : Probe, Sensor -> Bool
+on_probe = |p, s| p.sensor == s.id
+
+probe_a : Probe
+probe_a = { id: "p", sensor: "a" }
+
+probe_b : Probe
+probe_b = { ..probe_a, sensor: "b" }
+
+related_refs : Surreal.Edit(Probe) -> List(Surreal.Ref)
+related_refs = |edit| Surreal.Mirror.related(edit, reached, on_probe).map(|r| r.ref)
+
+expect related_refs(Create(probe_a)) == [ref_a]
+# A probe that moves reaches its old sensor and its new one.
+expect related_refs(Replace(probe_a, probe_b)) == [ref_a, ref_b]
+expect related_refs(Delete(probe_b)) == [ref_b]
+expect related_refs(Create({ id: "q", sensor: "z" })) == []
+
+read_notices_of : Surreal.Edit(Gauge), List({ ref : Surreal.Ref, row : Sensor }) ->List(([Create, Update, Delete], Surreal.Ref, Bool, Try(Line, [Gone])))
 read_notices_of = |edit, rows| match Surreal.Mirror.read_notices(gauges, edit, rows, hot, line) {
 	Ok(notices) => notices.map(|n| (n.action, n.ref, n.now, n.row))
 	Err(_) => crash "the rows encode"
@@ -255,4 +277,4 @@ two_hops = |c| c.?next.map_ok(|n| n.?next.map_ok(|m| m.label) ?? "-") ?? "-"
 # before it, whose `next.next` is, when it changes `next` or `label`, the
 # fields that the clause reads. The `Linked(ChainRead)` finds its table by
 # the read row, which `define_read` lists.
-expect Surreal.from(chain_reads).select_value(two_hops).live({}, [chains.define().done(), chain_reads.define_read()]).map_ok(|w| w.request()) == Ok("LIVE SELECT VALUE { row: (IF next IS NONE THEN NONE ELSE (IF next.next IS NONE THEN NONE ELSE next.next.label END) ?? '-' END) ?? '-', now: true } FROM chain;\nLIVE SELECT VALUE (SELECT VALUE { ref: id, row: (IF next IS NONE THEN NONE ELSE (IF next.next IS NONE THEN NONE ELSE next.next.label END) ?? '-' END) ?? '-', now: true } FROM chain WHERE next = $parent.id OR next.next = $parent.id) FROM chain WHERE $before IS NONE OR $after IS NONE OR $before.next != $after.next OR $before.label != $after.label;\nSELECT VALUE { ref: id, row: (IF next IS NONE THEN NONE ELSE (IF next.next IS NONE THEN NONE ELSE next.next.label END) ?? '-' END) ?? '-' } FROM chain;")
+expect Surreal.from(chain_reads).select_value(two_hops).live({}, [chains.define().done(), chain_reads.define_read()]).map_ok(|w| w.request()) == Ok("LIVE SELECT VALUE { row: (IF next IS NONE THEN NONE ELSE next.next.label ?? '-' END) ?? '-', now: true } FROM chain;\nLIVE SELECT VALUE (SELECT VALUE { ref: id, row: (IF next IS NONE THEN NONE ELSE next.next.label ?? '-' END) ?? '-', now: true } FROM chain WHERE next = $parent.id OR next.next = $parent.id) FROM chain WHERE $before IS NONE OR $after IS NONE OR $before.next != $after.next OR $before.label != $after.label;\nSELECT VALUE { ref: id, row: (IF next IS NONE THEN NONE ELSE next.next.label ?? '-' END) ?? '-' } FROM chain;")

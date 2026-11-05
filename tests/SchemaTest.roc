@@ -146,9 +146,9 @@ expect script_of([customer_def, product_def, order_def, purchased_def]) == [
 	"DEFINE FIELD OVERWRITE gift ON order TYPE option<object>;",
 	"DEFINE FIELD OVERWRITE gift.note ON order TYPE string;",
 	"DEFINE FIELD OVERWRITE gift.to ON order TYPE record<customer> ASSERT record::exists($value);",
-	"DEFINE FIELD OVERWRITE items ON order TYPE array<object> ASSERT $value.all(|$e| object::keys($e).all(|$k| $k IN ['product', 'qty']));",
-	"DEFINE FIELD OVERWRITE items[*].product ON order TYPE record<product> ASSERT record::exists($value);",
-	"DEFINE FIELD OVERWRITE items[*].qty ON order TYPE int ASSERT $value > 0;",
+	"DEFINE FIELD OVERWRITE items ON order TYPE array<{ product: record<product>, qty: int }> ASSERT ($value.len() = 0) OR ($this.total > 0.0dec);",
+	"DEFINE FIELD OVERWRITE items[*].product ON order ASSERT record::exists($value);",
+	"DEFINE FIELD OVERWRITE items[*].qty ON order ASSERT $value > 0;",
 	"DEFINE FIELD OVERWRITE payment ON order TYPE { kind: \"Card\", last4: string } | \"Cash\" | { kind: \"Invoice\", contact: record<customer>, due: string } ASSERT ((IF $value.kind = 'Invoice' THEN record::exists($value.contact) ELSE true END)) AND ((IF $value.kind = 'Invoice' THEN $value.due != '' ELSE true END));",
 	"DEFINE FIELD OVERWRITE total ON order TYPE decimal ASSERT $value >= 0.0dec COMMENT 'in euros';",
 	"DEFINE FIELD OVERWRITE wishlist ON order TYPE array<record<product>> REFERENCE ON DELETE UNSET ASSERT $value.all(|$e1| record::exists($e1));",
@@ -159,10 +159,9 @@ expect script_of([customer_def, product_def, order_def, purchased_def]) == [
 	"DEFINE INDEX OVERWRITE order_gift_to_link ON order FIELDS gift.to;",
 	"DEFINE INDEX OVERWRITE order_items_product_link ON order FIELDS items[*].product;",
 	"DEFINE INDEX OVERWRITE purchased_in_out_unique ON purchased FIELDS in, out UNIQUE;",
-	"DEFINE EVENT OVERWRITE order_check_total_matches_items ON order WHEN $event IN ['CREATE', 'UPDATE'] THEN { IF !(($after.items.len() = 0) OR ($after.total > 0.0dec)) { THROW 'order: total matches items' } };",
 	"DEFINE EVENT OVERWRITE purchased_check_not_a_gift_to_self ON purchased WHEN $event IN ['CREATE', 'UPDATE'] THEN { IF !(($after.quantity < 100) OR ($after.in.name != '')) { THROW 'purchased: not a gift to self' } };",
 	"DEFINE EVENT OVERWRITE order_gift_to_on_delete ON customer WHEN $event = 'DELETE' THEN { DELETE order WHERE gift.to = $before.id };",
-	"DEFINE EVENT OVERWRITE order_items_product_on_delete ON product WHEN $event = 'DELETE' THEN { IF (SELECT VALUE id FROM order WHERE items.any(|$e1| $e1.product = $before.id) LIMIT 1) != [] { THROW <string>$before.id + ' is referenced by order.items[*].product' } };",
+	"DEFINE EVENT OVERWRITE order_items_product_on_delete ON product WHEN $event = 'DELETE' THEN { IF (SELECT VALUE id FROM order WHERE $before.id IN items[*].product LIMIT 1) != [] { THROW <string>$before.id + ' is referenced by order.items[*].product' } };",
 	"DEFINE EVENT OVERWRITE order_payment_Invoice_contact_on_delete ON customer WHEN $event = 'DELETE' THEN { DELETE order WHERE (payment.kind = 'Invoice' AND payment.contact = $before.id) };",
 ]
 
@@ -211,9 +210,32 @@ expect lines_with([customers.define().done(), products.define().done(), orders.d
 	"DEFINE FIELD OVERWRITE gift.to ON order TYPE record<customer> ASSERT record::exists($value);",
 ]
 
-# Two fields: an event over `$after`.
-expect lines_with([customers.define().check("name in email", |c| c.email.contains(c.name)).done()], "_check_") == [
+# Two fields: the `ASSERT` of the first of them, over `$value` and `$this`.
+expect lines_with([customers.define().check("name in email", |c| c.email.contains(c.name)).done()], "$this") == [
+	"DEFINE FIELD OVERWRITE email ON customer TYPE string ASSERT string::contains($value, $this.name);",
+]
+
+# A read-only field holds no check (its assert does not run when it does not change): the next one does.
+expect lines_with([customers.define().readonly(|c| c.email).check("name in email", |c| c.email.contains(c.name)).done()], "$this") == [
+	"DEFINE FIELD OVERWRITE name ON customer TYPE string ASSERT string::contains($this.email, $value);",
+]
+
+# With every field read-only, or with a field permission, it is an event over `$after`.
+expect lines_with([customers.define().readonly(|c| c.email).readonly(|c| c.name).check("name in email", |c| c.email.contains(c.name)).done()], "_check_") == [
 	"DEFINE EVENT OVERWRITE customer_check_name_in_email ON customer WHEN $event IN ['CREATE', 'UPDATE'] THEN { IF !(string::contains($after.email, $after.name)) { THROW 'customer: name in email' } };",
+]
+expect lines_with([customers.define().deny_field(|c| c.email, [Update]).deny_field(|c| c.name, [Update]).check("name in email", |c| c.email.contains(c.name)).done()], "_check_") == [
+	"DEFINE EVENT OVERWRITE customer_check_name_in_email ON customer WHEN $event IN ['CREATE', 'UPDATE'] THEN { IF !(string::contains($after.email, $after.name)) { THROW 'customer: name in email' } };",
+]
+
+# An optional field holds no check (its assert does not run when it is NONE, verified): the required field does.
+expect lines_with([customer_def, product_def, orders.define().check("gift needs a total", |o| o.?gift.is_err() or o.total > 0).done()], "ON order TYPE decimal") == [
+	"DEFINE FIELD OVERWRITE total ON order TYPE decimal ASSERT ($this.gift IS NONE) OR ($value > 0.0dec);",
+]
+
+# A check that reads the key reads a field with no definition: an event.
+expect lines_with([customers.define().check("key is name", |c| c.id != c.name).done()], "_check_") == [
+	"DEFINE EVENT OVERWRITE customer_check_key_is_name ON customer WHEN $event IN ['CREATE', 'UPDATE'] THEN { IF !(record::id($after.id) != $after.name) { THROW 'customer: key is name' } };",
 ]
 
 # The record key is not a field definition, so a check on it is an event.
@@ -225,8 +247,8 @@ expect lines_with([customers.define().check("key", |c| c.id != "root").done()], 
 expect problem_of([customers.define().check("always", |_| Bool.True).done()]) == "BadSchema: the check `always` reads no field, so it is always or never true"
 
 # An element check that reads two element fields goes on the list.
-expect lines_with([customers.define().done(), products.define().done(), orders.define().assert_each(|o| o.items, |i| i.qty > 0 and i.product.get().stock > 0).done()], "ON order TYPE array<object>") == [
-	"DEFINE FIELD OVERWRITE items ON order TYPE array<object> ASSERT ($value.all(|$e| object::keys($e).all(|$k| $k IN ['product', 'qty']))) AND ($value.all(|$item| ($item.qty > 0) AND ($item.product.stock > 0)));",
+expect lines_with([customers.define().done(), products.define().done(), orders.define().assert_each(|o| o.items, |i| i.qty > 0 and i.product.get().stock > 0).done()], "ON order TYPE array<{") == [
+	"DEFINE FIELD OVERWRITE items ON order TYPE array<{ product: record<product>, qty: int }> ASSERT $value.all(|$item| ($item.qty > 0) AND ($item.product.stock > 0));",
 ]
 
 # ------------------------------------------------------ paths that are refused
@@ -293,7 +315,7 @@ expect shapes_with(Reject) == [
 	"DEFINE INDEX OVERWRITE h_rows_l_link ON h FIELDS rows[*].l;",
 	"DEFINE EVENT OVERWRITE h_arm_Has_l_on_delete ON p WHEN $event = 'DELETE' THEN { IF (SELECT VALUE id FROM h WHERE (arm.kind = 'Has' AND arm.l = $before.id) LIMIT 1) != [] { THROW <string>$before.id + ' is referenced by h.arm.l' } };",
 	"DEFINE EVENT OVERWRITE h_obj_l_on_delete ON p WHEN $event = 'DELETE' THEN { IF (SELECT VALUE id FROM h WHERE obj.l = $before.id LIMIT 1) != [] { THROW <string>$before.id + ' is referenced by h.obj.l' } };",
-	"DEFINE EVENT OVERWRITE h_rows_l_on_delete ON p WHEN $event = 'DELETE' THEN { IF (SELECT VALUE id FROM h WHERE rows.any(|$e1| $e1.l = $before.id) LIMIT 1) != [] { THROW <string>$before.id + ' is referenced by h.rows[*].l' } };",
+	"DEFINE EVENT OVERWRITE h_rows_l_on_delete ON p WHEN $event = 'DELETE' THEN { IF (SELECT VALUE id FROM h WHERE $before.id IN rows[*].l LIMIT 1) != [] { THROW <string>$before.id + ' is referenced by h.rows[*].l' } };",
 ]
 
 expect shapes_with(Cascade) == [
@@ -305,7 +327,7 @@ expect shapes_with(Cascade) == [
 	"DEFINE INDEX OVERWRITE h_rows_l_link ON h FIELDS rows[*].l;",
 	"DEFINE EVENT OVERWRITE h_arm_Has_l_on_delete ON p WHEN $event = 'DELETE' THEN { DELETE h WHERE (arm.kind = 'Has' AND arm.l = $before.id) };",
 	"DEFINE EVENT OVERWRITE h_obj_l_on_delete ON p WHEN $event = 'DELETE' THEN { DELETE h WHERE obj.l = $before.id };",
-	"DEFINE EVENT OVERWRITE h_rows_l_on_delete ON p WHEN $event = 'DELETE' THEN { DELETE h WHERE rows.any(|$e1| $e1.l = $before.id) };",
+	"DEFINE EVENT OVERWRITE h_rows_l_on_delete ON p WHEN $event = 'DELETE' THEN { DELETE h WHERE $before.id IN rows[*].l };",
 ]
 
 # Ignore: native `IGNORE` at the root, and no event or index below it.
@@ -324,7 +346,7 @@ expect policy_lines(unsettable.define().on_delete(ps, Unset).done()) == [
 	"DEFINE INDEX OVERWRITE h_obj_l_link ON h FIELDS obj.l;",
 	"DEFINE INDEX OVERWRITE h_rows_l_link ON h FIELDS rows[*].l;",
 	"DEFINE EVENT OVERWRITE h_obj_l_on_delete ON p WHEN $event = 'DELETE' THEN { UPDATE h SET obj.l = NONE WHERE obj.l = $before.id };",
-	"DEFINE EVENT OVERWRITE h_rows_l_on_delete ON p WHEN $event = 'DELETE' THEN { UPDATE h SET rows = rows.filter(|$e1| !($e1.l = $before.id)) WHERE rows.any(|$e1| $e1.l = $before.id) };",
+	"DEFINE EVENT OVERWRITE h_rows_l_on_delete ON p WHEN $event = 'DELETE' THEN { UPDATE h SET rows = rows.filter(|$e1| !($e1.l = $before.id)) WHERE $before.id IN rows[*].l };",
 ]
 
 # Unset is refused where nothing can be unset: a required root, an arm.
@@ -380,8 +402,8 @@ not_self_referred = |c| match c.?referrer {
 	Err(_) => Bool.True
 }
 
-expect lines_with([customers.define().check("not self-referred", not_self_referred).done()], "_check_") == [
-	"DEFINE EVENT OVERWRITE customer_check_not_self_referred ON customer WHEN $event IN ['CREATE', 'UPDATE'] THEN { IF !((IF $after.referrer IS NONE THEN true ELSE $after.referrer.name != $after.name END)) { THROW 'customer: not self-referred' } };",
+expect lines_with([customers.define().check("not self-referred", not_self_referred).done()], "$this") == [
+	"DEFINE FIELD OVERWRITE name ON customer TYPE string ASSERT (IF $this.referrer IS NONE THEN true ELSE $this.referrer.name != $value END);",
 ]
 
 # Database functions: one `DEFINE FUNCTION` for each, before the tables. A parameter has the type of a field,
@@ -429,7 +451,7 @@ expect script_of([customer_def, Surreal.function(|_| twice_sum_fn), Surreal.func
 ]
 expect problem_of([Surreal.function(|_| twice_sum_fn), Surreal.function(|_| other_sum_fn)]) == "BadSchema: two database functions are named `fn::sum_to` and have different bodies"
 expect problem_of([Surreal.function(|_| named_by_fn)]) == "BadSchema: in `fn::named_by`: no table holds the row type `Customer`; list its table in the schema"
-expect lines_with([orders.define().check("settled", |o| settled_fn.call2(o.payment, o.total)).done(), customer_def, product_def, Surreal.function(|_| settled_fn)], "order_check") == ["DEFINE EVENT OVERWRITE order_check_settled ON order WHEN $event IN ['CREATE', 'UPDATE'] THEN { IF !(fn::settled($after.payment, $after.total)) { THROW 'order: settled' } };"]
+expect lines_with([orders.define().check("settled", |o| settled_fn.call2(o.payment, o.total)).done(), customer_def, product_def, Surreal.function(|_| settled_fn)], "fn::settled($value") == ["DEFINE FIELD OVERWRITE payment ON order TYPE { kind: \"Card\", last4: string } | \"Cash\" | { kind: \"Invoice\", contact: record<customer>, due: string } ASSERT ((IF $value.kind = 'Invoice' THEN record::exists($value.contact) ELSE true END)) AND (fn::settled($value, $this.total));"]
 
 # ------------------------------------------------------------ time series
 
@@ -465,8 +487,8 @@ reading_def = readings.define().changefeed(Surreal.Time.days(7)).done()
 expect script_of([Surreal.function(|_| hot_fn), product_def, reading_def, daily.define_as(Surreal.from(readings).group_by(day_of), day_line).done()]) == [
 	"DEFINE FUNCTION OVERWRITE fn::hot($a1: int) -> bool { RETURN $a1 > 5 };",
 	"DEFINE TABLE OVERWRITE product SCHEMAFULL;",
-	"DEFINE TABLE OVERWRITE reading SCHEMAFULL CHANGEFEED 604800000000000ns;",
-	"DEFINE TABLE OVERWRITE reading_daily TYPE NORMAL AS SELECT time::floor(record::id(id)[1], duration::from_nanos(86400000000000)) AS day, count(fn::hot(level)) AS hot, record::id(id)[0] AS product, count() AS readings FROM reading GROUP BY day, product;",
+	"DEFINE TABLE OVERWRITE reading SCHEMAFULL CHANGEFEED 1w;",
+	"DEFINE TABLE OVERWRITE reading_daily TYPE NORMAL AS SELECT time::floor(record::id(id)[1], 1d) AS day, count(fn::hot(level)) AS hot, record::id(id)[0] AS product, count() AS readings FROM reading GROUP BY day, product;",
 	"DEFINE FIELD OVERWRITE label ON product TYPE string VALUE $this.title + '!';",
 	"DEFINE FIELD OVERWRITE price ON product TYPE decimal;",
 	"DEFINE FIELD OVERWRITE stock ON product TYPE int DEFAULT 0 ASSERT $value >= -2147483648 AND $value <= 2147483647;",
@@ -477,7 +499,7 @@ expect script_of([Surreal.function(|_| hot_fn), product_def, reading_def, daily.
 ]
 
 # A changefeed on an edge table, and two changefeeds.
-expect lines_with([customer_def, product_def, purchased.define().changefeed(Surreal.Time.hours(1)).done()], "TABLE OVERWRITE purchased") == ["DEFINE TABLE OVERWRITE purchased TYPE RELATION IN customer OUT product ENFORCED SCHEMAFULL CHANGEFEED 3600000000000ns;"]
+expect lines_with([customer_def, product_def, purchased.define().changefeed(Surreal.Time.hours(1)).done()], "TABLE OVERWRITE purchased") == ["DEFINE TABLE OVERWRITE purchased TYPE RELATION IN customer OUT product ENFORCED SCHEMAFULL CHANGEFEED 1h;"]
 expect problem_of([product_def, readings.define().changefeed(Surreal.Time.days(1)).changefeed(Surreal.Time.days(2)).done()]) == "BadSchema: `reading` has two changefeeds"
 
 # A view is read-only: it takes no rule.
@@ -777,7 +799,7 @@ memo_def =
 # names are `NONE`, SurrealDB's default for a table. A field names only
 # its own, and the rest are `FULL`. The record user is `$auth.id`.
 expect script_of([user_def, memo_def, account_def]) == [
-	"DEFINE TABLE OVERWRITE user SCHEMAFULL PERMISSIONS FOR select WHERE type::record('user', record::id(id)) = $auth.id, FOR create, update, delete NONE;",
+	"DEFINE TABLE OVERWRITE user SCHEMAFULL PERMISSIONS FOR select WHERE id = $auth.id, FOR create, update, delete NONE;",
 	"DEFINE TABLE OVERWRITE memo SCHEMAFULL PERMISSIONS FOR select WHERE (owner = $auth.id) OR shared, FOR create, update, delete WHERE owner = $auth.id;",
 	"DEFINE FIELD OVERWRITE email ON user TYPE string;",
 	"DEFINE FIELD OVERWRITE pass ON user TYPE string PERMISSIONS FOR select NONE;",
@@ -785,7 +807,7 @@ expect script_of([user_def, memo_def, account_def]) == [
 	"DEFINE FIELD OVERWRITE shared ON memo TYPE bool;",
 	"DEFINE FIELD OVERWRITE text ON memo TYPE string PERMISSIONS FOR update WHERE !shared;",
 	"DEFINE INDEX OVERWRITE user_email_unique ON user FIELDS email UNIQUE;",
-	"DEFINE ACCESS OVERWRITE account ON DATABASE TYPE RECORD SIGNUP (CREATE user CONTENT { email: $email, pass: crypto::argon2::generate($pass) }) SIGNIN (SELECT * FROM user WHERE (email = $email) AND crypto::argon2::compare(pass, $pass)) DURATION FOR TOKEN 3600000000000ns, FOR SESSION 43200000000000ns;",
+	"DEFINE ACCESS OVERWRITE account ON DATABASE TYPE RECORD SIGNUP (CREATE user CONTENT { email: $email, pass: crypto::argon2::generate($pass) }) SIGNIN (SELECT * FROM user WHERE (email = $email) AND crypto::argon2::compare(pass, $pass)) DURATION FOR TOKEN 1h, FOR SESSION 12h;",
 ]
 
 # `FULL`, and an access method with SurrealDB's default durations.
@@ -865,3 +887,148 @@ expect Surreal.analyzer("a", [], [Lowercase]).tokens("Ab Cd") == ["ab cd"]
 expect Surreal.analyzer("a", [Class], [Lowercase]).matches("Rex limping again, left leg.", "LEFT leg")
 expect !Surreal.analyzer("a", [Class], [Lowercase]).matches("Rex limping again, left leg.", "leg, right")
 expect !Surreal.analyzer("a", [Class], [Lowercase]).matches("Rex limping again, left leg.", " ")
+
+# ------------------------------------------------------------- migrations
+
+# A statement of the script by what it defines.
+expect Schema.entry("DEFINE FIELD OVERWRITE address.city ON owner TYPE string;") == { kind: "FIELD", name: "address.city", on: "owner", line: "DEFINE FIELD OVERWRITE address.city ON owner TYPE string;" }
+expect Schema.entry("DEFINE FUNCTION OVERWRITE fn::fever($a1: decimal) -> bool { RETURN $a1 > 39 };").name == "fn::fever"
+expect Schema.entry("DEFINE FUNCTION OVERWRITE fn::fever($a1: decimal) -> bool { RETURN $a1 > 39 };").on == ""
+expect Schema.entry("DEFINE INDEX OVERWRITE ⟨a b⟩ ON ⟨my table⟩ FIELDS x;").name == "⟨a b⟩"
+expect Schema.entry("DEFINE INDEX OVERWRITE ⟨a b⟩ ON ⟨my table⟩ FIELDS x;").on == "⟨my table⟩"
+expect Schema.entry("DEFINE ACCESS OVERWRITE users ON DATABASE TYPE RECORD;").on == "DATABASE"
+expect Schema.is_view("DEFINE TABLE OVERWRITE daily TYPE NORMAL AS SELECT count() FROM vital GROUP ALL;")
+expect !Schema.is_view("DEFINE TABLE OVERWRITE vital SCHEMAFULL;")
+
+# The type of a field, up to the next clause, and whether a new type
+# takes every old value.
+expect Schema.field_type("DEFINE FIELD OVERWRITE s ON vet TYPE \"Dental\" | { kind: \"Surgery\", board: string } ASSERT $value != '';") == "\"Dental\" | { kind: \"Surgery\", board: string }"
+expect Schema.field_type("DEFINE FIELD OVERWRITE vaccines[*].vet ON patient ASSERT record::exists($value);") == ""
+expect Schema.widens("int", "option<int>")
+expect Schema.widens("option<int>", "option<int | string>")
+expect Schema.widens("int", "number")
+expect !Schema.widens("option<int>", "int")
+expect !Schema.widens("string", "int")
+expect !Schema.widens("{ a: int | string }", "{ a: int }")
+
+# The value that a new field gives the rows that are there: its default
+# as the schema value holds it, or `NoDefault`.
+fields_of_a : List(Schema.FieldInfo)
+fields_of_a = [
+	{ table: "a", path: "w", ty: "int", default: Ok("7") },
+	{ table: "a", path: "x", ty: "string", default: Err(NoDefault) },
+	{ table: "a", path: "o", ty: "option<string>", default: Err(NoDefault) },
+	{ table: "a", path: "p.q", ty: "string", default: Err(NoDefault) },
+]
+
+expect Schema.fill_value(Schema.entry("DEFINE FIELD OVERWRITE w ON a TYPE int DEFAULT 7;"), fields_of_a) == Ok(Ok("7"))
+expect Schema.fill_value(Schema.entry("DEFINE FIELD OVERWRITE x ON a TYPE string;"), fields_of_a) == Ok(Err(NoDefault))
+expect Schema.fill_value(Schema.entry("DEFINE FIELD OVERWRITE o ON a TYPE option<string>;"), fields_of_a) == Err(NoFill)
+expect Schema.fill_value(Schema.entry("DEFINE FIELD OVERWRITE p.q ON a TYPE string;"), fields_of_a) == Err(NoFill)
+
+# What `old` has and `new` does not goes first, from the last; what is on a
+# dropped table goes with it; a view is removed, not dropped. A field whose
+# new type does not take the old values is a `Retype`.
+expect
+	Schema.migration_steps(
+		[
+			"DEFINE FUNCTION OVERWRITE fn::f() -> int { RETURN 1 };",
+			"DEFINE TABLE OVERWRITE a SCHEMAFULL;",
+			"DEFINE TABLE OVERWRITE b SCHEMAFULL;",
+			"DEFINE TABLE OVERWRITE v TYPE NORMAL AS SELECT * FROM a;",
+			"DEFINE FIELD OVERWRITE x ON a TYPE int;",
+			"DEFINE FIELD OVERWRITE y ON a TYPE int;",
+			"DEFINE FIELD OVERWRITE z ON b TYPE int;",
+			"DEFINE INDEX OVERWRITE a_y ON a FIELDS y;",
+			"DEFINE INDEX OVERWRITE b_z ON b FIELDS z;",
+		],
+		[
+			"DEFINE TABLE OVERWRITE a SCHEMAFULL;",
+			"DEFINE FIELD OVERWRITE x ON a TYPE string;",
+			"DEFINE FIELD OVERWRITE w ON a TYPE int DEFAULT 7;",
+		],
+		fields_of_a,
+	)
+	== [
+		Remove("REMOVE INDEX IF EXISTS a_y ON a"),
+		DropField({ table: "a", path: "y" }),
+		Remove("REMOVE TABLE IF EXISTS v"),
+		DropTable("b"),
+		Remove("REMOVE FUNCTION IF EXISTS fn::f"),
+		Retype({ line: "DEFINE FIELD OVERWRITE x ON a TYPE string", table: "a", path: "x", from: "int", to: "string", value: Err(NoDefault) }),
+		Fill({ line: "DEFINE FIELD OVERWRITE w ON a TYPE int DEFAULT 7", table: "a", path: "w", value: Ok("7") }),
+	]
+
+# A new table gets no fill: it has no rows. A wider type is a define.
+expect Schema.migration_steps([], ["DEFINE TABLE OVERWRITE a SCHEMAFULL;", "DEFINE FIELD OVERWRITE x ON a TYPE int;"], fields_of_a) == [Define("DEFINE TABLE OVERWRITE a SCHEMAFULL"), Define("DEFINE FIELD OVERWRITE x ON a TYPE int")]
+expect Schema.migration_steps(["DEFINE TABLE OVERWRITE a SCHEMAFULL;", "DEFINE FIELD OVERWRITE x ON a TYPE string;"], ["DEFINE TABLE OVERWRITE a SCHEMAFULL;", "DEFINE FIELD OVERWRITE x ON a TYPE string | int;"], fields_of_a) == [Define("DEFINE FIELD OVERWRITE x ON a TYPE string | int")]
+# A narrower type that takes `NONE` is a `Retype` too.
+expect Schema.migration_steps(["DEFINE TABLE OVERWRITE a SCHEMAFULL;", "DEFINE FIELD OVERWRITE o ON a TYPE option<int>;"], ["DEFINE TABLE OVERWRITE a SCHEMAFULL;", "DEFINE FIELD OVERWRITE o ON a TYPE option<string>;"], fields_of_a) == [Retype({ line: "DEFINE FIELD OVERWRITE o ON a TYPE option<string>", table: "a", path: "o", from: "option<int>", to: "option<string>", value: Err(NoDefault) })]
+
+ProductV2 : { id : Str, title : Str, price : Dec, stock : I32, sku : Str }
+
+products_v2 : Surreal.Table(ProductV2)
+products_v2 = Surreal.table("product")
+
+## The plan from the snapshot of `old` to `new`.
+plan_of : List(Surreal.Defined), List(Surreal.Defined), Surreal.MigrationTarget -> Try(Surreal.Plan, Surreal.Error)
+plan_of = |old, new, target| Surreal.plan(Surreal.schema(old)?, new, target)
+
+## The customer loses its unique email and its check; the product loses
+## `label` and `readonly`, and gets `sku`.
+moved_old : List(Surreal.Defined)
+moved_old = [customers.define().unique(|c| c.email).check("named", |c| c.name != "").done(), products.define().default(|p| p.stock, 0).readonly(|p| p.title).computed(|p| p.label, |p| p.title.concat("!")).done()]
+
+moved_new : List(Surreal.Defined)
+moved_new = [customers.define().done(), products_v2.define().default(|p| p.stock, 0).done()]
+
+moved : Try(Surreal.Plan, Surreal.Error)
+moved = plan_of(moved_old, moved_new, V3)
+
+expect moved.map_ok(|m| m.dropped()) == Ok(["product.label"])
+expect moved.map_ok(|m| m.statements(DropData)) == Ok([["REMOVE INDEX IF EXISTS customer_email_unique ON customer", "REMOVE FIELD IF EXISTS label ON product", "UPDATE product UNSET label RETURN NONE", "DEFINE FIELD OVERWRITE name ON customer TYPE string", "DEFINE FIELD OVERWRITE sku ON product TYPE string", "UPDATE product SET sku = NONE WHERE sku IS NONE RETURN NONE", "DEFINE FIELD OVERWRITE title ON product TYPE string"]])
+
+# `sku` has no default: the plan cannot pick its value, so `prepare` refuses it.
+expect moved.map_ok(|m| m.prepare(DropData).is_err()) == Ok(Bool.True)
+
+# `KeepData` keeps the field and its data.
+expect moved.map_ok(|m| m.statements(KeepData)) == Ok([["REMOVE INDEX IF EXISTS customer_email_unique ON customer", "DEFINE FIELD OVERWRITE name ON customer TYPE string", "DEFINE FIELD OVERWRITE sku ON product TYPE string", "UPDATE product SET sku = NONE WHERE sku IS NONE RETURN NONE", "DEFINE FIELD OVERWRITE title ON product TYPE string"]])
+
+# A dropped table takes its fields, indexes and events with it, and the
+# same schema gives no statement and no section.
+expect plan_of([customer_def, product_def, order_def, purchased_def], [customer_def, product_def, order_def], V3).map_ok(|m| (m.dropped(), m.statements(KeepData), m.statements(DropData))) == Ok((["purchased"], [], [["REMOVE TABLE IF EXISTS purchased"]]))
+expect plan_of([customer_def, product_def], [customer_def, product_def], V4).map_ok(|m| (m.statements(DropData), m.is_empty(DropData))) == Ok(([], Bool.True))
+expect plan_of([customer_def, product_def], [customer_def, product_def], V4).map_ok(|m| m.prepare(DropData).map_ok(|all| all.len())) == Ok(Ok(0))
+expect plan_of([customer_def, product_def, order_def, purchased_def], [customer_def, product_def, order_def], V3).map_ok(|m| m.prepare(DropData).map_ok(|all| all.map(|p| p.request()))) == Ok(Ok(["BEGIN;\nREMOVE TABLE IF EXISTS purchased;\nCOMMIT;"]))
+
+# A schema that does not translate is its error.
+expect plan_of([customer_def], [orders.define().done()], V4).is_err()
+
+# A default is taken from the schema value, not from the text: a text
+# with clause words in it and a record are whole.
+Meta : { a : I64, b : Str }
+
+Tag0 : { id : Str }
+
+Tag1 := { id : Str, note : Str ?? "x ASSERT y DEFAULT z", meta : Meta }.{
+	encoder_for : _
+	parser_for : _
+}
+
+tags0 : Surreal.Table(Tag0)
+tags0 = Surreal.table("tag")
+
+tags1 : Surreal.Table(Tag1)
+tags1 = Surreal.table("tag")
+
+expect plan_of([tags0.define().done()], [tags1.define().default(|t| t.meta, { a: 1, b: "q VALUE r" }).done()], V3).map_ok(|m| m.statements(KeepData).join().keep_if(|l| l.starts_with("UPDATE"))) == Ok(["UPDATE tag SET meta = { a: 1, b: 'q VALUE r' } WHERE meta IS NONE RETURN NONE", "UPDATE tag SET note = 'x ASSERT y DEFAULT z' WHERE note IS NONE RETURN NONE"])
+expect plan_of([tags0.define().done()], [tags1.define().default(|t| t.meta, { a: 1, b: "q VALUE r" }).done()], V4).map_ok(|m| m.statements(KeepData).join().keep_if(|l| l.contains("MIGRATE")).map(|l| l.split_first(" USING ").map_ok(|p| p.after) ?? "")) == Ok(["{ a: 1, b: 'q VALUE r' }", "'x ASSERT y DEFAULT z'"])
+
+# A `U64` is an `int` that is not negative: a value above the range of an
+# `int` is a decimal, and the type refuses it.
+Count : { id : Str, n : U64, more : List(U64) }
+
+counts : Surreal.Table(Count)
+counts = Surreal.table("count")
+
+expect Surreal.schema([counts.define().done()]) == Ok("DEFINE TABLE OVERWRITE count SCHEMAFULL;\nDEFINE FIELD OVERWRITE more ON count TYPE array<int> ASSERT $value.all(|$e1| $e1 >= 0);\nDEFINE FIELD OVERWRITE n ON count TYPE int ASSERT $value >= 0;")

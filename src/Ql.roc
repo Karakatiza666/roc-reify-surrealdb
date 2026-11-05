@@ -20,10 +20,24 @@ Ql :: {}.{
 	## `at` of `Aborted` is the place of the prepared statement that
 	## failed it (`Transaction.then`): 0 for the first, and the count of
 	## them for the `COMMIT`, such as a `Conflict`. Every other statement
-	## of the transaction is rolled back, or did not run.
-	Error := [Unsupported(Str), BadSchema(Str), Decode({ path : Str, message : Str }), Wire(Str), Server(ServerError), Aborted({ at : U64, error : ServerError }), Transport(Str), WebSocket([Closed(Ws.Closure), Closing, Adapter(Str)])].{
+	## of the transaction is rolled back, or did not run. `Migration` is a
+	## migration file or a history that the runner refuses (`name` is the
+	## file, "" for `Surreal.check`): see `MigrationProblem`.
+	Error := [Unsupported(Str), BadSchema(Str), Decode({ path : Str, message : Str }), Wire(Str), Server(ServerError), Aborted({ at : U64, error : ServerError }), Transport(Str), WebSocket([Closed(Ws.Closure), Closing, Adapter(Str)]), Migration({ name : Str, problem : MigrationProblem })].{
 		is_eq : _
 	}
+
+	## Why a migration does not run:
+	##
+	## | Tag | Meaning |
+	## | --- | --- |
+	## | `Changed` | The database applied the file, and its text changed after that (the checksum) |
+	## | `OutOfOrder` | The file is not applied, and a later file of the list is |
+	## | `Edit` | The file still has a `-- reify: edit` line: write the value it asks for, then remove the line |
+	## | `Text(why)` | The runner does not read the file: its header, a `BEGIN` or `COMMIT`, an index and a write on one table in one section of a `V4` file, two files with one name |
+	## | `Target(t)` | A `V4` file and a server that cannot run it: SurrealDB 3, or a database at compatibility level 3 |
+	## | `Unplanned(statements)` | `Surreal.check`: the schema has changes that no migration file has |
+	MigrationProblem : [Changed, OutOfOrder, Edit, Text(Str), Target({ file : Str, server : Str }), Unplanned(List(Str))]
 
 	## Why the server refused a request or a statement: the `kind` of its
 	## error, and for the kind `Internal`, what its message says when the
@@ -37,7 +51,7 @@ Ql :: {}.{
 	## | `Index` | The same for an index the session does not know |
 	## | `Assert` | A field's `ASSERT` fails: the field, the record, the value and the condition |
 	## | `Type` | A value does not fit the field's `TYPE` |
-	## | `Check` | A `.check(name, ..)` of the schema, which is an event, fails |
+	## | `Check` | A `.check(name, ..)` of the schema that is an event fails (a check that a field holds is an `Assert`) |
 	## | `Referenced` | A delete of a record that a link with `Reject` points at: `by` is the linking record (a root link) or `table.path` (a nested link) |
 	## | `Denied` | `NotAllowed`, a post that HTTP refuses with 401 or 403, or a signup, a signin or a token that the server refuses (`Session.open!`) |
 	## | `Parse` | `Validation` whose message is a parse error |
@@ -128,6 +142,18 @@ Ql :: {}.{
 		} else {
 			"${f.to_str()}f"
 		}
+
+	## A duration of `nanos` nanoseconds as a literal in the largest units
+	## that fit: `1d`, `1w`, `1h30m`, `0ns`.
+	duration : U64 -> Str
+	duration = |nanos| {
+		units = [("w", 604800000000000), ("d", 86400000000000), ("h", 3600000000000), ("m", 60000000000), ("s", 1000000000), ("ms", 1000000), ("us", 1000), ("ns", 1)]
+		(parts, _) = units.fold(
+			([], nanos),
+			|(found, left), (name, size)| if (left >= size) (found.append("${(left // size).to_str()}${name}"), left % size) else (found, left),
+		)
+		if parts.is_empty() "0ns" else Str.join_with(parts, "")
+	}
 
 	## A string literal in single quotes.
 	quote : Str -> Str
@@ -246,6 +272,22 @@ Ql :: {}.{
 	}
 }
 
+expect Ql.duration(0) == "0ns"
+expect Ql.duration(7) == "7ns"
+expect Ql.duration(999) == "999ns"
+expect Ql.duration(1000) == "1us"
+expect Ql.duration(1000000) == "1ms"
+expect Ql.duration(1000000000) == "1s"
+expect Ql.duration(60000000000) == "1m"
+expect Ql.duration(3600000000000) == "1h"
+expect Ql.duration(3600000000001) == "1h1ns"
+expect Ql.duration(59999999999) == "59s999ms999us999ns"
+expect Ql.duration(86400000000000) == "1d"
+expect Ql.duration(604800000000000) == "1w"
+expect Ql.duration(5400000000000) == "1h30m"
+expect Ql.duration(691200000000000) == "1w1d"
+expect Ql.duration(1001000) == "1ms1us"
+expect Ql.duration(18446744073709551615) == "30500w3d23h34m33s709ms551us615ns"
 expect Ql.quote("plain") == "'plain'"
 expect Ql.quote("o'neil") == "'o\\'neil'"
 expect Ql.quote("a\\b") == "'a\\\\b'"

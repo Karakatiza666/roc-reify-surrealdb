@@ -25,8 +25,9 @@ Translate :: {}.{
 	## aggregate writes for itself. `Moment` is the text of a datetime, and
 	## holds the datetime expression. `Function` is a database function made
 	## with `Surreal.db_fn`: its name, and the row of its Roc body. `Table`
-	## is a table of `Surreal.table`, `relation` or `view`: its name, and
-	## whether it is an edge table.
+	## is a table of `Surreal.table`, `relation` or `view`: its name,
+	## whether it is an edge table, and the tables at the ends of an edge
+	## table (`?` when not known).
 	Binding := [
 		Row({ at : Str, of : [Doc([Of(Str), Unnamed]), Ref(Code.Ty), Obj], edge : Bool }),
 		WithEdges(Binding, List(Binding)),
@@ -41,15 +42,25 @@ Translate :: {}.{
 		Infix(Str),
 		Fields(List({ name : Str, binding : Binding })),
 		Function({ name : Str, row : U32 }),
-		Table({ name : Str, edge : Bool }),
+		Table({ name : Str, edge : Bool, ends : Ends }),
 	]
+
+	## The tables at the ends of the edges of an edge table, `in` and
+	## `out`. `?` is any table: `->?`.
+	Ends : { from : Str, to : Str }
 
 	## What the elements of a list are: values at a path, values that the
 	## clause made (`map`, a list literal), whose text is whole already, or
 	## record ids that a read traverses. `edge` says the records are edges,
 	## and `row` is their type when the list has one: the whole list is then
 	## the fields of the type of each record, `list.{ id: record::id(id), .. }`.
-	Items : [Values, Made, Records({ edge : Bool, row : [Typed(Code.Ty), Untyped] })]
+	## `graph` says the list is a graph path, which a filter and a hop
+	## continue: `Edges` for the edges of an edge table with its ends,
+	## `Nodes` for the records at the ends of edges, `Off` for any other list.
+	Items : [Values, Made, Records({ edge : Bool, row : [Typed(Code.Ty), Untyped], graph : Graph })]
+
+	## Whether a list of records is a graph path (see `Items`).
+	Graph : [Edges(Ends), Nodes, Off]
 
 	## One step of a field path: `items[*].qty` is `Field("items")`, `Each`,
 	## `Field("qty")`.
@@ -70,7 +81,8 @@ Translate :: {}.{
 	## come from `Surreal.library`, as this module cannot import `Surreal`:
 	## `Function` is one SurrealQL function of the same arguments, which gives
 	## a new value on every call when `random` is set, `Aggregate` one over a
-	## list or a group's column, and `Operator` an operator between two
+	## list or a group's column (`FloatAggregate` casts each value to a float
+	## first), and `Operator` an operator between two
 	## operands. `Variable` is a value of the session that the statement
 	## reads, such as `$auth.id`, whatever the arguments: a table that
 	## types it. The rest are each one function of the cut. `Render` is an
@@ -81,6 +93,7 @@ Translate :: {}.{
 		Builtin({ owner : Str, method : Str }),
 		Function({ surql : Str, random : Bool }),
 		Aggregate(Str),
+		FloatAggregate(Str),
 		Operator(Str),
 		Percentile,
 		Uuid,
@@ -97,6 +110,7 @@ Translate :: {}.{
 		TableOf,
 		RelationOf,
 		Rows,
+		EdgesOf(Str),
 		RecordOf,
 		Variable(Str),
 		Render({ args : List(Str), evidence : List(Code.Evidence) } -> Try(Str, Str)),
@@ -154,7 +168,7 @@ Translate :: {}.{
 				Translate.named("Num.F32", [("plus", Code.prim(F32.plus)), ("minus", Code.prim(F32.minus)), ("times", Code.prim(F32.times)), ("div_by", Code.prim(F32.div_by)), ("div_trunc_by", Code.prim(F32.div_trunc_by)), ("rem_by", Code.prim(F32.rem_by)), ("is_lt", Code.prim(F32.is_lt)), ("is_gt", Code.prim(F32.is_gt)), ("is_lte", Code.prim(F32.is_lte)), ("is_gte", Code.prim(F32.is_gte)), ("is_eq", Code.prim(F32.is_eq)), ("negate", Code.prim(F32.negate)), ("abs", Code.prim(F32.abs)), ("to_f64", Code.prim(F32.to_f64)), ("to_f32", Code.prim(F32.to_f32)), ("to_i64_wrap", Code.prim(F32.to_i64_wrap)), ("from_str", Code.prim(F32.from_str)), ("is_zero", Code.prim(F32.is_zero)), ("is_negative", Code.prim(F32.is_negative)), ("is_positive", Code.prim(F32.is_positive)), ("to_str", Code.prim(F32.to_str)), ("max", Code.prim(F32.max)), ("min", Code.prim(F32.min)), ("pow", Code.prim(F32.pow))]),
 				Translate.named("Num.F64", [("plus", Code.prim(F64.plus)), ("minus", Code.prim(F64.minus)), ("times", Code.prim(F64.times)), ("div_by", Code.prim(F64.div_by)), ("div_trunc_by", Code.prim(F64.div_trunc_by)), ("rem_by", Code.prim(F64.rem_by)), ("is_lt", Code.prim(F64.is_lt)), ("is_gt", Code.prim(F64.is_gt)), ("is_lte", Code.prim(F64.is_lte)), ("is_gte", Code.prim(F64.is_gte)), ("is_eq", Code.prim(F64.is_eq)), ("negate", Code.prim(F64.negate)), ("abs", Code.prim(F64.abs)), ("to_f64", Code.prim(F64.to_f64)), ("to_i64_wrap", Code.prim(F64.to_i64_wrap)), ("from_str", Code.prim(F64.from_str)), ("is_zero", Code.prim(F64.is_zero)), ("is_negative", Code.prim(F64.is_negative)), ("is_positive", Code.prim(F64.is_positive)), ("to_str", Code.prim(F64.to_str)), ("max", Code.prim(F64.max)), ("min", Code.prim(F64.min)), ("pow", Code.prim(F64.pow))]),
 				Translate.named("Str", [("concat", Code.prim(Str.concat)), ("starts_with", Code.prim(Str.starts_with)), ("ends_with", Code.prim(Str.ends_with)), ("contains", Code.prim(Str.contains)), ("is_empty", Code.prim(Str.is_empty)), ("to_str", Code.prim(Str.to_str)), ("is_eq", Code.prim(Str.is_eq)), ("repeat", Code.prim(Str.repeat)), ("with_prefix", Code.prim(Str.with_prefix)), ("join_with", Code.prim(Str.join_with)), ("drop_prefix", Code.prim(Str.drop_prefix)), ("drop_suffix", Code.prim(Str.drop_suffix)), ("count_utf8_bytes", Code.prim(Str.count_utf8_bytes)), ("trim", Code.prim(Str.trim)), ("trim_start", Code.prim(Str.trim_start)), ("trim_end", Code.prim(Str.trim_end)), ("with_ascii_uppercased", Code.prim(Str.with_ascii_uppercased)), ("with_ascii_lowercased", Code.prim(Str.with_ascii_lowercased)), ("caseless_ascii_equals", Code.prim(Str.caseless_ascii_equals)), ("split_on", Code.prim(Str.split_on)), ("replace_each", Code.prim(Str.replace_each))]),
-				Translate.named("List", [("len", Code.prim(List.len)), ("is_empty", Code.prim(List.is_empty)), ("contains", Code.prim(List.contains)), ("sum", Code.prim(List.sum)), ("any", Code.prim(List.any)), ("all", Code.prim(List.all)), ("map", Code.prim(List.map)), ("keep_if", Code.prim(List.keep_if)), ("drop_if", Code.prim(List.drop_if)), ("count_if", Code.prim(List.count_if)), ("find_first", Code.prim(List.find_first)), ("first", Code.prim(List.first)), ("last", Code.prim(List.last)), ("min", Code.prim(List.min)), ("max", Code.prim(List.max)), ("get", Code.prim(List.get)), ("take_first", Code.prim(List.take_first)), ("drop_first", Code.prim(List.drop_first)), ("rev", Code.prim(List.rev)), ("concat", Code.prim(List.concat)), ("append", Code.prim(List.append)), ("prepend", Code.prim(List.prepend)), ("join", Code.prim(List.join)), ("is_eq", Code.prim(List.is_eq)), ("sort", Code.prim(List.sort)), ("sort_reversed", Code.prim(List.sort_reversed))]),
+				Translate.named("List", [("len", Code.prim(List.len)), ("is_empty", Code.prim(List.is_empty)), ("contains", Code.prim(List.contains)), ("sum", Code.prim(List.sum)), ("any", Code.prim(List.any)), ("all", Code.prim(List.all)), ("map", Code.prim(List.map)), ("join_map", Code.prim(List.join_map)), ("keep_if", Code.prim(List.keep_if)), ("drop_if", Code.prim(List.drop_if)), ("count_if", Code.prim(List.count_if)), ("find_first", Code.prim(List.find_first)), ("first", Code.prim(List.first)), ("last", Code.prim(List.last)), ("min", Code.prim(List.min)), ("max", Code.prim(List.max)), ("get", Code.prim(List.get)), ("take_first", Code.prim(List.take_first)), ("drop_first", Code.prim(List.drop_first)), ("rev", Code.prim(List.rev)), ("concat", Code.prim(List.concat)), ("append", Code.prim(List.append)), ("prepend", Code.prim(List.prepend)), ("join", Code.prim(List.join)), ("is_eq", Code.prim(List.is_eq)), ("sort", Code.prim(List.sort)), ("sort_reversed", Code.prim(List.sort_reversed))]),
 				Translate.named("Try", [("is_ok", Code.prim(Try.is_ok)), ("is_err", Code.prim(Try.is_err)), ("map_ok", Code.prim(Try.map_ok)), ("ok_or", Code.prim(Try.ok_or))]),
 				Translate.named("Bool", [("not", Code.prim(Bool.not))]),
 			],
@@ -198,12 +212,22 @@ Translate :: {}.{
 
 	## The edges of a relation table from the record at `at`: `->t` going
 	## out, `<-t` coming in, `$before<-t` from the row before a write. Each
-	## element is an edge record.
+	## element is an edge record. The tables at the ends are not known.
 	outgoing : Str, Str -> Binding
-	outgoing = |at, table| Binding.ListOf({ at: "${at}->${Ql.ident(table)}", items: Records({ edge: Bool.True, row: Untyped }) })
+	outgoing = |at, table| Translate.edge_list(at, "->", table, Translate.any_ends)
 
 	incoming : Str, Str -> Binding
-	incoming = |at, table| Binding.ListOf({ at: "${at}<-${Ql.ident(table)}", items: Records({ edge: Bool.True, row: Untyped }) })
+	incoming = |at, table| Translate.edge_list(at, "<-", table, Translate.any_ends)
+
+	## The edges of `table` at the record at `at`, by the arrow, with the
+	## tables at their ends. A hop to an end continues the path:
+	## `->treats->patient` (`Translate.hop`).
+	edge_list : Str, Str, Str, Ends -> Binding
+	edge_list = |at, arrow, table, ends| Binding.ListOf({ at: "${at}${arrow}${Ql.ident(table)}", items: Records({ edge: Bool.True, row: Untyped, graph: Edges(ends) }) })
+
+	## Ends of any table.
+	any_ends : Ends
+	any_ends = { from: "?", to: "?" }
 
 	## A value at a SurrealQL expression, bound by its type: a record is a
 	## place to read fields from, a list takes list operations, a union is
@@ -228,16 +252,28 @@ Translate :: {}.{
 	## records of a read view (`List(Linked(r))`), or values.
 	items_of : Code.Ty -> Items
 	items_of = |list_ty| match list_ty {
-		ListOf(Named(name, _, row)) if Types.nominal(name) == Linked => Records({ edge: Bool.False, row: Typed(row) })
+		ListOf(Named(name, _, row)) if Types.nominal(name) == Linked => Records({ edge: Bool.False, row: Typed(row), graph: Off })
 		_ => Values
 	}
 
 	## The elements of a list of record ids of type `list_ty`: the rows of a
 	## table, or the edges of a read view's `Out` and `In` fields.
 	records : Bool, Code.Ty -> Items
-	records = |edge, list_ty| match list_ty {
-		ListOf(row) => Records({ edge, row: Typed(row) })
-		_ => Records({ edge, row: Untyped })
+	records = |edge, list_ty| Translate.records_of(edge, list_ty, Off)
+
+	## The same items, as the value of a function: an `array::` call is
+	## not a graph path, which a `->` or `[WHERE ..]` continues.
+	off_path : Items -> Items
+	off_path = |items| match items {
+		Records(r) => Records({ ..r, graph: Off })
+		other => other
+	}
+
+	## The same, with what graph path the list is.
+	records_of : Bool, Code.Ty, Graph -> Items
+	records_of = |edge, list_ty, graph| match list_ty {
+		ListOf(row) => Records({ edge, row: Typed(row), graph })
+		_ => Records({ edge, row: Untyped, graph })
 	}
 
 	## A statement parameter `p.name` as a `LET` variable: `$name`.
@@ -309,6 +345,7 @@ Translate :: {}.{
 		Aborted(a) => Aborted(a)
 		Transport(why) => Transport("in `fn::${name}`: ${why}")
 		WebSocket(w) => WebSocket(w)
+		Migration(m) => Migration(m)
 	}
 
 	## The value of every `Surreal.db_fn` constant in a tree: the record of
@@ -978,8 +1015,10 @@ Translate :: {}.{
 	## row is `target`, or the edges of an `Out` or `In` field of the row,
 	## whose `node` is the end of an edge that is the row. `read` is the
 	## field of that record that the clause reads, as SurrealDB spells it,
-	## or `Whole` for the whole record.
-	Read : [Hop({ path : Str, target : Code.Ty, lists : U64, read : [Field(Str), Whole] }), Edges({ name : Str, node : Str })]
+	## or `Whole` for the whole record. `Every` is an edge table whose edges
+	## the clause reads off a record other than the row, `edges_from` of a
+	## linked row: a write to it can change every row.
+	Read : [Hop({ path : Str, target : Code.Ty, lists : U64, read : [Field(Str), Whole] }), Edges({ name : Str, node : Str }), Every(Str)]
 
 	## The walk of `Translate.reads`: what the row's parameters and kept
 	## nodes reach.
@@ -1132,9 +1171,27 @@ Translate :: {}.{
 					),
 				)
 			}
+			(Ok(EdgesOf(arrow)), [table, row]) => {
+				t = of(table)
+				r = of(row)
+				seen = t.reads.concat(r.reads)
+				match (t.reach, r.reach) {
+					(Table(found), At(p)) => {
+						at_row = match p.via {
+							Doc => p.path.is_empty() and p.lists == 0
+							_ => Bool.False
+						}
+						# The edges of the row are the edge statement's, as for an `Out` field.
+						watch = if (at_row) Edges({ name: found.name, node: if (arrow == "->") "in" else "out" }) else Every(found.name)
+						{ reach: Reach.At({ path: "${p.path}${arrow}${Ql.ident(found.name)}", lists: p.lists, edge: Bool.True, via: Records, ty }), reads: seen.append(watch) }
+					}
+					(Table(found), _) => { reach: Reach.Nothing, reads: seen.append(Every(found.name)) }
+					_ => { reach: Reach.Nothing, reads: seen }
+				}
+			}
 			(Ok(TableOf), [Op({ op: Lit(Str(name)), .. })]) => Translate.reached_as(Reach.Table({ name, edge: Bool.False }))
 			(Ok(RelationOf), [Op({ op: Lit(Str(name)), .. }), _, _]) => Translate.reached_as(Reach.Table({ name, edge: Bool.True }))
-			(Ok(Builtin({ owner: "List", method: "any" })), [list, f]) | (Ok(Builtin({ owner: "List", method: "all" })), [list, f]) | (Ok(Builtin({ owner: "List", method: "map" })), [list, f]) | (Ok(Builtin({ owner: "List", method: "count_if" })), [list, f]) => Translate.reach_lambda(list, f, Each, w)
+			(Ok(Builtin({ owner: "List", method: "any" })), [list, f]) | (Ok(Builtin({ owner: "List", method: "all" })), [list, f]) | (Ok(Builtin({ owner: "List", method: "map" })), [list, f]) | (Ok(Builtin({ owner: "List", method: "join_map" })), [list, f]) | (Ok(Builtin({ owner: "List", method: "count_if" })), [list, f]) => Translate.reach_lambda(list, f, Each, w)
 			(Ok(Builtin({ owner: "List", method: "keep_if" })), [list, f]) | (Ok(Builtin({ owner: "List", method: "drop_if" })), [list, f]) => Translate.reach_lambda(list, f, Kept, w)
 			(Ok(Builtin({ owner: "List", method: "find_first" })), [list, f]) => Translate.reach_lambda(list, f, Found(ty), w)
 			(Ok(Builtin({ owner: "Try", method: "map_ok" })), [m, f]) => Translate.reach_lambda(m, f, Mapped, w)
@@ -1363,7 +1420,7 @@ Translate :: {}.{
 		Expr(s) | Infix(s) | Maybe(s) => Ok(s)
 		Moment(s) => Ok("<string>${s}")
 		ListOf(list) => match list.items {
-			Records({ edge, row: Typed(row) }) => Translate.whole_row(list.at, row, edge)
+			Records({ edge, row: Typed(row), .. }) => Translate.whole_row(list.at, row, edge)
 			_ => Ok(list.at)
 		}
 		Union(u) => Ok(u.at)
@@ -1608,8 +1665,8 @@ Translate :: {}.{
 			(_, Doc(_)) | (_, Ref(_)) => match ty {
 				# An edge list of a read view is read off the record: `v.treats`
 				# is `->treats`, and its elements are the edges.
-				Named(kind, _, edges) if Types.nominal(kind) == Out => Binding.ListOf({ at: "${r.at}->${Ql.ident(name)}", items: Translate.records(Bool.True, edges) })
-				Named(kind, _, edges) if Types.nominal(kind) == In => Binding.ListOf({ at: "${r.at}<-${Ql.ident(name)}", items: Translate.records(Bool.True, edges) })
+				Named(kind, _, edges) if Types.nominal(kind) == Out => Binding.ListOf({ at: "${r.at}->${Ql.ident(name)}", items: Translate.records_of(Bool.True, edges, Edges(Translate.any_ends)) })
+				Named(kind, _, edges) if Types.nominal(kind) == In => Binding.ListOf({ at: "${r.at}<-${Ql.ident(name)}", items: Translate.records_of(Bool.True, edges, Edges(Translate.any_ends)) })
 				_ => Translate.at(path, ty)
 			}
 			_ => Translate.at(path, ty)
@@ -1777,6 +1834,8 @@ Translate :: {}.{
 			}
 			Link => Err(Unsupported("a `Link` written in a clause has no SurrealQL form; compare `link.id()` with an `Id`"))
 			Duration => match Translate.record_field(inner, "nanos") {
+				# A known count is a duration literal: `1d`, not `duration::from_nanos(86400000000000)`.
+				Ok(Op({ op: Lit(Int(n, _)), .. })) if n.to_u64_try().is_ok() => Ok(Binding.Expr(Ql.duration(n.to_u64_wrap())))
 				Ok(nanos) => Ok(Binding.Expr(Translate.call("duration::from_nanos", [Translate.expr(nanos, env)?])))
 				Err(_) => Err(Unsupported("a duration built without its nanoseconds"))
 			}
@@ -1862,10 +1921,81 @@ Translate :: {}.{
 			Ok(found) => Translate.expr(found.tree, env)
 			Err(_) => Err(Unsupported("a branch in a clause has no `${name}` arm"))
 		}
-		match Translate.presence_equality(keys, args, env) {
-			Ok(comparison) => Translate.eval(comparison, env)
-			Err(_) => Translate.branch(keys, arms, scrutinee, arm, env)
+		match Translate.tag_test(keys, args, env) {
+			Ok(found) => Ok(Binding.Infix("${found.at} = ${Ql.quote(found.name)}"))
+			Err(_) =>
+				match Translate.presence_equality(keys, args, env) {
+					Ok(comparison) => Translate.eval(comparison, env)
+					Err(_) => Translate.branch(keys, arms, scrutinee, arm, env)
+				}
 		}
+	}
+
+	## The shape of `==` on a union and a tag with no payload: a switch on the
+	## union where that tag gives `True`, and every other arm gives `False`.
+	## The stored value of the tag is its name as text, and any other arm is
+	## another text or an object, so `at = 'Name'` is the same test, and
+	## `at != 'Name'` is its `not`, also for a value that is NONE.
+	tag_test : List(Code.Key), List(Code.Tree), Env -> Try({ at : Str, name : Str }, [NotTagTest])
+	tag_test = |keys, args, env| {
+		scrutinee = args.first().map_err(|_| NotTagTest)?
+		flags = args.drop_first(1).map_try(|tree| Translate.bool_of(tree).map_err(|_| NotTagTest))?
+		flagged = List.map2(keys, flags, |key, flag| { key, flag })
+		if flagged.count_if(|k| k.flag) != 1 or flagged.len() != keys.len() {
+			return Err(NotTagTest)
+		}
+		name = match flagged.find_first(|k| k.flag) {
+			Ok({ key: Tag(tag_name), .. }) => tag_name
+			_ => return Err(NotTagTest)
+		}
+		others_are_tags = flagged.all(|k| k.flag or k.key == Default or Translate.is_tag(k.key))
+		match Translate.eval(scrutinee, env) {
+			Ok(Union(u)) if others_are_tags and u.variants.any(|v| v.name == name and v.payloads.is_empty()) => Ok({ at: u.at, name })
+			_ => Err(NotTagTest)
+		}
+	}
+
+	is_tag : Code.Key -> Bool
+	is_tag = |key| match key {
+		Tag(_) => Bool.True
+		_ => Bool.False
+	}
+
+	## Whether the `Ok` arm only reads fields of the record in the optional
+	## `s`, through objects: `c.code` of `Ok(c)`. The record's fields are
+	## required, so the arm is never NONE for a present `s`, and `s.code ?? d`
+	## is the same as the test of NONE. A link breaks this: `c.vet.get().name`
+	## is NONE when the row is gone.
+	reads_object : List({ key : Code.Key, tree : Code.Tree }), Str, Str -> Bool
+	reads_object = |arms, present, s| {
+		through = |tree| match tree {
+			Block({ defs: [], end: Value([one]) }) => through(one)
+			Op({ op: Payload(_, _), .. }) => Bool.True
+			Op({ op: Unwrap, args: [inner], .. }) => Translate.is_own_row(inner) and through(inner)
+			Op({ op: Field(name), args: [inner], .. }) => name != "id" and Translate.is_record_typed(inner) and through(inner)
+			_ => Bool.False
+		}
+		match arms.find_first(|a| Translate.key_is(a.key, "Ok")) {
+			Ok(found) => through(found.tree) and Translate.reads_path(present, s)
+			Err(_) => Bool.False
+		}
+	}
+
+	## A value of a record or of a nominal record of the application, not a
+	## `Link` or a read view of one, which hold a record that may be gone.
+	is_own_row : Code.Tree -> Bool
+	is_own_row = |tree| match tree {
+		Op({ ty: Named(name, _, _), .. }) => Types.nominal(name) == Other
+		_ => Bool.True
+	}
+
+	is_record_typed : Code.Tree -> Bool
+	is_record_typed = |tree| match tree {
+		Op({ ty, .. }) => match Types.unwrap(ty) {
+			Record(_) => Bool.True
+			_ => Bool.False
+		}
+		_ => Bool.False
 	}
 
 	## The branch itself, when it is not an equality of two optional fields.
@@ -1875,12 +2005,12 @@ Translate :: {}.{
 			Maybe(s) => {
 				present = arm("Ok")?
 				absent = arm("Err")?
-				if present == s {
+				if present == s or Translate.reads_object(arms, present, s) {
 					fallback = match arms.find_first(|a| Translate.key_is(a.key, "Err")) {
 						Ok(found) => Translate.arg(found.tree, env)?
 						Err(_) => absent
 					}
-					Ok(Binding.Infix("${s} ?? ${fallback}"))
+					Ok(Binding.Infix("${present} ?? ${fallback}"))
 				} else {
 					Ok(Binding.Expr("(IF ${s} IS NONE THEN ${absent} ELSE ${present} END)"))
 				}
@@ -2047,15 +2177,31 @@ Translate :: {}.{
 			}
 			# A table that a clause names. Its constructor is a function of
 			# `Surreal`, so it arrives as a call with the name as a literal.
-			(TableOf, [table_name]) => Translate.table_of(table_name, Bool.False)
-			(RelationOf, [table_name, _, _]) => Translate.table_of(table_name, Bool.True)
+			(TableOf, [table_name]) => Translate.table_of(table_name, Err(NotEdge))
+			(RelationOf, [table_name, from, to]) => {
+				# The name of the table at an end, or any table.
+				end = |tree| match Translate.eval(tree, env) {
+					Ok(Table(t)) => t.name
+					_ => "?"
+				}
+				Translate.table_of(table_name, Ok({ from: end(from), to: end(to) }))
+			}
 			(Rows, [table]) => match Translate.eval(table, env)? {
 				Table(t) => Ok(Binding.ListOf({ at: Translate.rows_at(t.name), items: Translate.records(t.edge, ty) }))
 				_ => Err(Unsupported("`rows` reads a table that the clause names"))
 			}
+			# The edges of a row: `->treats` off the row, `$v1.in->treats` off a linked row.
+			(EdgesOf(arrow), [table, row]) => match (Translate.eval(table, env)?, Translate.eval(row, env)?) {
+				(Table(t), Row({ at: place, of: Doc(_), .. })) | (Table(t), Row({ at: place, of: Ref(_), .. })) => Ok(Binding.ListOf({ at: "${place}${arrow}${Ql.ident(t.name)}", items: Translate.records_of(Bool.True, ty, Edges(t.ends)) }))
+				(Table(_), _) => Err(Unsupported("the edges are of a record: the row, or a row that a link points at"))
+				_ => Err(Unsupported("the edges are of an edge table that the clause names"))
+			}
 			(RecordOf, [table, key]) => match (Translate.eval(table, env)?, key) {
 				(Table(t), Op({ op: Lit(Str(k)), .. })) => Ok(Binding.Expr(Ql.record_id(t.name, k)))
-				(Table(t), _) => Ok(Binding.Expr("type::record(${Ql.quote(t.name)}, ${sql(key)?})"))
+				(Table(t), _) => match Translate.own_record(key, t.name, env) {
+					Ok(record) => Ok(Binding.Expr(record))
+					Err(_) => Ok(Binding.Expr("type::record(${Ql.quote(t.name)}, ${sql(key)?})"))
+				}
 				_ => Err(Unsupported("`id` reads a table that the clause names"))
 			}
 			(Variable(value), _) => Ok(Translate.at(value, ty))
@@ -2063,9 +2209,22 @@ Translate :: {}.{
 				Ok(written) => Ok(Translate.rendered(written, ty))
 				Err(why) => Err(Unsupported("`${name}`: ${why}"))
 			}
-			(Function(_), _) | (Aggregate(_), _) | (Operator(_), _) | (Percentile, _) | (Uuid, _) | (TimeGroup, _) => Translate.library(found, name, args, ty, env)
+			(Function(_), _) | (Aggregate(_), _) | (FloatAggregate(_), _) | (Operator(_), _) | (Percentile, _) | (Uuid, _) | (TimeGroup, _) => Translate.library(found, name, args, ty, env)
 			_ => Err(Unsupported("`${name}` has no SurrealQL form"))
 		}
+	}
+
+	## The record of a row of `table` that a statement reads, where `key`
+	## is its key: `kennels.id(k.id)` is `id`, not
+	## `type::record('kennel', record::id(id))`.
+	own_record : Code.Tree, Str, Env -> Try(Str, [NotOwn])
+	own_record = |key, table, env| match key {
+		Op({ op: Field("id"), args: [holder], .. }) =>
+			match Translate.eval(holder, env) {
+				Ok(Row({ at: place, of: Doc(Of(name)), .. })) if name == table => Ok(if (place.is_empty()) "id" else "${place}.id")
+				_ => Err(NotOwn)
+			}
+		_ => Err(NotOwn)
 	}
 
 	## The text an extension rendered, at the type of the call. It is taken
@@ -2093,16 +2252,16 @@ Translate :: {}.{
 			[list] => {
 				source = Translate.list_parts(list, env)?
 				direction = if (method == "sort") "asc" else "desc"
-				Ok(Binding.ListOf({ at: Translate.call("array::sort::${direction}", [source.at]), items: source.items }))
+				Ok(Binding.ListOf({ at: Translate.call("array::sort::${direction}", [source.at]), items: Translate.off_path(source.items) }))
 			}
 			_ => Err(Unsupported("`List.${method}` takes one list"))
 		}
 	}
 
-	## A table by its literal name.
-	table_of : Code.Tree, Bool -> Try(Binding, Ql.Error)
-	table_of = |name, edge| match name {
-		Op({ op: Lit(Str(found)), .. }) => Ok(Binding.Table({ name: found, edge }))
+	## A table by its literal name, with its ends when it is an edge table.
+	table_of : Code.Tree, Try(Ends, [NotEdge]) -> Try(Binding, Ql.Error)
+	table_of = |name, ends| match name {
+		Op({ op: Lit(Str(found)), .. }) => Ok(Binding.Table({ name: found, edge: ends.is_ok(), ends: ends ?? Translate.any_ends }))
 		_ => Err(Unsupported("a table in a clause has a literal name"))
 	}
 
@@ -2181,6 +2340,7 @@ Translate :: {}.{
 			("List.any", [list, f]) => Translate.lambda(list, f, "any", env)
 			("List.all", [list, f]) => Translate.lambda(list, f, "all", env)
 			("List.map", [list, f]) => Translate.lambda(list, f, "map", env)
+			("List.join_map", [list, f]) => Translate.lambda(list, f, "join_map", env)
 			("List.keep_if", [list, f]) => Translate.lambda(list, f, "filter", env)
 			("List.drop_if", [list, f]) => Translate.lambda(list, f, "drop", env)
 			("List.count_if", [list, f]) => Translate.lambda(list, f, "count", env)
@@ -2193,15 +2353,15 @@ Translate :: {}.{
 			("List.get", [list, i]) => Ok(Binding.Maybe(Translate.call("array::at", [plain(list)?, sql(i)?])))
 			("List.take_first", [list, n]) => {
 				source = Translate.list_parts(list, env)?
-				Ok(Binding.ListOf({ at: Translate.call("array::slice", [source.at, "0", sql(n)?]), items: source.items }))
+				Ok(Binding.ListOf({ at: Translate.call("array::slice", [source.at, "0", sql(n)?]), items: Translate.off_path(source.items) }))
 			}
 			("List.drop_first", [list, n]) => {
 				source = Translate.list_parts(list, env)?
-				Ok(Binding.ListOf({ at: Translate.call("array::slice", [source.at, sql(n)?]), items: source.items }))
+				Ok(Binding.ListOf({ at: Translate.call("array::slice", [source.at, sql(n)?]), items: Translate.off_path(source.items) }))
 			}
 			("List.rev", [list]) => {
 				source = Translate.list_parts(list, env)?
-				Ok(Binding.ListOf({ at: Translate.call("array::reverse", [source.at]), items: source.items }))
+				Ok(Binding.ListOf({ at: Translate.call("array::reverse", [source.at]), items: Translate.off_path(source.items) }))
 			}
 			("List.concat", [a, b]) => Ok(Binding.ListOf({ at: Translate.call("array::concat", [plain(a)?, plain(b)?]), items: Values }))
 			("List.append", [list, x]) => Ok(Binding.ListOf({ at: Translate.call("array::append", [plain(list)?, sql(x)?]), items: Values }))
@@ -2218,6 +2378,11 @@ Translate :: {}.{
 							Texts => Ok(Binding.Infix("${opd(lhs)?} != ${opd(rhs)?}"))
 						}
 				}
+				Op({ op: Switch(sw), args: switch_args, .. }) if sw.joins.is_empty() and sw.outputs.len() == 1 =>
+					match Translate.tag_test(sw.arms.map(|a| a.key), switch_args, env) {
+						Ok(found) => Ok(Binding.Infix("${found.at} != ${Ql.quote(found.name)}"))
+						Err(_) => Ok(Binding.Infix("!${opd(x)?}"))
+					}
 				_ => Ok(Binding.Infix("!${opd(x)?}"))
 			}
 			("Num.Dec.to_i64_try", [d]) => {
@@ -2321,6 +2486,8 @@ Translate :: {}.{
 			}
 			(Aggregate(surql), [list]) => Translate.aggregate_arg(surql, list, env)
 			(Aggregate(_), _) => Err(Unsupported("`${name}` takes a list"))
+			(FloatAggregate(surql), [list]) => Translate.float_aggregate_arg(surql, list, env)
+			(FloatAggregate(_), _) => Err(Unsupported("`${name}` takes a list"))
 			(Function(f), _) => Ok(Translate.at(Translate.call(f.surql, args.map_try(sql)?), ty))
 			_ => Err(Unsupported("`${name}` has no SurrealQL form"))
 		}
@@ -2476,6 +2643,16 @@ Translate :: {}.{
 		}
 	}
 
+	## An aggregate of a list of decimals or integers, over each value as a
+	## float: `math::mean(<float>fee)` over a group's rows, and over a list
+	## `math::mean(list.map(|$c| <float>$c))`.
+	float_aggregate_arg : Str, Code.Tree, Env -> Try(Binding, Ql.Error)
+	float_aggregate_arg = |function, list, env| {
+		values = Translate.aggregate_list(list, env)?
+		floats = if values.grouped "<float>${values.text}" else "${values.text}.map(|$c| <float>$c)"
+		Ok(Binding.Expr(Translate.call(function, [floats])))
+	}
+
 	## The text of the list of an aggregate, and whether it is a group's rows.
 	aggregate_list : Code.Tree, Env -> Try({ text : Str, grouped : Bool }, Ql.Error)
 	aggregate_list = |list, env| match Translate.eval(list, env)? {
@@ -2494,7 +2671,9 @@ Translate :: {}.{
 	## A list operation with a closure: `xs.any(|$v1| ..)`. The closure's row
 	## is expanded with its captured values and its element bound to `$vN`,
 	## where `N` is the row's id, so a nested closure never shadows its
-	## parent's variable.
+	## parent's variable. Over a graph path, a filter that reads only its
+	## element is `[WHERE ..]`, and a `map` or `join_map` whose function
+	## reads a path off its element continues the path (`Translate.hop`).
 	lambda : Code.Tree, Code.Tree, Str, Env -> Try(Binding, Ql.Error)
 	lambda = |list, f, name, env| {
 		(row, captures) = match f {
@@ -2513,6 +2692,22 @@ Translate :: {}.{
 			Ok(found) => found
 			Err(_) => return Err(Unsupported("`${name}` takes a function of one element"))
 		}
+		graph = match items {
+			Records({ graph: Edges(ends), .. }) => Edges(ends)
+			Records({ graph: Nodes, .. }) => Nodes
+			_ => Off
+		}
+		on_path = graph != Off
+		if on_path and captures.is_empty() and (name == "filter" or name == "drop") {
+			# The record of the filter is the one that the path reads.
+			edge = match items {
+				Records(r) => r.edge
+				_ => Bool.False
+			}
+			test = Translate.expand(row, [Binding.Row({ at: "", of: Doc(Unnamed), edge })], env)?
+			condition = if (name == "filter") Translate.text(test)? else "!${Translate.operand(test)?}"
+			return Ok(Binding.ListOf({ at: "${list_text}[WHERE ${condition}]", items }))
+		}
 		element = match items {
 			Records({ edge, .. }) => Binding.Row({ at: var_name, of: Ref(element_ty), edge })
 			Values => Translate.at(var_name, element_ty)
@@ -2524,16 +2719,477 @@ Translate :: {}.{
 				}
 		}
 		values = captures.map_try(|c| Translate.eval(c, env))?
+		if name == "filter" {
+			match Translate.series_range(list, row, values.append(element), var_name, env)? {
+				Ranged(range) => return Ok(Binding.ListOf({ at: range, items }))
+				Scan => {}
+			}
+		}
+		plain = match items {
+			Values => Bool.True
+			Made | Records(_) => Bool.False
+		}
+		if name == "any" and plain {
+			match Translate.member_of(list_text, row, values, element_ty, env)? {
+				Member(test) => return Ok(Binding.Infix(test))
+				Scan => {}
+			}
+		}
 		result = Translate.expand(row, values.append(element), env)?
 		closure = |inner| "|${var_name}| ${inner}"
+		if on_path and (name == "map" or name == "join_map") {
+			match Translate.hop(list_text, graph, var_name, result, name == "join_map") {
+				Ok(continued) => return Ok(continued)
+				Err(NotAPath) => {}
+			}
+		}
 		match name {
 			"any" | "all" => Ok(Binding.Expr("${list_text}.${name}(${closure(Translate.text(result)?)})"))
 			"map" => Ok(Binding.ListOf({ at: "${list_text}.map(${closure(Translate.text(result)?)})", items: Made }))
+			"join_map" => {
+				# `array::flatten` joins one level, as `List.join_map` does.
+				joined = match result {
+					ListOf(l) => Translate.off_path(l.items)
+					_ => Values
+				}
+				Ok(Binding.ListOf({ at: Translate.call("array::flatten", ["${list_text}.map(${closure(Translate.text(result)?)})"]), items: joined }))
+			}
 			"filter" => Ok(Binding.ListOf({ at: "${list_text}.filter(${closure(Translate.text(result)?)})", items }))
 			"drop" => Ok(Binding.ListOf({ at: "${list_text}.filter(${closure("!${Translate.operand(result)?}")})", items }))
 			"count" => Ok(Binding.Expr("${list_text}.filter(${closure(Translate.text(result)?)}).len()"))
 			_ => Ok(Binding.Maybe("${list_text}.find(${closure(Translate.text(result)?)})"))
 		}
+	}
+
+	## `t.rows().keep_if(|v| v.id.series() == x)` over a time series: a
+	## range scan of the keys `[x, ..]`, where `filter` reads the whole
+	## table for each `x` (verified: 0.3 s against 19 s, 200 kennels of
+	## 20000 readings). The subquery reads `x` as `$vN`, because its
+	## `FROM` does not read the fields of the row:
+	## `x.chain(|$v1| (SELECT VALUE id FROM t:[$v1, NONE]..=[$v1, ..]))`.
+	## A key always has its time, so no key is `[x]`, the one key the
+	## range leaves out. `Scan` is any other filter.
+	series_range : Code.Tree, U32, List(Binding), Str, Env -> Try([Ranged(Str), Scan], Ql.Error)
+	series_range = |list, row, values, var_name, env| {
+		table = match list {
+			Op({ op: Prim({ id, .. }), args: [table_tree], .. }) =>
+				match Translate.form(id, env.extensions) {
+					Ok(Rows) =>
+						match Translate.eval(table_tree, env)? {
+							Table(t) if !t.edge => t.name
+							_ => return Ok(Scan)
+						}
+					_ => return Ok(Scan)
+				}
+			_ => return Ok(Scan)
+		}
+		element = (env.graph.row(row).params.len() - 1).to_u32_wrap()
+		is_series = |tree| match tree {
+			Op({ op: Prim({ id, .. }), args: [Op({ op: Field("id"), args: [Param(k)], .. })], .. }) if k == element =>
+				match Translate.form(id, env.extensions) {
+					Ok(SeriesOf) => Bool.True
+					_ => Bool.False
+				}
+			_ => Bool.False
+		}
+		(lhs, rhs) = match Translate.body(env.graph.to_tree(row)) {
+			Op({ op: Prim({ id, .. }), args: [a, b], .. }) if Translate.is_equality(id, env) => (a, b)
+			_ => return Ok(Scan)
+		}
+		key_tree =
+			if is_series(lhs) {
+				rhs
+			} else if is_series(rhs) {
+				lhs
+			} else {
+				return Ok(Scan)
+			}
+		if Translate.reads_param(key_tree, element) {
+			return Ok(Scan)
+		}
+		key = Translate.operand(Translate.eval(key_tree, { ..env, params: values, row, nodes: [], depth: env.depth + 1 })?)?
+		Ok(Ranged("${key}.chain(|${var_name}| (SELECT VALUE id FROM ${Ql.ident(table)}:[${var_name}, NONE]..=[${var_name}, ..]))"))
+	}
+
+	## `xs.any(|x| x.f == v)` over a list of values, where `v` does not
+	## read `x`: `v IN xs[*].f`. An index of `xs[*].f` serves `IN`
+	## (`EXPLAIN`: `IndexScan`), where `any` reads the table
+	## (`TableScan`). The path reads fields and link ids only. `Scan` is
+	## any other closure.
+	member_of : Str, U32, List(Binding), Code.Ty, Env -> Try([Member(Str), Scan], Ql.Error)
+	member_of = |list_text, row, values, element_ty, env| {
+		element = values.len().to_u32_wrap()
+		is_path = |tree| Translate.element_path(tree, element, env)
+		(lhs, rhs) = match Translate.body(env.graph.to_tree(row)) {
+			Op({ op: Prim({ id, .. }), args: [a, b], .. }) if Translate.is_equality(id, env) => (a, b)
+			_ => return Ok(Scan)
+		}
+		(path, value) =
+			if is_path(lhs) and !Translate.reads_param(rhs, element) {
+				(lhs, rhs)
+			} else if is_path(rhs) and !Translate.reads_param(lhs, element) {
+				(rhs, lhs)
+			} else {
+				return Ok(Scan)
+			}
+		each = "${list_text}[*]"
+		inner = { ..env, params: values.append(Translate.at(each, element_ty)), row, nodes: [], depth: env.depth + 1 }
+		# A path the translator wraps in a function is no field path of `each`.
+		spelled = Translate.text(Translate.eval(path, inner)?)?
+		if !spelled.starts_with(each) or spelled.contains("(") {
+			return Ok(Scan)
+		}
+		given = Translate.operand(Translate.eval(value, inner)?)?
+		Ok(Member("${given} IN ${spelled}"))
+	}
+
+	## Whether a tree reads fields and link ids of the parameter `k` only.
+	## A link is a nominal, so its `id` field is under an `Unwrap`.
+	element_path : Code.Tree, U32, Env -> Bool
+	element_path = |tree, k, env| match tree {
+		Param(p) => p == k
+		Op({ op: Field(_), args: [inner], .. }) | Op({ op: Unwrap, args: [inner], .. }) => Translate.element_path(inner, k, env)
+		Op({ op: Prim({ id, .. }), args: [inner], .. }) =>
+			match Translate.form(id, env.extensions) {
+				Ok(LinkId) => Translate.element_path(inner, k, env)
+				_ => Bool.False
+			}
+		_ => Bool.False
+	}
+
+	# ------------------------------------------------------------ narrowing
+
+	## How a write to a table that a clause reads with `rows()` reaches the
+	## rows of the query, for the `LIVE` of that table
+	## (`Translate.narrowings`). `table` is the table as SurrealQL spells
+	## it. `Every` is each row of the query, and `Related` some of them.
+	Narrow : { table : Str, reach : [Every, Related(Related)] }
+
+	## The rows of the query whose value `node` equals the value `written`
+	## of the written row, or is in it when `many` (a list). `written`
+	## reads the written row as `$parent`, and `each` reads it as `$w`.
+	## `fixed` says that `written` reads only the record id of the written
+	## row, which a write never changes.
+	Related : { node : Str, written : Str, each : Str, many : Bool, fixed : Bool }
+
+	## Each read of a table with `rows()` in a clause, and the rows of the
+	## query that a write to the table reaches. A `keep_if`, `any`,
+	## `count_if` or `find_first` over the rows whose function holds an
+	## equality between a value of the element and a value that does not
+	## read it (`==`, or `contains` of a list of the element) is
+	## `Related`. Any other read of the table is `Every`.
+	narrowings : List(Extension), Code.Graph, List(Binding), (Str -> Str) -> Try(List(Narrow), Ql.Error)
+	narrowings = |extensions, graph, bindings, param| {
+		root = graph.root_row()
+		Translate.narrow(graph.to_tree(root.id), { graph, params: bindings, row: root.id, nodes: [], param, depth: 0, random: Bool.False, view: Plain, self: Outside, extensions }, Bool.True)
+	}
+
+	## The reads of `rows()` in a tree. `top` is false in the function of a
+	## list operation, where a value of the query's row may be spelled off
+	## the element. A list of rows that is passed or kept is not a read:
+	## where it is read is.
+	narrow : Code.Tree, Env, Bool -> Try(List(Narrow), Ql.Error)
+	narrow = |tree, env, top| match tree {
+		Param(_) | Def(_) => Ok(Translate.every_of(Translate.eval(tree, env)?))
+		Input(_) | Arg(_) | Out(_) => Ok([])
+		Block(block) => {
+			inner = block.defs.fold_try(
+				{ env, found: [] },
+				|acc, def| {
+					value = Translate.eval(def.value, acc.env)?
+					here = if (Translate.rows_table(value).is_ok()) [] else Translate.narrow(def.value, acc.env, top)?
+					Ok({ env: { ..acc.env, nodes: acc.env.nodes.append({ id: def.id, binding: value, ty: Translate.type_of(def.value, acc.env) }) }, found: acc.found.concat(here) })
+				},
+			)?
+			ends = match block.end {
+				Value(values) => values
+				_ => return Err(Unsupported("a clause cannot leave early; every branch delivers its value"))
+			}
+			rest = ends.map_try(|e| Translate.narrow(e, inner.env, top))?
+			Ok(inner.found.concat(rest.join()))
+		}
+		Op({ op: Prim(found), args, .. }) => Translate.narrow_prim(tree, found, args, env, top)
+		Op({ op: Call(row), args, .. }) => {
+			if env.depth > 32 or env.graph.row(row).recursive {
+				return Err(Unsupported("a function that calls itself has no SurrealQL form"))
+			}
+			values = args.map_try(|a| Translate.eval(a, env))?
+			passed = List.map2(args, values, |a, v| (a, v)).map_try(|(a, v)| if (Translate.rows_table(v).is_ok()) Ok([]) else Translate.narrow(a, env, top))?
+			inner = Translate.narrow(env.graph.to_tree(row), { ..env, params: values, row, nodes: [], depth: env.depth + 1 }, top)?
+			Ok(passed.join().concat(inner))
+		}
+		Op({ op: Closure(_), .. }) | Op({ op: Lambda(_), .. }) => Err(Unsupported("a function in a clause means something only as the argument of a list operation"))
+		Op({ args, .. }) => args.map_try(|a| Translate.narrow(a, env, top)).map_ok(List.join)
+	}
+
+	narrow_prim : Code.Tree, Call, List(Code.Tree), Env, Bool -> Try(List(Narrow), Ql.Error)
+	narrow_prim = |tree, found, args, env, top| match (Translate.form(found.id, env.extensions), args) {
+		(Ok(Rows), _) => Ok(Translate.every_of(Translate.eval(tree, env)?))
+		(Ok(Builtin({ owner: "List", method })), [list, f]) | (Ok(Builtin({ owner: "Try", method })), [list, f]) if Translate.is_closure(f) => {
+			source = Translate.eval(list, env)?
+			inside = Translate.narrow_closure(source, f, env)?
+			match Translate.rows_table(source) {
+				Ok(table) => {
+					narrows = ["keep_if", "any", "count_if", "find_first"].contains(method)
+					Ok([{ table, reach: if (top and narrows) Translate.related(source, f, env) else Every }].concat(inside))
+				}
+				Err(_) => Ok(Translate.narrow(list, env, top)?.concat(inside))
+			}
+		}
+		_ => args.map_try(|a| Translate.narrow(a, env, top)).map_ok(List.join)
+	}
+
+	## The reads of `rows()` in the function of a list operation over
+	## `source`, with its element bound as `Translate.lambda` binds it.
+	narrow_closure : Binding, Code.Tree, Env -> Try(List(Narrow), Ql.Error)
+	narrow_closure = |source, f, env| match f {
+		Op({ op: Closure(row), args: captures, .. }) => {
+			element_ty = match env.graph.row(row).params.last() {
+				Ok(found) => found
+				Err(_) => return Err(Unsupported("a list operation takes a function of one element"))
+			}
+			var_name = "$v${row.to_str()}"
+			element = match source {
+				ListOf({ items: Records({ edge, .. }), .. }) => Binding.Row({ at: var_name, of: Ref(element_ty), edge })
+				_ => Translate.at(var_name, element_ty)
+			}
+			values = captures.map_try(|c| Translate.eval(c, env))?
+			held = List.map2(captures, values, |c, v| (c, v)).map_try(|(c, v)| if (Translate.rows_table(v).is_ok()) Ok([]) else Translate.narrow(c, env, Bool.False))?
+			inner = Translate.narrow(env.graph.to_tree(row), { ..env, params: values.append(element), row, nodes: [], depth: env.depth + 1 }, Bool.False)?
+			Ok(held.join().concat(inner))
+		}
+		_ => Err(Unsupported("a list operation takes a function the clause writes or names"))
+	}
+
+	## The rows of the query that the function `f` over the rows of a
+	## table relates to the written row: a conjunct of its body that
+	## compares a value of the element with a value that does not read
+	## it. `Every` when no conjunct does.
+	related : Binding, Code.Tree, Env -> [Every, Related(Related)]
+	related = |source, f, env| {
+		(row, captures) = match f {
+			Op({ op: Closure(r), args: c, .. }) => (r, c)
+			_ => return Every
+		}
+		element = (env.graph.row(row).params.len() - 1).to_u32_wrap()
+		values = match captures.map_try(|c| Translate.eval(c, env)) {
+			Ok(found) => found
+			Err(_) => return Every
+		}
+		edge = match source {
+			ListOf({ items: Records(r), .. }) => r.edge
+			_ => Bool.False
+		}
+		inner = { ..env, params: values.append(Translate.document("$parent", edge)), row, nodes: [], depth: env.depth + 1 }
+		# A side of the element reads no captured value.
+		of_element = |t| Translate.reads_param(t, element) and !Translate.reads_below(t, element)
+		spelled = |written_tree, node_tree, many| {
+			on = |name| Translate.operand(Translate.eval(written_tree, { ..inner, params: values.append(Translate.document(name, edge)) })?)
+			Ok({ node: Translate.operand(Translate.eval(node_tree, inner)?)?, written: on("$parent")?, each: on("$w")?, many, fixed: Translate.key_only(written_tree, element) })
+		}
+		one = |c| match c {
+			Op({ op: Prim({ id, .. }), args: [a, b], .. }) if Translate.is_equality(id, env) =>
+				if of_element(a) and !Translate.reads_param(b, element) {
+					spelled(a, b, Bool.False)
+				} else if of_element(b) and !Translate.reads_param(a, element) {
+					spelled(b, a, Bool.False)
+				} else {
+					Err(Unsupported("no relation"))
+				}
+			Op({ op: Prim({ id, .. }), args: [list, item], .. }) if Translate.is_contains(id, env) =>
+				if of_element(list) and !Translate.reads_param(item, element) spelled(list, item, Bool.True) else Err(Unsupported("no relation"))
+			_ => Err(Unsupported("no relation"))
+		}
+		for c in Translate.conjuncts(Translate.body(env.graph.to_tree(row))) {
+			match one(c) {
+				Ok(r) => return Related(r)
+				Err(_) => {}
+			}
+		}
+		Every
+	}
+
+	is_closure : Code.Tree -> Bool
+	is_closure = |tree| match tree {
+		Op({ op: Closure(_), .. }) => Bool.True
+		_ => Bool.False
+	}
+
+	is_contains : Code.PrimId, Env -> Bool
+	is_contains = |id, env| match Translate.form(id, env.extensions) {
+		Ok(Builtin({ owner: "List", method: "contains" })) => Bool.True
+		_ => Bool.False
+	}
+
+	## Whether a tree may read a parameter before `k`: a captured value of
+	## a function whose element is `k`.
+	reads_below : Code.Tree, U32 -> Bool
+	reads_below = |tree, k| match tree {
+		Param(p) => p < k
+		Input(_) => Bool.False
+		Op({ op: held, args, .. }) => !held.regions().is_empty() or args.any(|a| Translate.reads_below(a, k))
+		_ => Bool.True
+	}
+
+	## The conjuncts of a condition: the operands of `and`, at any depth.
+	conjuncts : Code.Tree -> List(Code.Tree)
+	conjuncts = |tree| match tree {
+		Op({ op: And(_), args, .. }) => args.join_map(Translate.conjuncts)
+		other => [other]
+	}
+
+	## Whether a tree reads the parameter `k` only through its field `id`.
+	key_only : Code.Tree, U32 -> Bool
+	key_only = |tree, k| match tree {
+		Op({ op: Field("id"), args: [inner], .. }) if Translate.is_param(Translate.unwrapped(inner), k) => Bool.True
+		Param(p) => p != k
+		Input(_) => Bool.True
+		Op({ op: held, args, .. }) => held.regions().is_empty() and args.all(|a| Translate.key_only(a, k))
+		_ => Bool.False
+	}
+
+	is_param : Code.Tree, U32 -> Bool
+	is_param = |tree, k| match tree {
+		Param(p) => p == k
+		_ => Bool.False
+	}
+
+	unwrapped : Code.Tree -> Code.Tree
+	unwrapped = |tree| match tree {
+		Op({ op: Unwrap, args: [inner], .. }) => Translate.unwrapped(inner)
+		other => other
+	}
+
+	## A read of the rows of a table, where a value is that list.
+	every_of : Binding -> List(Narrow)
+	every_of = |binding| match Translate.rows_table(binding) {
+		Ok(table) => [{ table, reach: Every }]
+		Err(_) => []
+	}
+
+	## The table of a list that is the rows of a table, `rows_at`, as
+	## SurrealQL spells it.
+	rows_table : Binding -> Try(Str, [NotRows])
+	rows_table = |binding| match binding {
+		ListOf({ at: spelled, items: Records(_) }) => {
+			inside = spelled.drop_prefix("(SELECT VALUE id FROM ").drop_suffix(")")
+			if spelled.starts_with("(SELECT VALUE id FROM ") and spelled.ends_with(")") and !inside.contains("(") and !inside.contains(")") and !inside.contains(" ") Ok(inside) else Err(NotRows)
+		}
+		_ => Err(NotRows)
+	}
+
+	## Whether a tree may read the parameter `k`. A read of a kept node or
+	## a region may, as the tree does not show what it reads.
+	reads_param : Code.Tree, U32 -> Bool
+	reads_param = |tree, k| match tree {
+		Param(p) => p == k
+		Input(_) => Bool.False
+		Op({ op: held, args, .. }) => !held.regions().is_empty() or args.any(|a| Translate.reads_param(a, k))
+		_ => Bool.True
+	}
+
+	## A `map` or `join_map` over a graph path, as one path: the function
+	## reads a path off its element, `$v1.out.owner.name`, and the path goes
+	## on from the list, `->treats->patient.owner.name`. The `to` and `from`
+	## of an edge are a hop to the table at that end (`->patient`, `<-vet`).
+	## A graph step of a path gives a list and SurrealDB joins it, so a
+	## `map` has no graph step after the hop, and a `join_map` ends at one.
+	hop : Str, Graph, Str, Binding, Bool -> Try(Binding, [NotAPath])
+	hop = |list_text, graph, var_name, result, joined| {
+		read = match result {
+			Row({ at: place, of: Ref(_), .. }) => place
+			ListOf(l) => l.at
+			Expr(s) | Maybe(s) => s
+			_ => return Err(NotAPath)
+		}
+		if !read.starts_with(var_name) {
+			return Err(NotAPath)
+		}
+		suffix = read.drop_prefix(var_name)
+		if suffix.contains(var_name) {
+			return Err(NotAPath)
+		}
+		arrows = Translate.path_steps(suffix.to_utf8(), 0)?
+		step = match graph {
+			Edges(ends) => Translate.end_hop(suffix, ends)
+			_ => suffix
+		}
+		path = "${list_text}${step}"
+		match (joined, result) {
+			(Bool.False, Row({ of: Ref(ty), edge, .. })) if arrows == 0 => Ok(Binding.ListOf({ at: path, items: Records({ edge, row: Typed(ty), graph: Nodes }) }))
+			(Bool.False, _) if arrows == 0 => Ok(Binding.ListOf({ at: path, items: Values }))
+			(Bool.True, ListOf({ items: Records(r), .. })) if arrows > 0 and r.graph != Off => Ok(Binding.ListOf({ at: path, items: Records(r) }))
+			_ => Err(NotAPath)
+		}
+	}
+
+	## The first step of a path off an edge: its `out` is `->` the table at
+	## the end, and its `in` is `<-` the table at the start.
+	end_hop : Str, Ends -> Str
+	end_hop = |suffix, ends| {
+		table = |name| if (name == "?") "?" else Ql.ident(name)
+		ends_step = |rest| rest.is_empty() or rest.starts_with(".") or rest.starts_with("->") or rest.starts_with("<-") or rest.starts_with("[")
+		after_out = suffix.drop_prefix(".out")
+		after_in = suffix.drop_prefix(".in")
+		if suffix.starts_with(".out") and ends_step(after_out) {
+			"->${table(ends.to)}${after_out}"
+		} else if suffix.starts_with(".in") and ends_step(after_in) {
+			"<-${table(ends.from)}${after_in}"
+		} else {
+			suffix
+		}
+	}
+
+	## The number of graph steps of a path, which is any number of `.name`,
+	## `->name`, `<-name` and `[WHERE ..]`. Anything else, such as a call
+	## or an operator, is not a path.
+	path_steps : List(U8), U64 -> Try(U64, [NotAPath])
+	path_steps = |bytes, arrows| match bytes {
+		[] => Ok(arrows)
+		[46, .. as rest] => Translate.path_steps(Translate.name_end(rest)?, arrows)
+		[45, 62, .. as rest] | [60, 45, .. as rest] => Translate.path_steps(Translate.name_end(rest)?, arrows + 1)
+		[91, .. as rest] => Translate.path_steps(Translate.bracket_end(rest, 0, Bool.False)?, arrows)
+		_ => Err(NotAPath)
+	}
+
+	## The bytes after one name: `?`, a bracketed name `⟨..⟩`, or letters,
+	## digits and `_`.
+	name_end : List(U8) -> Try(List(U8), [NotAPath])
+	name_end = |bytes| match bytes {
+		[63, .. as rest] => Ok(rest)
+		[226, 159, 168, .. as rest] => Translate.bracketed_end(rest)
+		_ => {
+			rest = Translate.plain_end(bytes)
+			if (rest.len() == bytes.len()) Err(NotAPath) else Ok(rest)
+		}
+	}
+
+	## The bytes after the letters, digits and `_` at the start.
+	plain_end : List(U8) -> List(U8)
+	plain_end = |bytes| match bytes {
+		[b, .. as rest] if (b >= 48 and b <= 57) or (b >= 65 and b <= 90) or (b >= 97 and b <= 122) or b == 95 => Translate.plain_end(rest)
+		_ => bytes
+	}
+
+	## The bytes after the `⟩` that closes a bracketed name. `\` escapes.
+	bracketed_end : List(U8) -> Try(List(U8), [NotAPath])
+	bracketed_end = |bytes| match bytes {
+		[226, 159, 169, .. as rest] => Ok(rest)
+		[92, _, .. as rest] | [_, .. as rest] => Translate.bracketed_end(rest)
+		[] => Err(NotAPath)
+	}
+
+	## The bytes after the `]` that closes a `[WHERE ..]`, past nested
+	## brackets and quoted text.
+	bracket_end : List(U8), U64, Bool -> Try(List(U8), [NotAPath])
+	bracket_end = |bytes, depth, quoted| match bytes {
+		[] => Err(NotAPath)
+		[92, _, .. as rest] if quoted => Translate.bracket_end(rest, depth, quoted)
+		[39, .. as rest] => Translate.bracket_end(rest, depth, !quoted)
+		[_, .. as rest] if quoted => Translate.bracket_end(rest, depth, quoted)
+		[91, .. as rest] => Translate.bracket_end(rest, depth + 1, quoted)
+		[93, .. as rest] => if (depth == 0) Ok(rest) else Translate.bracket_end(rest, depth - 1, quoted)
+		[_, .. as rest] => Translate.bracket_end(rest, depth, quoted)
 	}
 
 	## `t.map_ok(f)` on a value that may be NONE: NONE stays NONE, and any
@@ -2557,7 +3213,16 @@ Translate :: {}.{
 			Maybe(_) => return Err(Translate.nested_try)
 			other => Translate.text(other)?
 		}
-		Ok(Binding.Maybe(if (mapped == optional) optional else "(IF ${optional} IS NONE THEN NONE ELSE ${mapped} END)"))
+		Ok(Binding.Maybe(if (mapped == optional or Translate.reads_path(mapped, optional)) mapped else "(IF ${optional} IS NONE THEN NONE ELSE ${mapped} END)"))
+	}
+
+	## Whether `mapped` is a dotted path of names under `optional`, a path
+	## too: `chip` and `chip.code`. A field of NONE is NONE, so the test of
+	## NONE adds nothing.
+	reads_path : Str, Str -> Bool
+	reads_path = |mapped, optional| {
+		is_path = |spelled| spelled.drop_prefix("$").split_on(".").all(|name| Ql.is_plain(name))
+		mapped.starts_with("${optional}.") and is_path(mapped) and is_path(optional)
 	}
 
 	## A call to one of the application's own functions, expanded with its

@@ -1,0 +1,3 @@
+-- reify-surrealdb migration 0001_init target V4 from e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+DEFINE TABLE OVERWRITE bin SCHEMAFULL;
+DEFINE FIELD OVERWRITE label ON bin TYPE string;

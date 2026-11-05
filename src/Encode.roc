@@ -21,9 +21,11 @@ Encode :: {}.{
 	## signatures spell the constraint out, as `Sql.Bindable` does.
 	a.Writable : where [a.encoder_for : Encode.Format -> (a, Encode.State -> Try(Encode.State, []))]
 
-	## The format the encoder is derived against. `U64`, `I128` and `U128`
-	## have no method here on purpose: a row that holds one does not type-check
-	## where it is written, because SurrealDB's `int` is 64-bit signed.
+	## The format the encoder is derived against. `I128` and `U128` have no
+	## method here on purpose: a row that holds one does not type-check where
+	## it is written, because SurrealDB's `int` is 64-bit signed. A `U64` above
+	## the `I64` range is a decimal, so a comparison stays exact, and a field of
+	## type `int` refuses it.
 	Format := [Surreal].{
 		rename_field : Format, Str -> Str
 		rename_field = |_, name| name
@@ -54,6 +56,9 @@ Encode :: {}.{
 
 		encode_u32 : U32, Encode.State -> Try(Encode.State, [])
 		encode_u32 = |n, state| Ok(state.append(Value(Ql.Value.Int(n.to_i64()))))
+
+		encode_u64 : U64, Encode.State -> Try(Encode.State, [])
+		encode_u64 = |n, state| Ok(state.append(Value(if n > 9223372036854775807 Ql.Value.Decimal(n.to_dec()) else Ql.Value.Int(n.to_i64_wrap()))))
 
 		encode_dec : Dec, Encode.State -> Try(Encode.State, [])
 		encode_dec = |d, state| Ok(state.append(Value(Ql.Value.Decimal(d))))
@@ -153,6 +158,9 @@ Encode :: {}.{
 
 		encode_u32 : U32, List(U8) -> Try(List(U8), [])
 		encode_u32 = |n, out| Ok(Encode.put_int(out, n.to_i64()))
+
+		encode_u64 : U64, List(U8) -> Try(List(U8), [])
+		encode_u64 = |n, out| Ok(if n > 9223372036854775807 Encode.big_endian(out.append(4), n.to_dec().to_attos().to_u128_wrap(), 16) else Encode.put_int(out, n.to_i64_wrap()))
 
 		encode_dec : Dec, List(U8) -> Try(List(U8), [])
 		encode_dec = |d, out| Ok(Encode.big_endian(out.append(4), d.to_attos().to_u128_wrap(), 16))
@@ -334,6 +342,12 @@ expect Encode.value_of(row_a).map_ok(Ql.literal) == Ok("{ id: 'o\\'neil', ok: tr
 expect Encode.value_of(row_b).map_ok(Ql.literal) == Ok("{ id: 'x', note: 'hi', ok: false, pay: 'Cash', price: 0.0dec, qty: -1, ratio: 0.5f, tags: [] }")
 expect Encode.value_of(small).map_ok(Ql.literal) == Ok("{ a: -1, b: 255, c: -300, d: 65535, e: -70000, f: 4000000000, g: 1.5f }")
 
+# A `U64` is an `int`, or a decimal when an `int` cannot hold it.
+wide : { a : U64, b : U64, c : U64, d : U64 }
+wide = { a: 0, b: 9223372036854775807, c: 9223372036854775808, d: 18446744073709551615 }
+
+expect Encode.value_of(wide).map_ok(Ql.literal) == Ok("{ a: 0, b: 9223372036854775807, c: 9223372036854775808.0dec, d: 18446744073709551615.0dec }")
+
 pay_check : Row
 pay_check = { ..row_b, pay: Check(7) }
 
@@ -357,6 +371,7 @@ bound_of = |value| {
 expect bound_of(row_a).map_ok(Ql.literal) == Encode.value_of(row_a).map_ok(Ql.literal).map_err(|_| BadBytes)
 expect bound_of(row_b).map_ok(Ql.literal) == Encode.value_of(row_b).map_ok(Ql.literal).map_err(|_| BadBytes)
 expect bound_of(small).map_ok(Ql.literal) == Encode.value_of(small).map_ok(Ql.literal).map_err(|_| BadBytes)
+expect bound_of(wide).map_ok(Ql.literal) == Encode.value_of(wide).map_ok(Ql.literal).map_err(|_| BadBytes)
 expect bound_of(pay_wire).map_ok(Ql.literal) == Encode.value_of(pay_wire).map_ok(Ql.literal).map_err(|_| BadBytes)
 negative : F64
 negative = -2.5

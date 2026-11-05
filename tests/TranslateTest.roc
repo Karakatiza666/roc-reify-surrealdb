@@ -13,7 +13,7 @@ import internal.Translate
 # compiler reads a list, or a constant of this module that is one, and not
 # `Surreal.code_primitives` from another module.
 TranslateTest :: {}.{
-	code_primitives = [Code.prim(Surreal.Link.get), Code.prim(Surreal.Link.id), Code.prim(Surreal.Id.is_eq), Code.prim(Surreal.Id.key), Code.prim(Surreal.Id.table), Code.prim(Surreal.Datetime.is_lt), Code.prim(Surreal.Datetime.is_lte), Code.prim(Surreal.Text.is_ascii), Code.prim(Surreal.Text.is_hexadecimal), Code.prim(Surreal.Hash.sha256), Code.prim(Surreal.Hash.blake3), Code.prim(Surreal.Array.distinct), Code.prim(Surreal.Array.union), Code.prim(Surreal.Array.intersect), Code.prim(Surreal.Array.complement), Code.prim(Surreal.Time.floor), Code.prim(Surreal.Time.ceil), Code.prim(Surreal.Time.round), Code.prim(Surreal.Time.year), Code.prim(Surreal.Time.month), Code.prim(Surreal.Time.day), Code.prim(Surreal.Time.hour), Code.prim(Surreal.Time.minute), Code.prim(Surreal.Time.second), Code.prim(Surreal.Math.mean), Code.prim(Surreal.DbFn.call1), Code.prim(Surreal.DbFn.call2), Code.prim(Surreal.DbFn.call3), Code.prim(Surreal.TimeKey.series), Code.prim(Surreal.TimeKey.time), Code.prim(Surreal.Geo.is_valid), Code.prim(Surreal.Vector.similarity_cosine), Code.prim(Surreal.Vector.distance_euclidean), Code.prim(Surreal.Vector.distance_manhattan), Code.prim(Surreal.Vector.distance_chebyshev), Code.prim(Surreal.Vector.dot), Code.prim(Surreal.Vector.magnitude)]
+	code_primitives = [Code.prim(Surreal.Link.get), Code.prim(Surreal.Link.id), Code.prim(Surreal.Id.is_eq), Code.prim(Surreal.Id.key), Code.prim(Surreal.Id.table), Code.prim(Surreal.Datetime.is_lt), Code.prim(Surreal.Datetime.is_lte), Code.prim(Surreal.Text.is_ascii), Code.prim(Surreal.Text.is_hexadecimal), Code.prim(Surreal.Hash.sha256), Code.prim(Surreal.Hash.blake3), Code.prim(Surreal.Array.distinct), Code.prim(Surreal.Array.union), Code.prim(Surreal.Array.intersect), Code.prim(Surreal.Array.complement), Code.prim(Surreal.Time.floor), Code.prim(Surreal.Time.ceil), Code.prim(Surreal.Time.round), Code.prim(Surreal.Time.year), Code.prim(Surreal.Time.month), Code.prim(Surreal.Time.day), Code.prim(Surreal.Time.hour), Code.prim(Surreal.Time.minute), Code.prim(Surreal.Time.second), Code.prim(Surreal.Math.mean), Code.prim(Surreal.Math.mean_dec), Code.prim(Surreal.DbFn.call1), Code.prim(Surreal.DbFn.call2), Code.prim(Surreal.DbFn.call3), Code.prim(Surreal.TimeKey.series), Code.prim(Surreal.TimeKey.time), Code.prim(Surreal.Geo.is_valid), Code.prim(Surreal.Vector.similarity_cosine), Code.prim(Surreal.Vector.distance_euclidean), Code.prim(Surreal.Vector.distance_manhattan), Code.prim(Surreal.Vector.distance_chebyshev), Code.prim(Surreal.Vector.dot), Code.prim(Surreal.Vector.magnitude)]
 
 	## The graph of a clause over rows of the list's element type.
 	describe1 : List(row), Code(row -> out) -> Code.Graph
@@ -128,7 +128,11 @@ expect where_(TranslateTest.describe1(orders, |o| o.customer.id == ada_id)) == O
 # `link.id` (the field) and `link.id()` (the method) are the same, and `fetched` has no SurrealQL form.
 expect where_(TranslateTest.describe1(orders, |o| o.customer.id.key() == "ada")) == Ok("record::id(customer) = 'ada'")
 expect where_(TranslateTest.describe1(orders, |o| Surreal.Id.table(o.customer.id) == "customer")) == Ok("record::tb(customer) = 'customer'")
-expect where_(TranslateTest.describe1(orders, |o| o.items.any(|i| i.product.id == pen_id))) == Ok("items.any(|$v1| $v1.product = product:⟨pen⟩)")
+expect where_(TranslateTest.describe1(orders, |o| o.items.any(|i| i.product.id == pen_id))) == Ok("product:⟨pen⟩ IN items[*].product")
+# A test that reads the element on both sides, or more than its fields, stays `any`.
+expect where_(TranslateTest.describe1(paired, |p| p.pairs.any(|x| x.a == x.b))) == Ok("pairs.any(|$v1| $v1.a = $v1.b)")
+expect where_(TranslateTest.describe1(paired, |p| p.pairs.any(|x| 3 == x.b))) == Ok("3 IN pairs[*].b")
+expect where_(TranslateTest.describe1(orders, |o| o.items.any(|i| i.product.get().title == "pen"))) == Ok("items.any(|$v1| $v1.product.title = 'pen')")
 expect selected(TranslateTest.describe1(orders, |o| { who: o.customer.id })) == Ok([{ name: "who", surql: "customer" }])
 expect selected(TranslateTest.describe1(orders, |o| { who: o.customer.id() })) == Ok([{ name: "who", surql: "customer" }])
 expect where_(TranslateTest.describe1(orders, |o| o.customer.fetched == NotFetched)) == Err(Unsupported("`fetched` is the row that the program holds, and the database has no such field; read a field of the row with `link.get().field`, or use `link.id`"))
@@ -139,7 +143,7 @@ expect selected(TranslateTest.describe1(customers, |c| { note: c.address.?zip ??
 expect {
 	graph = TranslateTest.describe_pair(customers, purchases, |(c, bought)| { name: c.name, titles: bought.keep_if(|e| e.quantity > 2).map(|e| e.to.get().title) })
 	Translate.columns([Surreal.library], graph, [Translate.Binding.WithEdges(row, [Translate.outgoing("", "purchased")])], Translate.variable)
-		== Ok([{ name: "name", surql: "name" }, { name: "titles", surql: "->purchased.filter(|$v1| $v1.quantity > 2).map(|$v2| $v2.out.title)" }])
+		== Ok([{ name: "name", surql: "name" }, { name: "titles", surql: "->purchased[WHERE quantity > 2]->?.title" }])
 }
 expect {
 	key = Translate.evaluate([Surreal.library], TranslateTest.describe1(orders, |o| o.customer.get().address.city), [row], Translate.variable)
@@ -149,6 +153,27 @@ expect {
 		Err(_) => Bool.False
 	}
 }
+
+# Graph paths. The edges of a row are `->t` or `<-t`, a filter of edges
+# that reads only the edge is `[WHERE ..]`, and the `to` and `from` of an
+# edge are a hop to the table at that end. A `join_map` of the edges of
+# each end is the next edge hop: SurrealDB joins the lists of a graph step.
+product_table : Surreal.Table(Product)
+product_table = Surreal.table("product")
+
+purchased_table : Surreal.Table(Purchased)
+purchased_table = Surreal.relation("purchased", customer_table, product_table)
+
+expect selected(TranslateTest.describe1(customers, |c| { titles: purchased_table.edges_from(c).keep_if(|e| e.quantity > 2).map(|e| e.to.get().title) })) == Ok([{ name: "titles", surql: "->purchased[WHERE quantity > 2]->product.title" }])
+expect where_(TranslateTest.describe1(customers, |c| purchased_table.edges_from(c).drop_if(|e| e.quantity > 2).len() == 0)) == Ok("->purchased[WHERE !(quantity > 2)].len() = 0")
+expect selected(TranslateTest.describe1(customers, |c| { others: purchased_table.edges_from(c).join_map(|e| purchased_table.edges_to(e.to.get())).map(|e| e.from.get().name) })) == Ok([{ name: "others", surql: "->purchased->product<-purchased<-customer.name" }])
+# A filter that reads the row stays a closure: in `[WHERE ..]` a name is a field of the edge.
+expect selected(TranslateTest.describe1(customers, |c| { n: purchased_table.edges_from(c).keep_if(|e| e.to.get().title == c.name).len() })) == Ok([{ name: "n", surql: "->purchased.filter(|$v1| $v1.out.title = name).len()" }])
+# A `map` whose result is a graph step gives a list of lists, which a path would join.
+expect selected(TranslateTest.describe1(customers, |c| { n: purchased_table.edges_from(c).map(|e| purchased_table.edges_to(e.to.get())).len() })) == Ok([{ name: "n", surql: "->purchased.map(|$v1| $v1.out<-purchased.{ from: in, id: record::id(id), quantity, to: out }).len()" }])
+# An `array::` function ends the path.
+expect selected(TranslateTest.describe1(customers, |c| { t: purchased_table.edges_from(c).rev().map(|e| e.to.get().title) })) == Ok([{ name: "t", surql: "array::reverse(->purchased).map(|$v1| $v1.out.title)" }])
+expect where_(TranslateTest.describe1(samples, |s| s.grid.join_map(|r| r).len() > 1)) == Ok("array::flatten(grid.map(|$v1| $v1)).len() > 1")
 
 # A filter on the row before a write, as a live query reads it: every path
 # starts at `$before`, also through a link, a union, a key and the edges.
@@ -327,6 +352,23 @@ expect where_(
 		},
 	),
 ) == Ok("(IF payment.kind = 'Invoice' THEN (IF payment.due = '' THEN false ELSE payment.contact.name = 'Ada' END) ELSE false END)")
+# `==` and `!=` between a union and a tag with no payload: the stored value of
+# that tag is its name, and a tag with a payload is an object, so one test is exact.
+PaidTicket : { id : Str, pay ?: Payment }
+
+paid_tickets : List(PaidTicket)
+paid_tickets = []
+
+expect where_(TranslateTest.describe1(orders, |o| o.payment == Cash)) == Ok("payment = 'Cash'")
+expect where_(TranslateTest.describe1(orders, |o| o.payment != Cash)) == Ok("payment != 'Cash'")
+expect where_(TranslateTest.describe1(orders, |o| o.total > 1 and o.payment != Cash)) == Ok("(total > 1.0dec) AND (payment != 'Cash')")
+expect where_(TranslateTest.describe1(orders, |o| match o.payment { Cash => Bool.True, _ => Bool.False })) == Ok("payment = 'Cash'")
+# An absent value is NONE: `NONE = 'Cash'` is false and `NONE != 'Cash'` is true, as the arms say.
+expect where_(TranslateTest.describe1(paid_tickets, |t| match t.?pay { Ok(p) => p != Cash, Err(_) => Bool.True })) == Ok("(IF pay IS NONE THEN true ELSE pay != 'Cash' END)")
+expect where_(TranslateTest.describe1(paid_tickets, |t| match t.?pay { Ok(p) => p == Cash, Err(_) => Bool.False })) == Ok("(IF pay IS NONE THEN false ELSE pay = 'Cash' END)")
+# Other shapes keep the branch: a payload tag, or `True` on every other arm.
+expect where_(TranslateTest.describe1(orders, |o| o.payment == Points(3))) == Ok("(IF payment.kind = 'Points' THEN payment.value = 3 ELSE false END)")
+expect where_(TranslateTest.describe1(orders, |o| match o.payment { Cash => Bool.False, _ => Bool.True })) == Ok("(IF payment = 'Cash' THEN false ELSE true END)")
 expect selected(TranslateTest.describe1(customers, |c| { z: if (c.name == "Ada") "a" else "b" })) == Ok([{ name: "z", surql: "(IF name = 'Ada' THEN 'a' ELSE 'b' END)" }])
 expect selected(
 	TranslateTest.describe1(
@@ -362,6 +404,13 @@ Kinded : { id : Str, kinds : List([Big(I64), Small]) }
 
 kinded : List(Kinded)
 kinded = []
+
+Pair : { a : I64, b : I64 }
+
+Paired : { id : Str, pairs : List(Pair) }
+
+paired : List(Paired)
+paired = []
 
 expect where_(
 	TranslateTest.describe1(
@@ -403,7 +452,7 @@ at_least = |min, pen| TranslateTest.describe_bound(orders, |o| o.total >= min an
 
 expect {
 	bound = at_least(5, Surreal.Id.({ table: "product", key: "pen" }))
-	bound.value() == Ok("(total >= $_1) AND items.any(|$v1| $v1.product = $_2)") and bound.inputs().len() == 2
+	bound.value() == Ok("(total >= $_1) AND ($_2 IN items[*].product)") and bound.inputs().len() == 2
 }
 
 Member : { id : Str, name : Str, nick ?: Str, labels : Set(Str) }
@@ -631,12 +680,12 @@ expect where_(TranslateTest.describe1(samples, |s| Surreal.Array.distinct(s.word
 
 # The functions of `Surreal.Time`. A duration is built in the clause.
 expect where_(TranslateTest.describe1(samples, |s| s.at < Surreal.Time.now())) == Ok("at < time::now()")
-expect where_(TranslateTest.describe1(samples, |s| Surreal.Time.floor(s.at, Surreal.Time.hours(1)) < s.at)) == Ok("time::floor(at, duration::from_nanos(3600000000000)) < at")
-expect where_(TranslateTest.describe1(samples, |s| Surreal.Time.ceil(s.at, Surreal.Time.hours(1)) < s.at)) == Ok("time::ceil(at, duration::from_nanos(3600000000000)) < at")
-expect where_(TranslateTest.describe1(samples, |s| Surreal.Time.round(s.at, Surreal.Time.hours(1)) < s.at)) == Ok("time::round(at, duration::from_nanos(3600000000000)) < at")
-expect where_(TranslateTest.describe1(samples, |s| Surreal.Time.floor(s.at, Surreal.Time.mins(90)) < s.at)) == Ok("time::floor(at, duration::from_nanos(5400000000000)) < at")
-expect where_(TranslateTest.describe1(samples, |s| Surreal.Time.floor(s.at, Surreal.Time.nanos(7)) < s.at)) == Ok("time::floor(at, duration::from_nanos(7)) < at")
-expect where_(TranslateTest.describe1(samples, |s| Surreal.Time.floor(s.at, Surreal.Time.weeks(1)) < s.at)) == Ok("time::floor(at, duration::from_nanos(604800000000000)) < at")
+expect where_(TranslateTest.describe1(samples, |s| Surreal.Time.floor(s.at, Surreal.Time.hours(1)) < s.at)) == Ok("time::floor(at, 1h) < at")
+expect where_(TranslateTest.describe1(samples, |s| Surreal.Time.ceil(s.at, Surreal.Time.hours(1)) < s.at)) == Ok("time::ceil(at, 1h) < at")
+expect where_(TranslateTest.describe1(samples, |s| Surreal.Time.round(s.at, Surreal.Time.hours(1)) < s.at)) == Ok("time::round(at, 1h) < at")
+expect where_(TranslateTest.describe1(samples, |s| Surreal.Time.floor(s.at, Surreal.Time.mins(90)) < s.at)) == Ok("time::floor(at, 1h30m) < at")
+expect where_(TranslateTest.describe1(samples, |s| Surreal.Time.floor(s.at, Surreal.Time.nanos(7)) < s.at)) == Ok("time::floor(at, 7ns) < at")
+expect where_(TranslateTest.describe1(samples, |s| Surreal.Time.floor(s.at, Surreal.Time.weeks(1)) < s.at)) == Ok("time::floor(at, 1w) < at")
 expect where_(TranslateTest.describe1(samples, |s| Surreal.Time.floor(s.at, Surreal.Time.hours(s.nums.len())) < s.at)) == Ok("time::floor(at, duration::from_nanos(nums.len() * 3600000000000)) < at")
 expect where_(TranslateTest.describe1(samples, |s| Surreal.Time.group(s.at, Year) < s.at)) == Ok("time::group(at, 'year') < at")
 expect where_(TranslateTest.describe1(samples, |s| Surreal.Time.group(s.at, Month) < s.at)) == Ok("time::group(at, 'month') < at")
@@ -644,8 +693,8 @@ expect where_(TranslateTest.describe1(samples, |s| Surreal.Time.group(s.at, Day)
 expect where_(TranslateTest.describe1(samples, |s| Surreal.Time.group(s.at, Hour) < s.at)) == Ok("time::group(at, 'hour') < at")
 expect where_(TranslateTest.describe1(samples, |s| Surreal.Time.group(s.at, Minute) < s.at)) == Ok("time::group(at, 'minute') < at")
 expect where_(TranslateTest.describe1(samples, |s| Surreal.Time.group(s.at, Second) < s.at)) == Ok("time::group(at, 'second') < at")
-expect where_(TranslateTest.describe1(samples, |s| Surreal.Time.plus(s.at, Surreal.Time.days(1)) > s.at)) == Ok("at < (at + duration::from_nanos(86400000000000))")
-expect where_(TranslateTest.describe1(samples, |s| Surreal.Time.minus(s.at, Surreal.Time.days(1)) < s.at)) == Ok("(at - duration::from_nanos(86400000000000)) < at")
+expect where_(TranslateTest.describe1(samples, |s| Surreal.Time.plus(s.at, Surreal.Time.days(1)) > s.at)) == Ok("at < (at + 1d)")
+expect where_(TranslateTest.describe1(samples, |s| Surreal.Time.minus(s.at, Surreal.Time.days(1)) < s.at)) == Ok("(at - 1d) < at")
 expect where_(TranslateTest.describe1(samples, |s| Surreal.Time.wday(s.at) == 7)) == Ok("time::wday(at) = 7")
 expect where_(TranslateTest.describe1(samples, |s| Surreal.Time.yday(s.at) == 7)) == Ok("time::yday(at) = 7")
 expect where_(TranslateTest.describe1(samples, |s| Surreal.Time.week(s.at) == 7)) == Ok("time::week(at) = 7")
@@ -669,8 +718,14 @@ expect where_(TranslateTest.describe1(samples, |s| Surreal.Math.stddev(s.scores)
 expect where_(TranslateTest.describe1(samples, |s| Surreal.Math.variance(s.scores) > 1)) == Ok("math::variance(scores) > 1f")
 expect where_(TranslateTest.describe1(samples, |s| Surreal.Math.percentile(s.scores, 90) > 3)) == Ok("math::percentile(scores, 90f) > 3f")
 expect where_(TranslateTest.describe1(samples, |s| Surreal.Math.mean(s.nums.map(|n| n.to_f64())) > 2)) == Ok("math::mean(nums.map(|$v1| <float>$v1)) > 2f")
+expect where_(TranslateTest.describe1(samples, |s| Surreal.Math.mean_dec(s.decs) > 2)) == Ok("math::mean(decs.map(|$c| <float>$c)) > 2f")
 expect {
 	graph = TranslateTest.describe_group([""], orders, |_, rows| { avg: Surreal.Math.mean(rows.map(|o| o.total.to_f64())) })
+	Translate.columns([Surreal.library], graph, [Translate.Binding.Expr("k"), Translate.Binding.Group(row)], Translate.variable) == Ok([{ name: "avg", surql: "math::mean(<float>total)" }])
+}
+# The mean of decimals is the mean of their floats, in a group too.
+expect {
+	graph = TranslateTest.describe_group([""], orders, |_, rows| { avg: Surreal.Math.mean_dec(rows.map(|o| o.total)) })
 	Translate.columns([Surreal.library], graph, [Translate.Binding.Expr("k"), Translate.Binding.Group(row)], Translate.variable) == Ok([{ name: "avg", surql: "math::mean(<float>total)" }])
 }
 expect {
@@ -759,10 +814,10 @@ expect Translate.assignments([Surreal.library], TranslateTest.describe1(customer
 
 # `==` on datetimes compares the datetimes, also when one is a function result, is read twice or is a parameter.
 # SurrealDB prints a fraction with 3, 6 or 9 digits and Roc without trailing zeros, so their texts differ.
-expect where_(TranslateTest.describe1(samples, |s| Surreal.Time.floor(s.at, Surreal.Time.hours(1)) == new_year)) == Ok("time::floor(at, duration::from_nanos(3600000000000)) = d'2020-01-01T00:00:00Z'")
-expect where_(TranslateTest.describe1(samples, |s| Surreal.Time.floor(s.at, Surreal.Time.hours(1)) == s.at)) == Ok("time::floor(at, duration::from_nanos(3600000000000)) = at")
-expect where_(TranslateTest.describe1(samples, |s| new_year == Surreal.Time.floor(s.at, Surreal.Time.hours(1)))) == Ok("time::floor(at, duration::from_nanos(3600000000000)) = d'2020-01-01T00:00:00Z'")
-expect where_(TranslateTest.describe1(samples, |s| same(s.at, hour_of(s)))) == Ok("at = time::floor(at, duration::from_nanos(3600000000000))")
+expect where_(TranslateTest.describe1(samples, |s| Surreal.Time.floor(s.at, Surreal.Time.hours(1)) == new_year)) == Ok("time::floor(at, 1h) = d'2020-01-01T00:00:00Z'")
+expect where_(TranslateTest.describe1(samples, |s| Surreal.Time.floor(s.at, Surreal.Time.hours(1)) == s.at)) == Ok("time::floor(at, 1h) = at")
+expect where_(TranslateTest.describe1(samples, |s| new_year == Surreal.Time.floor(s.at, Surreal.Time.hours(1)))) == Ok("time::floor(at, 1h) = d'2020-01-01T00:00:00Z'")
+expect where_(TranslateTest.describe1(samples, |s| same(s.at, hour_of(s)))) == Ok("at = time::floor(at, 1h)")
 expect where_(TranslateTest.describe1(samples, |s| s.times.any(|t| t == s.at))) == Ok("times.any(|$v1| $v1 = at)")
 expect where_(TranslateTest.describe1(samples, |s| s.at == half_second)) == Ok("at = d'2026-03-04T05:06:07.5Z'")
 expect where_(TranslateTest.describe1(samples, |s| s.at != new_year)) == Ok("at != d'2020-01-01T00:00:00Z'")
@@ -837,6 +892,9 @@ expect Surreal.Math.mean([1e16, 1.0, -1e16]) == 0.0
 expect Surreal.Math.mean([5.0]) == 5.0
 expect Surreal.Math.mean([1e308, 1e308]).is_infinite()
 expect Surreal.Math.mean(List.repeat(1.0, 0)).is_nan()
+expect Surreal.Math.mean_dec([1, 2, 4]) == Surreal.Math.mean([1.0, 2.0, 4.0])
+expect Surreal.Math.mean_dec([0.1, 0.2, 0.3]) == Surreal.Math.mean([0.1, 0.2, 0.3])
+expect Surreal.Math.mean_dec(List.repeat(1, 0)).is_nan()
 
 # The nanoseconds since 1970 of `time::nano`, both ways.
 expect moment("2026-03-04T05:06:07.123456789Z").to_unix_nanos() == 1772600767123456789

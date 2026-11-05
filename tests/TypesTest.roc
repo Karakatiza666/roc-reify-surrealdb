@@ -74,8 +74,16 @@ Kitchen : {
 kitchen : Surreal.Table(Kitchen)
 kitchen = Surreal.table("kitchen")
 
+# A list of records with a default in a member keeps the `array<object>` form.
+Part := { w : I64 ?? 5, label : Str }
+
+Crate : { id : Str, parts : List(Part) }
+
+crates : Surreal.Table(Crate)
+crates = Surreal.table("crate")
+
 registry : Types.Registry
-registry = [Surreal.Def.source(customers.define()), Surreal.Def.source(products.define()), Surreal.Def.source(orders.define()), Surreal.Def.source(purchased.define()), Surreal.Def.source(kitchen.define())]
+registry = [Surreal.Def.source(customers.define()), Surreal.Def.source(products.define()), Surreal.Def.source(orders.define()), Surreal.Def.source(purchased.define()), Surreal.Def.source(kitchen.define()), Surreal.Def.source(crates.define())]
 
 defs_of : Str -> List(Str)
 defs_of = |name| match registry.find_first(|s| s.name == name) {
@@ -124,9 +132,9 @@ expect defs_of("order") == [
 	"gift option<object> []",
 	"gift.note string []",
 	"gift.to record<customer> [record::exists($value)]",
-	"items array<object> [$value.all(|$e| object::keys($e).all(|$k| $k IN ['product', 'qty']))]",
-	"items[*].product record<product> [record::exists($value)]",
-	"items[*].qty int []",
+	"items array<{ product: record<product>, qty: int }> []",
+	"items[*].product  [record::exists($value)]",
+	"items[*].qty  []",
 	"payment { kind: \"Card\", last4: string } | \"Cash\" | { kind: \"Check\", value: int } | { kind: \"Gift\", value: record<product> } | { kind: \"Invoice\", contact: record<customer>, due: string } | { kind: \"Wire\", value: [string, int] } [(IF $value.kind = 'Gift' THEN record::exists($value.value) ELSE true END) ; (IF $value.kind = 'Invoice' THEN record::exists($value.contact) ELSE true END)]",
 	"placed datetime []",
 	"wishlist array<record<product>> [$value.all(|$e1| record::exists($e1))]",
@@ -134,6 +142,12 @@ expect defs_of("order") == [
 
 expect defs_of("purchased") == [
 	"since int []",
+]
+
+expect defs_of("crate") == [
+	"parts array<object> [$value.all(|$e| object::keys($e).all(|$k| $k IN ['label', 'w']))]",
+	"parts[*].label string []",
+	"parts[*].w int []",
 ]
 
 expect defs_of("kitchen") == [
@@ -157,9 +171,9 @@ expect defs_of("kitchen") == [
 	"note option<string> []",
 	"pick { kind: \"Box\", w: int } | \"Pad\" | { kind: \"Pair\", value: [string, int] } []",
 	"plain \"Green\" | \"Red\" []",
-	"rows array<object> [$value.all(|$e| object::keys($e).all(|$k| $k IN ['n', 's']))]",
-	"rows[*].n int [$value >= 0 AND $value <= 255]",
-	"rows[*].s string []",
+	"rows array<{ n: int, s: string }> []",
+	"rows[*].n  [$value >= 0 AND $value <= 255]",
+	"rows[*].s  []",
 	"status \"Active\" | \"Closed\" []",
 	"text string []",
 	"u16 int [$value >= 0 AND $value <= 65535]",
@@ -273,7 +287,7 @@ id_from = Surreal.table("id_from")
 expect check_of(Surreal.Def.source(no_id.define()), registry) == "table `no_id` needs a required field `id : Str` or `id : Surreal.TimeKey(..)`; it is the record key"
 expect check_of(Surreal.Def.source(id_int.define()), registry) == "table `id_int` needs a required field `id : Str` or `id : Surreal.TimeKey(..)`; it is the record key"
 expect check_of(Surreal.Def.source(id_optional.define()), registry) == "table `id_optional` needs a required field `id : Str` or `id : Surreal.TimeKey(..)`; it is the record key"
-expect check_of(Surreal.Def.source(big.define()), registry) == "field `n`: U64 does not fit SurrealDB's `int`, which is 64-bit signed"
+expect check_of(Surreal.Def.source(big.define()), registry) == "ok"
 expect check_of(Surreal.Def.source(wide.define()), registry) == "field `xs[*].q`: I128 does not fit SurrealDB's `int`, which is 64-bit signed"
 expect check_of(Surreal.Def.source(huge.define()), registry) == "field `h`: U128 does not fit SurrealDB's `int`, which is 64-bit signed"
 expect check_of(Surreal.Def.source(kind_arm.define()), registry) == "field `p`: the arm `A` has a field named `kind`, which tells the arms apart"

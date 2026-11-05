@@ -127,25 +127,25 @@ queries = [
 	block(
 		"-- query: search_limping",
 		[],
-		Surreal.from(charts).search(chart_text, "limping").select(|(c, _)| { id: c.id }).prepare({}),
+		Surreal.from(charts).search(chart_text, "limping").select(|(c, _)| { id: c.id }).ready(),
 		Surreal.Mirror.literal(ids(found("limping"))),
 	),
 	block(
 		"-- query: search_two_terms",
 		[],
-		Surreal.from(charts).search(chart_text, "Left LEG").select(|(c, _)| { id: c.id }).prepare({}),
+		Surreal.from(charts).search(chart_text, "Left LEG").select(|(c, _)| { id: c.id }).ready(),
 		Surreal.Mirror.literal(ids(found("Left LEG"))),
 	),
 	block(
 		"-- query: search_no_term",
 		[],
-		Surreal.from(charts).search(chart_text, "").select(|(c, _)| { id: c.id }).prepare({}),
+		Surreal.from(charts).search(chart_text, "").select(|(c, _)| { id: c.id }).ready(),
 		Surreal.Mirror.literal(ids(found(""))),
 	),
 	block(
 		"-- query: search_after_filter",
 		[],
-		Surreal.from(charts).filter(|c| c.patient == "rex").search(chart_text, "limping").select(|(c, _)| { id: c.id }).prepare({}),
+		Surreal.from(charts).filter(|c| c.patient == "rex").search(chart_text, "limping").select(|(c, _)| { id: c.id }).ready(),
 		Surreal.Mirror.literal(ids(found("limping").keep_if(|c| c.patient == "rex"))),
 	),
 	# The score has no Roc meaning: the order, the best first, and the
@@ -157,7 +157,7 @@ queries = [
 			.search(chart_text, "limping")
 			.select(|(c, hit)| { id: c.id, score: hit.score(), marked: hit.highlight("<b>", "</b>") })
 			.order_by(|r| r.score, Desc)
-			.prepare({}),
+			.ready(),
 		Surreal.Mirror.literal(
 			[
 				{ id: "c6", marked: "Bo eats well and no <b>limping</b>." },
@@ -169,19 +169,19 @@ queries = [
 	block(
 		"-- query: search_offsets",
 		[],
-		Surreal.from(charts).search(chart_text, "left leg").select(|(c, hit)| { id: c.id, at: hit.offsets() }).prepare({}),
+		Surreal.from(charts).search(chart_text, "left leg").select(|(c, hit)| { id: c.id, at: hit.offsets() }).ready(),
 		Surreal.Mirror.literal(left_leg_offsets),
 	),
 	block(
 		"-- query: vector_measures",
 		[],
-		Surreal.from(charts).select(measures).prepare({}),
+		Surreal.from(charts).select(measures).ready(),
 		Surreal.Mirror.literal(seed_charts.map(measures)),
 	),
 	block(
 		"-- query: vector_filter",
 		[],
-		Surreal.from(charts).filter(|c| Surreal.Vector.similarity_cosine(c.embedding, probe) > 0.9).select(|c| { id: c.id }).prepare({}),
+		Surreal.from(charts).filter(|c| Surreal.Vector.similarity_cosine(c.embedding, probe) > 0.9).select(|c| { id: c.id }).ready(),
 		Surreal.Mirror.literal(ids(seed_charts.keep_if(|c| Surreal.Vector.similarity_cosine(c.embedding, probe) > 0.9))),
 	),
 	# The distance of a KNN has no Roc meaning, and the order by it is
@@ -189,19 +189,19 @@ queries = [
 	block(
 		"-- query: nearest_exact",
 		["-- ordered"],
-		Surreal.from(charts).nearest(chart_vectors, limp_probe, Exact(3)).select(|(c, near)| { id: c.id, distance: near.distance() }).order_by(|r| r.distance, Asc).prepare({}),
+		Surreal.from(charts).nearest(chart_vectors, limp_probe, Exact(3)).select(|(c, near)| { id: c.id, distance: near.distance() }).order_by(|r| r.distance, Asc).ready(),
 		Surreal.Mirror.literal(ids(nearest(seed_charts, 3))),
 	),
 	block(
 		"-- query: nearest_approx",
 		[],
-		Surreal.from(charts).nearest(chart_vectors, limp_probe, Approx({ k: 3, ef: 40 })).select(|(c, _)| { id: c.id }).prepare({}),
+		Surreal.from(charts).nearest(chart_vectors, limp_probe, Approx({ k: 3, ef: 40 })).select(|(c, _)| { id: c.id }).ready(),
 		Surreal.Mirror.literal(ids(nearest(seed_charts, 3))),
 	),
 	block(
 		"-- query: nearest_after_filter",
 		[],
-		Surreal.from(charts).filter(|c| c.patient != "rex").nearest(chart_vectors, limp_probe, Exact(2)).select(|(c, _)| { id: c.id }).prepare({}),
+		Surreal.from(charts).filter(|c| c.patient != "rex").nearest(chart_vectors, limp_probe, Exact(2)).select(|(c, _)| { id: c.id }).ready(),
 		Surreal.Mirror.literal(ids(nearest(seed_charts.keep_if(|c| c.patient != "rex"), 2))),
 	),
 ]

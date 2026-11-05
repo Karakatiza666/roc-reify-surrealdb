@@ -17,7 +17,7 @@ Schema :: {}.{
 	## a row check is over `$after`, a computed value is over `$this`.
 	Rule := [
 		Assert({ path : Str, cond : Str }),
-		Check({ name : Str, cond : Str }),
+		Check({ name : Str, cond : Str, holders : List({ path : Str, cond : Str }) }),
 		Index({ paths : List(Str), unique : Bool }),
 		SearchIndex({ path : Str, kind : Str, spec : Str, analyzers : List(Str) }),
 		Default({ path : Str, value : Str }),
@@ -86,7 +86,7 @@ Schema :: {}.{
 	access : { name : Str, table : Str, content : Try(Str, Ql.Error), cond : Try(Str, Ql.Error), token : Try(U64, [Unset]), session : Try(U64, [Unset]) } -> Schema.Defined
 	access = |a| {
 		line = |{}| {
-			durations = [("TOKEN", a.token), ("SESSION", a.session)].keep_oks(|(what, d)| d.map_ok(|nanos| "FOR ${what} ${nanos.to_str()}ns"))
+			durations = [("TOKEN", a.token), ("SESSION", a.session)].keep_oks(|(what, d)| d.map_ok(|nanos| "FOR ${what} ${Ql.duration(nanos)}"))
 			during = if (durations.is_empty()) "" else " DURATION ${Str.join_with(durations, ", ")}"
 			Ok("DEFINE ACCESS OVERWRITE ${Ql.ident(a.name)} ON DATABASE TYPE RECORD SIGNUP (CREATE ${Ql.ident(a.table)} CONTENT ${a.content?}) SIGNIN (SELECT * FROM ${Ql.ident(a.table)} WHERE ${a.cond?})${during};")
 		}
@@ -115,8 +115,9 @@ Schema :: {}.{
 	# ------------------------------------------------------------ clauses
 
 	## A row check, placed by one rule: when it reads only one top-level
-	## field, it is that field's `ASSERT`; when it reads more, it is an event
-	## over `$after`; when it reads none, it is an error. `extensions` give
+	## field, it is that field's `ASSERT`; when it reads more, it is the
+	## `ASSERT` of one of them (`place_checks`), or else an event over
+	## `$after`; when it reads none, it is an error. `extensions` give
 	## the forms of the calls of each clause here (`Translate.form`).
 	check : List(Translate.Extension), Types.Source, Str, Code.Graph -> Try(List(Schema.Rule), Ql.Error)
 	check = |extensions, source, name, graph| {
@@ -125,8 +126,51 @@ Schema :: {}.{
 		match Schema.placed(extensions, graph, fields) {
 			NoField => Err(BadSchema("the check `${name}` reads no field, so it is always or never true"))
 			OnField(f) => Ok([Assert({ path: Ql.ident(f.name), cond: f.cond })])
-			Several => Ok([Check({ name, cond: whole })])
+			Several => Ok([Check({ name, cond: whole, holders: Schema.holders(extensions, graph, fields) })])
 		}
+	}
+
+	## The fields that can hold a check over several fields as their `ASSERT`:
+	## each required field that the check reads, with the check over `$value`
+	## for that field and `$this` for the others. `$this` is the row with the
+	## new values of every field (verified), so the other fields are final.
+	## It is empty when the check reads a field with no definition (the key).
+	holders : List(Translate.Extension), Code.Graph, List(Types.Field) -> List({ path : Str, cond : Str })
+	holders = |extensions, graph, fields| {
+		bound = |f, expr| if (f.presence == Optional) Translate.Binding.Maybe(expr) else Translate.at(expr, f.ty)
+		render = |held, shown| {
+			all = shown.map(|f| { name: f.name, binding: bound(f, if (f.name == held) "$value" else "$this.${Ql.member(f.name)}") })
+			Translate.render(extensions, graph, [Translate.Binding.Fields(all)], Translate.variable)
+		}
+		reads = |f| render("", fields.keep_if(|g| g.name != f.name)).is_err()
+		if render("", fields).is_err() {
+			[]
+		} else {
+			fields.keep_if(|f| f.presence != Optional and reads(f)).keep_oks(|f| render(f.name, fields).map_ok(|cond| { path: Ql.ident(f.name), cond }))
+		}
+	}
+
+	## A check over several fields is the `ASSERT` of its first holder that
+	## is not read-only and has no field permission: SurrealDB runs the
+	## assert of a required field on every write, but not the assert of a
+	## read-only field that does not change (verified), and an event has no
+	## field permission. With no such holder, it stays an event.
+	place_checks : List(Schema.Rule) -> List(Schema.Rule)
+	place_checks = |rules| rules.map(
+		|r| match r {
+			Check({ holders: candidates, .. }) =>
+				match candidates.find_first(|h| !rules.any(|o| o == Readonly(h.path) or Schema.permits_field(o, h.path))) {
+					Ok(h) => Assert({ path: h.path, cond: h.cond })
+					Err(_) => r
+				}
+			_ => r
+		},
+	)
+
+	permits_field : Schema.Rule, Str -> Bool
+	permits_field = |rule, path| match rule {
+		PermitField(p) => p.path == path
+		_ => Bool.False
 	}
 
 	## A permission of the table for `actions`: the condition over the
@@ -425,11 +469,22 @@ Schema :: {}.{
 		[Field(name), .. as rest] => Schema.mentions(Schema.member(at, name), rest, depth)
 		[Arm(tag), .. as rest] => "(${at}.kind = ${Ql.quote(tag)} AND ${Schema.mentions(at, rest, depth)})"
 		[Item(i), .. as rest] => Schema.mentions("${at}[${i.to_str()}]", rest, depth)
+		# One list of objects: `IN` reads the index of the path (`EXPLAIN`:
+		# `IndexScan`), where `any` reads the table (`TableScan`).
+		[Each, .. as rest] if Schema.only_fields(rest) => "$before.id IN ${at}${Schema.spell([Each].concat(rest))}"
 		[Each, .. as rest] => {
 			item = "$e${(depth + 1).to_str()}"
 			"${at}.any(|${item}| ${Schema.mentions(item, rest, depth + 1)})"
 		}
 	}
+
+	only_fields : List(Schema.Hop) -> Bool
+	only_fields = |hops| hops.all(
+		|h| match h {
+			Field(_) => Bool.True
+			_ => Bool.False
+		},
+	)
 
 	is_arm : Schema.Hop -> Bool
 	is_arm = |hop| match hop {
@@ -445,12 +500,6 @@ Schema :: {}.{
 	## the link leaves the list, as native `UNSET` does to a list of links.
 	unset : Schema.Site -> Try(Str, Str)
 	unset = |site| {
-		fields = |hops| hops.all(
-			|h| match h {
-				Field(_) => Bool.True
-				_ => Bool.False
-			},
-		)
 		hops = site.hops
 		if hops.any(Schema.is_arm) {
 			return Err("an arm of a union cannot be unset; use Reject, Cascade or Ignore")
@@ -467,7 +516,7 @@ Schema :: {}.{
 				rest = hops.drop_first(i + 1)
 				if rest.is_empty() {
 					Ok("${list} = ${list}.filter(|$l| $l != $before.id)")
-				} else if fields(rest) {
+				} else if Schema.only_fields(rest) {
 					Ok("${list} = ${list}.filter(|$e1| !(${Schema.mentions("$e1", rest, 1)}))")
 				} else {
 					Err("a link in a list inside a list cannot be unset; use Reject, Cascade or Ignore")
@@ -484,7 +533,11 @@ Schema :: {}.{
 	## a table defined later. A view that calls a function needs it defined
 	## first (verified).
 	script : List(Schema.Defined) -> Try(Str, Ql.Error)
-	script = |all| {
+	script = |all| Schema.script_lines(all).map_ok(|lines| Str.join_with(lines, "\n"))
+
+	## The statements of `script`, one for each item, in its order.
+	script_lines : List(Schema.Defined) -> Try(List(Str), Ql.Error)
+	script_lines = |all| {
 		defs = all.keep_oks(
 			|Defined.(d)| match d {
 				Table(t) => Ok(t)
@@ -530,8 +583,177 @@ Schema :: {}.{
 			Ok(n) => return Err(BadSchema("two generated statements are named `${n}`; rename a field or a check"))
 			Err(_) => {}
 		}
-		lines = [functions, analyzers.map(|a| a.line), parts.join_map(|p| p.tables), parts.join_map(|p| p.views), parts.join_map(|p| p.fields), parts.join_map(|p| p.indexes), parts.join_map(|p| p.checks), parts.join_map(|p| p.deletes), accesses]
-		Ok(Str.join_with(lines.join(), "\n"))
+		Ok([functions, analyzers.map(|a| a.line), parts.join_map(|p| p.tables), parts.join_map(|p| p.views), parts.join_map(|p| p.fields), parts.join_map(|p| p.indexes), parts.join_map(|p| p.checks), parts.join_map(|p| p.deletes), accesses].join())
+	}
+
+	## A field of a table as `script` defines it: `table` and `path` as
+	## the `DEFINE FIELD` names them, its type and its `DEFAULT`.
+	FieldInfo : { table : Str, path : Str, ty : Str, default : Try(Str, [NoDefault]) }
+
+	## The fields of the tables of a schema, with the values that
+	## `field` prints, before they are printed.
+	field_infos : List(Schema.Defined) -> Try(List(Schema.FieldInfo), Ql.Error)
+	field_infos = |all| {
+		defs = all.keep_oks(
+			|Defined.(d)| match d {
+				Table(t) => Ok(t)
+				Function(_) | Read(_) | Access(_) | Analyzer(_) => Err(NotTable)
+			},
+		)
+		registry = defs.map(|d| d.source)
+		per_table = defs.map_try(
+			|d| match d.source.kind {
+				View(_) => Ok([])
+				Normal | Relation(_) => {
+					fields = Schema.key_def(Types.field_defs(d.source.name, d.source.row_ty, registry)?, d.rules)
+					fields.map_try(|f| Schema.field_default(f, d.rules).map_ok(|given| { table: Ql.ident(d.source.name), path: f.path, ty: f.ty, default: given }))
+				}
+			},
+		)?
+		Ok(per_table.join())
+	}
+
+	## One step of a migration. `Remove` loses no row: an index, an
+	## event, a function, an analyzer, an access or a view. `DropField` and
+	## `DropTable` remove the data of the field or the table. `Fill` is a
+	## new field on a table that has rows: `line` defines it, and the rows
+	## get `value`, its `DEFAULT`. `Retype` is a field whose type changed
+	## and does not take every old value: the rows convert to `to`, and
+	## `value` is its `DEFAULT`.
+	Step : [
+		Define(Str),
+		Remove(Str),
+		DropField({ table : Str, path : Str }),
+		DropTable(Str),
+		Fill({ line : Str, table : Str, path : Str, value : Try(Str, [NoDefault]) }),
+		Retype({ line : Str, table : Str, path : Str, from : Str, to : Str, value : Try(Str, [NoDefault]) }),
+	]
+
+	## The steps from the statements of the schema `old` to those of `new`:
+	## what `old` has and `new` does not, from the last to the first, then
+	## each statement of `new` that is new or changed, in its order. What
+	## is on a table that `new` does not have goes with the table. Only a
+	## statement whose text changed is in the steps.
+	migration_steps : List(Str), List(Str), List(Schema.FieldInfo) -> List(Schema.Step)
+	migration_steps = |old, new, fields| {
+		before = old.map(Schema.entry)
+		after = new.map(Schema.entry)
+		same = |a, b| a.kind == b.kind and a.name == b.name and a.on == b.on
+		gone = before.keep_if(|b| !after.any(|a| same(a, b)))
+		dropped = gone.keep_if(|b| b.kind == "TABLE" and !Schema.is_view(b.line)).map(|b| b.name)
+		removed = gone.rev().keep_oks(
+			|b| match b.kind {
+				_ if dropped.contains(b.on) => Err(OnDropped)
+				"TABLE" if Schema.is_view(b.line) => Ok(Remove("REMOVE TABLE IF EXISTS ${b.name}"))
+				"TABLE" => Ok(DropTable(b.name))
+				"FIELD" => Ok(DropField({ table: b.on, path: b.name }))
+				_ => Ok(Remove("REMOVE ${b.kind} IF EXISTS ${b.name}${if (b.on == "") "" else " ON ${b.on}"}"))
+			},
+		)
+		existing = before.keep_if(|b| b.kind == "TABLE").map(|b| b.name)
+		changed = after.keep_if(|a| !before.any(|b| same(a, b) and a.line == b.line)).map(
+			|a| {
+				line = a.line.drop_suffix(";")
+				nested = a.name.contains(".") or a.name.contains("[") or a.name == "id"
+				given = fields.find_first(|f| f.table == a.on and f.path == a.name).map_ok(|f| f.default) ?? Err(NoDefault)
+				match (before.find_first(|b| same(a, b)), Schema.fill_value(a, fields)) {
+					(Err(_), Ok(value)) if existing.contains(a.on) => Fill({ line, table: a.on, path: a.name, value })
+					(Ok(b), _) if a.kind == "FIELD" and !nested and !Schema.widens(Schema.field_type(b.line), Schema.field_type(a.line)) => Retype({ line, table: a.on, path: a.name, from: Schema.field_type(b.line), to: Schema.field_type(a.line), value: given })
+					_ => Define(line)
+				}
+			},
+		)
+		removed.concat(changed)
+	}
+
+	## The value that the rows of a table get for a new field: its
+	## `DEFAULT` from `fields`, or `NoDefault`. A `DEFAULT` is not given
+	## to the rows that are there (verified). A field in an object or a
+	## list, an optional field and the key get no value.
+	fill_value : Schema.Entry, List(Schema.FieldInfo) -> Try(Try(Str, [NoDefault]), [NoFill])
+	fill_value = |e, fields| {
+		nested = e.name.contains(".") or e.name.contains("[") or e.name == "id"
+		match fields.find_first(|f| f.table == e.on and f.path == e.name) {
+			Ok(f) if e.kind == "FIELD" and !nested and !f.ty.starts_with("option<") => Ok(f.default)
+			_ => Err(NoFill)
+		}
+	}
+
+	## The `TYPE` of a `DEFINE FIELD`: the words after `TYPE`, up to the
+	## next clause. "" when it has none.
+	field_type : Str -> Str
+	field_type = |line| {
+		words = Schema.words(line.drop_suffix(";"))
+		clauses = ["DEFAULT", "VALUE", "ASSERT", "READONLY", "PERMISSIONS", "REFERENCE", "COMMENT", "FLEXIBLE", "MIGRATE"]
+		match words.find_first_index(|w| w == "TYPE") {
+			Ok(at) => {
+				rest = words.drop_first(at + 1)
+				Str.join_with(rest.take_first(rest.find_first_index(|w| clauses.contains(w)) ?? rest.len()), " ")
+			}
+			Err(_) => ""
+		}
+	}
+
+	## The type without `option<..>`, and whether it had it.
+	unwrapped : Str -> { optional : Bool, inner : Str }
+	unwrapped = |ty| if (ty.starts_with("option<") and ty.ends_with(">")) { optional: Bool.True, inner: ty.drop_prefix("option<").drop_suffix(">") } else { optional: Bool.False, inner: ty }
+
+	## The members of a union type, split at the top level only.
+	members : Str -> List(Str)
+	members = |ty| {
+		depth = |s| s.to_utf8().fold(0.I64, |n, b| if (b == '<' or b == '{' or b == '[' or b == '(') n + 1 else if (b == '>' or b == '}' or b == ']' or b == ')') n - 1 else n)
+		ty.split_on(" | ").fold(
+			[],
+			|acc, part| match acc.last() {
+				Ok(open) if depth(open) > 0 => acc.drop_last(1).append("${open} | ${part}")
+				_ => acc.append(part)
+			},
+		)
+	}
+
+	## Whether a field of type `new` takes every value of type `old`: the
+	## same members and more, `option` kept or added, `any`, or `number`
+	## for `int`, `float` and `decimal`.
+	widens : Str, Str -> Bool
+	widens = |old, new| {
+		a = Schema.unwrapped(old)
+		b = Schema.unwrapped(new)
+		wide = Schema.members(b.inner)
+		taken = |m| wide.contains(m) or (wide.contains("number") and ["int", "float", "decimal"].contains(m))
+		old == new or b.inner == "any" or ((b.optional or !a.optional) and Schema.members(a.inner).all(taken))
+	}
+
+	## A statement of `script` by what it defines: `kind` is the word after
+	## `DEFINE`, `on` the table of a field, an index or an event
+	## (`DATABASE` for an access), or "" for the others.
+	Entry : { kind : Str, name : Str, on : Str, line : Str }
+
+	entry : Str -> Schema.Entry
+	entry = |line| {
+		words = Schema.words(line)
+		word = |k| words.get(k) ?? ""
+		kind = word(1)
+		# `DEFINE FUNCTION OVERWRITE fn::name($a1: T) ..`
+		name = if (kind == "FUNCTION") word(3).split_on("(").first() ?? "" else word(3)
+		on = if (word(4) == "ON" and kind != "FUNCTION") word(5) else ""
+		{ kind, name, on, line }
+	}
+
+	## A view is `DEFINE TABLE OVERWRITE name TYPE NORMAL AS SELECT ..`.
+	is_view : Str -> Bool
+	is_view = |line| Schema.words(line).drop_first(4).take_first(3) == ["TYPE", "NORMAL", "AS"]
+
+	## The words of a line, a name in `⟨ ⟩` with a space in it one word.
+	words : Str -> List(Str)
+	words = |line| {
+		count = |s, part| s.split_on(part).len() - 1
+		line.split_on(" ").fold(
+			[],
+			|acc, word| match acc.last() {
+				Ok(open) if count(open, "⟨") > count(open, "⟩") => acc.drop_last(1).append("${open} ${word}")
+				_ => acc.append(word)
+			},
+		)
 	}
 
 	## One `DEFINE FUNCTION` for each name. A function that two
@@ -579,19 +801,20 @@ Schema :: {}.{
 	statements : { source : Types.Source, rules : List(Schema.Rule), problems : List(Ql.Error) }, Types.Registry -> Try(Schema.Parts, Ql.Error)
 	statements = |d, registry| {
 		src = d.source.name
+		rules = Schema.place_checks(d.rules)
 		match d.source.kind {
 			View(select) => return Schema.view(src, select?, d.rules)
 			Normal | Relation(_) => {}
 		}
 		on = "ON ${Ql.ident(src)}"
-		defs = Schema.key_def(Types.field_defs(src, d.source.row_ty, registry)?, d.rules)
+		defs = Schema.key_def(Types.field_defs(src, d.source.row_ty, registry)?, rules)
 		paths = defs.map(|f| f.path)
 		ends = if (Schema.is_edge(d.source)) ["in", "out"] else []
-		_ = d.rules.map_try(|r| Schema.known(src, paths, ends, r))?
-		links = Schema.sites(d.source)?.map_try(|s| Schema.policy_of(src, s, d.rules, registry))?
-		_ = d.rules.map_try(|r| Schema.used(src, links, r))?
-		fields = defs.map_try(|f| Schema.field(on, f, d.rules, links))?
-		indexes = d.rules.keep_oks(
+		_ = rules.map_try(|r| Schema.known(src, paths, ends, r))?
+		links = Schema.sites(d.source)?.map_try(|s| Schema.policy_of(src, s, rules, registry))?
+		_ = rules.map_try(|r| Schema.used(src, links, r))?
+		fields = defs.map_try(|f| Schema.field(on, f, rules, links))?.keep_if(|line| line != "")
+		indexes = rules.keep_oks(
 			|r| match r {
 				Index({ paths: on_paths, unique }) => {
 					name = Schema.index_name(src, on_paths, unique)
@@ -600,7 +823,7 @@ Schema :: {}.{
 				_ => Err(NotIndex)
 			},
 		)
-		searches = d.rules.keep_oks(
+		searches = rules.keep_oks(
 			|r| match r {
 				SearchIndex(i) => {
 					name = "${src}_${Schema.slug(i.path)}_${i.kind}"
@@ -620,9 +843,9 @@ Schema :: {}.{
 					Ok({ name, line: "DEFINE INDEX OVERWRITE ${Ql.ident(name)} ${on} FIELDS ${Schema.site_path(l.site.hops)};" })
 				},
 		)
-		checks = d.rules.keep_oks(
+		checks = rules.keep_oks(
 			|r| match r {
-				Check({ name: check_name, cond }) => {
+				Check({ name: check_name, cond, .. }) => {
 					name = Schema.check_name(src, check_name)
 					Ok({ name, line: "DEFINE EVENT OVERWRITE ${Ql.ident(name)} ${on} WHEN $event IN ['CREATE', 'UPDATE'] THEN { IF !(${cond}) { THROW ${Ql.quote("${src}: ${check_name}")} } };" })
 				}
@@ -631,9 +854,9 @@ Schema :: {}.{
 		)
 		deletes = nested.map_try(|l| Schema.delete_event(src, l))?
 		named = indexes.concat(searches).concat(link_indexes).concat(checks).concat(deletes)
-		feeds = d.rules.keep_oks(
+		feeds = rules.keep_oks(
 			|r| match r {
-				Changefeed(nanos) => Ok(" CHANGEFEED ${nanos.to_str()}ns")
+				Changefeed(nanos) => Ok(" CHANGEFEED ${Ql.duration(nanos)}")
 				_ => Err(Other)
 			},
 		)
@@ -644,7 +867,7 @@ Schema :: {}.{
 		}
 		permitted = Schema.permissions(
 			"`${src}`",
-			d.rules.keep_oks(
+			rules.keep_oks(
 				|r| match r {
 					Permit(p) => Ok(p)
 					_ => Err(Other)
@@ -778,6 +1001,24 @@ Schema :: {}.{
 		_ => Ok({})
 	}
 
+	## The `DEFAULT` of a field: the `??` default of the type, or a
+	## `default` or `default_by` clause. Two are a `BadSchema`.
+	field_default : Types.FieldDef, List(Schema.Rule) -> Try(Try(Str, [NoDefault]), Ql.Error)
+	field_default = |def, rules| {
+		typed = def.defaults.map_try(|d| Translate.captured(d.ty, d.value).map_ok(Ql.literal))?
+		clauses = rules.keep_oks(
+			|r| match r {
+				Default(a) if a.path == def.path => Ok(a.value)
+				_ => Err(Other)
+			},
+		)
+		match typed.concat(clauses) {
+			[] => Ok(Err(NoDefault))
+			[one] => Ok(Ok(one))
+			_ => Err(BadSchema("`${def.path}` has two defaults"))
+		}
+	}
+
 	## One `DEFINE FIELD`, with what the clauses add to it.
 	field : Str, Types.FieldDef, List(Schema.Rule), List(Schema.Link) -> Try(Str, Ql.Error)
 	field = |on, def, rules, links| {
@@ -795,19 +1036,10 @@ Schema :: {}.{
 			[one] => Ok(one)
 			_ => Err(BadSchema("`${def.path}` has two ${what}"))
 		}
-		# The `??` default of the type, and a `default` or `default_by` clause.
-		typed_defaults = def.defaults.map_try(|d| Translate.captured(d.ty, d.value).map_ok(|v| " DEFAULT ${Ql.literal(v)}"))?
-		default_part = at_most_one(
-			typed_defaults.concat(
-				mine(
-					|r| match r {
-						Default(a) if a.path == def.path => Ok(" DEFAULT ${a.value}")
-						_ => Err(Other)
-					},
-				),
-			),
-			"defaults",
-		)?
+		default_part = match Schema.field_default(def, rules)? {
+			Ok(value) => " DEFAULT ${value}"
+			Err(NoDefault) => ""
+		}
 		value_part = at_most_one(
 			mine(
 				|r| match r {
@@ -846,7 +1078,13 @@ Schema :: {}.{
 			),
 			"comments",
 		)?
-		Ok("DEFINE FIELD OVERWRITE ${def.path} ${on} TYPE ${def.ty}${default_part}${value_part}${readonly_part}${reference_part}${assert_part}${permission_part}${comment_part};")
+		type_part = if (def.ty == "") "" else " TYPE ${def.ty}"
+		clauses = "${default_part}${value_part}${readonly_part}${reference_part}${assert_part}${permission_part}${comment_part}"
+		# A member of a literal element type is defined by that type, so with no clause it has no line.
+		if def.ty == "" and clauses == "" {
+			return Ok("")
+		}
+		Ok("DEFINE FIELD OVERWRITE ${def.path} ${on}${type_part}${default_part}${value_part}${readonly_part}${reference_part}${assert_part}${permission_part}${comment_part};")
 	}
 
 	keyword : Schema.Policy -> Str
@@ -1079,7 +1317,9 @@ expect Schema.slug("total matches items") == "total_matches_items"
 expect Schema.mentions("", [Field("customer")], 0) == "customer = $before.id"
 expect Schema.mentions("", [Field("wishlist"), Each], 0) == "$before.id IN wishlist"
 expect Schema.mentions("", [Field("gift"), Field("to")], 0) == "gift.to = $before.id"
-expect Schema.mentions("", [Field("items"), Each, Field("product")], 0) == "items.any(|$e1| $e1.product = $before.id)"
+expect Schema.mentions("", [Field("items"), Each, Field("product")], 0) == "$before.id IN items[*].product"
+expect Schema.mentions("", [Field("items"), Each, Field("dose"), Field("by")], 0) == "$before.id IN items[*].dose.by"
+expect Schema.mentions("", [Field("items"), Each, Arm("Given"), Field("by")], 0) == "items.any(|$e1| ($e1.kind = 'Given' AND $e1.by = $before.id))"
 expect Schema.mentions("", [Field("payment"), Arm("Invoice"), Field("contact")], 0) == "(payment.kind = 'Invoice' AND payment.contact = $before.id)"
 expect Schema.mentions("", [Field("via"), Arm("Agent"), Field("value"), Item(1)], 0) == "(via.kind = 'Agent' AND via.value[1] = $before.id)"
 expect Schema.mentions("", [Field("xs"), Each, Each], 0) == "xs.any(|$e1| $before.id IN $e1)"

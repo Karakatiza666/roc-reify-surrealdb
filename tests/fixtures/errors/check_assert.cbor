@@ -1,0 +1,1 @@
+¢bid	fresult¥dkindhInternalfresultx›Found 'oslo' for field `city`, with record `owner:eli`, but field must conform to: IF $value = 'oslo' THEN string::contains($this.email, '@') ELSE true ENDfstatuscERRdtimej116.578ÂµsdtypeÆö

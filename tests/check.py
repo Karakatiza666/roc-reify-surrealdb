@@ -42,7 +42,10 @@ HTTP. `DecodeTest.roc` and
 `PreparedTest.roc` read such files from `fixtures/`. It also records the
 frames of one session with two watches and requests in flight, as
 `DIR/mux/<case>/<nn>.cbor`, for `MuxTest.roc`.
-Usage: check.py [path/to/roc] [--script FILE]... [--url U] [--user X] [--pass Y] [--record DIR]
+Then `tests/MigrateServer.roc`: migration files that `Surreal.plan` writes,
+run with `Session.migrate!` in empty databases of the namespace `roc_mig`,
+and two runners at once. With `--migrations`, only that.
+Usage: check.py [path/to/roc] [--script FILE]... [--url U] [--user X] [--pass Y] [--record DIR] [--migrations]
 Env: SURREAL_URL (default http://localhost:8000), SURREAL_USER, SURREAL_PASS.
 """
 
@@ -489,6 +492,7 @@ def main():
     parser.add_argument("--user", default=os.environ.get("SURREAL_USER", "root"))
     parser.add_argument("--pass", dest="password", default=os.environ.get("SURREAL_PASS", "root"))
     parser.add_argument("--record", help="save the messages of each live block in this directory")
+    parser.add_argument("--migrations", action="store_true", help="run only tests/MigrateServer.roc")
     args = parser.parse_args()
 
     server = Server(args.url, args.user, args.password)
@@ -497,6 +501,15 @@ def main():
     except OSError as e:
         print(f"Cannot reach SurrealDB at {server.url}: {e}\nStart one with:\n  {DOCKER}")
         sys.exit(2)
+
+    if args.migrations:
+        failures = 0
+        for name, problem in check_migrations(args):
+            print(f"{'FAIL' if problem else 'ok  '} app: {name}")
+            if problem:
+                print(f"     {problem}")
+                failures += 1
+        sys.exit(1 if failures else 0)
 
     if args.script:
         scripts = [pathlib.Path(f).read_text() for f in args.script]
@@ -560,6 +573,12 @@ def main():
         if problem:
             print(f"     {problem}")
             failures += 1
+        for name, problem in check_migrations(args):
+            total += 1
+            print(f"{'FAIL' if problem else 'ok  '} app: {name}")
+            if problem:
+                print(f"     {problem}")
+                failures += 1
     if args.record:
         record_errors(args, pathlib.Path(args.record) / "errors")
         record_mux(args, server, pathlib.Path(args.record) / "mux")
@@ -623,6 +642,59 @@ def check_server(args):
             server.kill()
 
 
+MIGRATION_DATABASES = ("flow", "fresh", "replay", "level", "race")
+
+
+def check_migrations(args):
+    """Runs `tests/MigrateServer.roc` on empty databases of the namespace
+    `roc_mig`: its checks (`all`), then two runners of the same files at
+    once (`race`). Yields (name, None) when it agrees, else (name, problem)."""
+    server = Server(args.url, args.user, args.password)
+    for db in MIGRATION_DATABASES:
+        _, error = server.run(f"DEFINE NAMESPACE IF NOT EXISTS roc_mig; USE NS roc_mig; DEFINE DATABASE IF NOT EXISTS {db}; "
+                              f"REMOVE DATABASE {db}; DEFINE DATABASE {db};", db=None)
+        if error:
+            yield "MigrateServer.roc", f"cannot prepare the database {db}: {error}"
+            return
+    host = urllib.parse.urlparse(server.url).netloc
+    binary = pathlib.Path(os.environ.get("ROC_CACHE_DIR", "/tmp")) / "migrate_server"
+    build = subprocess.run([args.roc, "build", str(HERE / "MigrateServer.roc"), f"--output={binary}"], capture_output=True, text=True)
+    if build.returncode != 0:
+        yield "MigrateServer.roc", (build.stdout + build.stderr).strip()[-800:]
+        return
+    run = subprocess.run([str(binary), "--url", host, "--case", "all"], capture_output=True, text=True, timeout=600)
+    lines = run.stdout.strip().split("\n")
+    print("\n".join("     " + line for line in lines if line.strip() != "sent"))
+    # A run when every file ran sends one request: the history.
+    marks = [i for i, line in enumerate(lines) if line.strip().startswith("mark:")]
+    sends = sum(1 for line in lines[marks[0]:marks[1]] if line.strip() == "sent") if len(marks) == 2 else None
+    if run.returncode != 0:
+        yield "MigrateServer.roc", "\n".join(line for line in (run.stdout + run.stderr).strip().split("\n") if line.strip() != "sent")[-800:]
+    elif sends != 1:
+        yield "MigrateServer.roc", f"the second run sent {sends} messages, expected 1"
+    else:
+        yield "MigrateServer.roc", None
+    # Two runners at once: each section runs one time, and a runner that
+    # loses a section reads the history and goes on, or fails with an error.
+    runners = [subprocess.Popen([str(binary), "--url", host, "--case", "race"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+               for _ in range(2)]
+    outputs = [r.communicate(timeout=600)[0].strip() for r in runners]
+    outputs = ["\n".join(line for line in output.split("\n") if line.strip() != "sent") for output in outputs]
+    for output in outputs:
+        print("\n".join("     " + line for line in output.split("\n")))
+    statements, error = server.run("USE NS roc_mig DB race; RETURN [counter:c.a, counter:c.b, counter:c.n, counter:c.m, _reify_migration:⟨0004_slow⟩.done];", db=None)
+    counts = error or statements[-1]["result"]
+    ran = [name for output in outputs for line in output.split("\n") if line.startswith("ok   race: ran") for name in line.split()[3:]]
+    if counts != [1, 1, 1, 1, 2]:
+        yield "MigrateServer.roc --case race (twice at once)", f"counters a, b, n, m and the done sections are {counts}, expected [1, 1, 1, 1, 2]"
+    elif len(ran) != len(set(ran)):
+        yield "MigrateServer.roc --case race (twice at once)", f"a file ran in both runners: {ran}"
+    elif not any(r.returncode == 0 for r in runners):
+        yield "MigrateServer.roc --case race (twice at once)", "no runner ended with 0: " + " | ".join(outputs)
+    else:
+        yield "MigrateServer.roc --case race (twice at once)", None
+
+
 def record_errors(args, folder):
     """Saves the replies to a query whose statement fails and to an unknown method."""
     session = Session(args.url, args.user, args.password)
@@ -652,6 +724,7 @@ ERRORS = [
     ("assert", "CREATE owner:bob CONTENT { email: 'bob@x', city: 'oslo', age: -1 }"),
     ("type", "CREATE owner:bob CONTENT { email: 'bob@x', city: 'oslo', age: 'old' }"),
     ("check", "CREATE owner:kid CONTENT { email: 'kid@x', city: 'oslo', age: 9 }"),
+    ("check_assert", "CREATE owner:eli CONTENT { email: 'eli', city: 'oslo', age: 20 }"),
     ("referenced", "DELETE owner:ann"),
     ("referenced_nested", "DELETE owner:cat"),
     ("transaction", "BEGIN; CREATE owner:dan CONTENT { email: 'dan@x', city: 'lima', age: 20 };"

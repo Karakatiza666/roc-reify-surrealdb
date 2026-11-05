@@ -81,23 +81,23 @@ is_fever = |v| fever(v.temp_c, v.pulse)
 
 ## The fevered readings.
 fevered : Try(Surreal.Watch(VitalLine), Surreal.Error)
-fevered = Surreal.from(vitals).filter(|v| fever_fn.call2(v.temp_c, v.pulse)).select(vital_line).live({}, definitions)
+fevered = Surreal.from(vitals).filter(|v| fever_fn.call2(v.temp_c, v.pulse)).select(vital_line).ready_live(definitions)
 
 ## The patches of each write to a reading.
 vital_patches : Try(Surreal.DiffWatch(Vital), Surreal.Error)
 vital_patches = Surreal.from(vitals).live_diff({})
 
-Unattended : { label : Str, carers : I64 }
+Unattended : { label : Str, carers : U64 }
 
 no_carer : (Kennel, List(CaresFor)) -> Bool
 no_carer = |(_, edges)| edges.len() == 0
 
 unattended_line : (Kennel, List(CaresFor)) -> Unattended
-unattended_line = |(k, edges)| { label: k.label, carers: edges.len().to_i64_wrap() }
+unattended_line = |(k, edges)| { label: k.label, carers: edges.len() }
 
 ## The kennels with no carer.
 unattended : Try(Surreal.Watch(Unattended), Surreal.Error)
-unattended = Surreal.from(kennels).incoming(cares_for).filter(no_carer).select(unattended_line).live({}, definitions)
+unattended = Surreal.from(kennels).incoming(cares_for).filter(no_carer).select(unattended_line).ready_live(definitions)
 
 KennelSite : { label : Str, site : Str }
 
@@ -105,7 +105,7 @@ KennelSite : { label : Str, site : Str }
 ## name of a site is an update of each kennel at it: a `LIVE` on `site`
 ## reads the kennels that link to the site.
 kennel_sites : Try(Surreal.Watch(KennelSite), Surreal.Error)
-kennel_sites = Surreal.from(kennels).select(|k| { label: k.label, site: k.site.get().name }).live({}, definitions)
+kennel_sites = Surreal.from(kennels).select(|k| { label: k.label, site: k.site.get().name }).ready_live(definitions)
 
 # ---------------------------------------------------------------- the writes
 
@@ -252,7 +252,7 @@ Label : { label : Str }
 ## Each kennel by its label. The read row has a site and carers, and the
 ## clause reads neither, so the watch is the `LIVE` of the kennels alone.
 labels : Try(Surreal.Watch(Label), Surreal.Error)
-labels = Surreal.from(kennel_reads).select(|k| { label: k.label }).live({}, read_definitions)
+labels = Surreal.from(kennel_reads).select(|k| { label: k.label }).ready_live(read_definitions)
 
 CarerNames : { label : Str, carers : List(Str) }
 
@@ -260,7 +260,7 @@ CarerNames : { label : Str, carers : List(Str) }
 ## each edge: the edge statement, and a `read` statement on `carer` with
 ## the test `$parent.id IN <-cares_for.in`.
 carer_names : Try(Surreal.Watch(CarerNames), Surreal.Error)
-carer_names = Surreal.from(kennels).incoming(cares_for).select(|(k, edges)| { label: k.label, carers: edges.map(|e| e.from.get().name) }).live({}, read_definitions)
+carer_names = Surreal.from(kennels).incoming(cares_for).select(|(k, edges)| { label: k.label, carers: edges.map(|e| e.from.get().name) }).ready_live(read_definitions)
 
 BadgeSite : { note : Str, site : Str }
 
@@ -268,7 +268,7 @@ BadgeSite : { note : Str, site : Str }
 ## statement on `kennel` (`kennel = $parent.id`) and one on `site`
 ## (`kennel.site = $parent.id`).
 badge_sites : Try(Surreal.Watch(BadgeSite), Surreal.Error)
-badge_sites = Surreal.from(badges).select(|b| { note: b.note, site: b.kennel.get().site.get().name }).live({}, read_definitions)
+badge_sites = Surreal.from(badges).select(|b| { note: b.note, site: b.kennel.get().site.get().name }).ready_live(read_definitions)
 
 CarerName : { name : Str }
 
@@ -277,7 +277,7 @@ CarerName : { name : Str }
 ## `badge`, and one on `kennel` with the test
 ## `$parent.id IN (SELECT VALUE id FROM badge).kennel`.
 badged_carers : Try(Surreal.Watch(CarerName), Surreal.Error)
-badged_carers = Surreal.from(carers).filter(|c| badges.rows().any(|b| b.kennel.get().label == c.name)).select(|c| { name: c.name }).live({}, read_definitions)
+badged_carers = Surreal.from(carers).filter(|c| badges.rows().any(|b| b.kennel.get().label == c.name)).select(|c| { name: c.name }).ready_live(read_definitions)
 
 dock : Site
 dock = { ..harbour, id: "dock", name: "Dock" }

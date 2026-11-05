@@ -14,6 +14,12 @@ import "fixtures/http/twin_in_transaction.cbor" as twin_in_transaction_http : Li
 import "fixtures/queries/twin_in_transaction.cbor" as twin_in_transaction_ws : List(U8)
 import "fixtures/http/stock_up.cbor" as stock_up_http : List(U8)
 import "fixtures/http/insert_shifts.cbor" as insert_shifts_http : List(U8)
+import "fixtures/http/twins_in_list.cbor" as twins_in_list_http : List(U8)
+import "fixtures/queries/twins_in_list.cbor" as twins_in_list_ws : List(U8)
+import "fixtures/http/spares_in_list.cbor" as spares_in_list_http : List(U8)
+import "fixtures/http/unpin_labels.cbor" as unpin_labels_http : List(U8)
+import "fixtures/http/pin_labels_again.cbor" as pin_labels_again_http : List(U8)
+import "fixtures/queries/pin_labels_again.cbor" as pin_labels_again_ws : List(U8)
 
 # Tests of a session over HTTP, without a server: the post of a message,
 # the reply in a response, and the replies that SurrealDB 3.3.4 sent over
@@ -150,6 +156,39 @@ expect twin_in_transaction.result(twin_in_transaction_http).map_err(
 	},
 ) == Err(1)
 expect stock_up.result(stock_up_http).map_ok(|((created, inserted), rows)| (created.len(), inserted.len(), rows.len())) == Ok((1, 1, 3))
+
+# A list of writes (`Surreal.transaction`) and a migration are one
+# request on HTTP too, with the result that a WebSocket gives.
+twins_in_list : Surreal.Prepared(List(List(Bin)))
+twins_in_list = match (bins.create({ id: "b5", label: "Spare" }), bins.create({ id: "b2", label: "Top" })) {
+	(Ok(spare), Ok(twin)) => ready(Surreal.transaction([spare, twin]))
+	_ => crash "the writes of client.roc translate"
+}
+
+spares_in_list : Surreal.Prepared(List(List(Bin)))
+spares_in_list = match (bins.create({ id: "b5", label: "Spare" }), bins.create({ id: "b6", label: "Rack" })) {
+	(Ok(spare), Ok(rack)) => ready(Surreal.transaction([spare, rack]))
+	_ => crash "the writes of client.roc translate"
+}
+
+expect twins_in_list.result(twins_in_list_http) == twins_in_list.result(twins_in_list_ws)
+expect twins_in_list.result(twins_in_list_http).map_err(
+	|e| match e {
+		Aborted(a) => a.at
+		_ => 99
+	},
+) == Err(1)
+expect spares_in_list.result(spares_in_list_http) == Ok([[{ id: "b5", label: "Spare" }], [{ id: "b6", label: "Rack" }]])
+
+migrate : List(Surreal.Defined), List(Surreal.Defined) -> Surreal.Prepared({})
+migrate = |old, new| match Surreal.plan(Surreal.schema(old) ?? "", new, V3).map_ok(|p| p.prepare(DropData)) {
+	Ok(Ok([one])) => one
+	_ => crash "the schemas of client.roc translate, and each migration is one section"
+}
+
+expect migrate([bins.define().unique(|b| b.label).done()], [bins.define().done()]).result(unpin_labels_http) == Ok({})
+expect migrate([bins.define().done()], [bins.define().unique(|b| b.label).done()]).result(pin_labels_again_http) == migrate([bins.define().done()], [bins.define().unique(|b| b.label).done()]).result(pin_labels_again_ws)
+expect migrate([bins.define().done()], [bins.define().unique(|b| b.label).done()]).result(pin_labels_again_http).is_err()
 
 Shift : { id : Str, label : Str }
 

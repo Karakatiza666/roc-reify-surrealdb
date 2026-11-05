@@ -12,6 +12,7 @@ import "fixtures/errors/unique_pair.cbor" as unique_pair_reply : List(U8)
 import "fixtures/errors/assert.cbor" as assert_reply : List(U8)
 import "fixtures/errors/type.cbor" as type_reply : List(U8)
 import "fixtures/errors/check.cbor" as check_reply : List(U8)
+import "fixtures/errors/check_assert.cbor" as check_assert_reply : List(U8)
 import "fixtures/errors/referenced.cbor" as referenced_reply : List(U8)
 import "fixtures/errors/referenced_nested.cbor" as referenced_nested_reply : List(U8)
 import "fixtures/errors/transaction.cbor" as transaction_reply : List(U8)
@@ -50,7 +51,8 @@ defs = [
 		.unique(|o| o.email)
 		.unique(|o| { city: o.city, age: o.age })
 		.assert(|o| o.age, |a| a >= 0)
-		.check("adult in town", |o| o.age >= 18 or o.city != "oslo")
+		.check("adult in town", |o| o.age >= 18 or o.id != "kid")
+		.check("oslo needs a mail", |o| o.city != "oslo" or o.email.contains("@"))
 		.done(),
 	pets.define().done(),
 	visits.define().done(),
@@ -113,6 +115,8 @@ expect plain(unique_reply) == Err(Server(Index({ index: "owner_email_unique", va
 expect plain(assert_reply) == Err(Server(Assert({ table: "owner", field: "age", record: "owner:bob", value: "-1", condition: "$value >= 0", message: "Found -1 for field `age`, with record `owner:bob`, but field must conform to: $value >= 0" })))
 expect plain(type_reply) == Err(Server(Type({ table: "owner", field: "age", record: "owner:bob", expected: "int", found: "'old'", message: "Couldn't coerce value for field `age` of `owner:bob`: Expected `int` but found `'old'`" })))
 expect plain(check_reply) == Err(Server(Check({ table: "owner", name: "adult in town", message: "Error while processing event owner_check_adult_in_town: An error occurred: owner: adult in town" })))
+# A check over two fields is the assert of one, and `Assert` is its error, with the condition.
+expect plain(check_assert_reply) == Err(Server(Assert({ table: "owner", field: "city", record: "owner:eli", value: "'oslo'", condition: "IF $value = 'oslo' THEN string::contains($this.email, '@') ELSE true END", message: "Found 'oslo' for field `city`, with record `owner:eli`, but field must conform to: IF $value = 'oslo' THEN string::contains($this.email, '@') ELSE true END" })))
 expect plain(referenced_reply) == Err(Server(Referenced({ record: "owner:ann", by: "pet:rex", message: "Cannot delete `owner:ann` as it is referenced by `pet:rex` with an ON DELETE REJECT clause" })))
 expect plain(referenced_nested_reply) == Err(Server(Referenced({ record: "owner:cat", by: "visit.by.vet", message: "Error while processing event visit_by_vet_on_delete: An error occurred: owner:cat is referenced by visit.by.vet" })))
 

@@ -409,7 +409,6 @@ Types :: {}.{
 	scan = |ty, path, registry| {
 		bad = |why| Err(BadSchema("field `${path}`: ${why}"))
 		match Types.unwrap(ty) {
-			U64 => bad("U64 does not fit SurrealDB's `int`, which is 64-bit signed")
 			I128 => bad("I128 does not fit SurrealDB's `int`, which is 64-bit signed")
 			U128 => bad("U128 does not fit SurrealDB's `int`, which is 64-bit signed")
 			Named(name, args, _) =>
@@ -538,7 +537,7 @@ Types :: {}.{
 	inline_type = |ty, registry| match Types.unwrap(ty) {
 		Str => Ok("string")
 		Bool => Ok("bool")
-		I64 | I8 | I16 | I32 | U8 | U16 | U32 => Ok("int")
+		I64 | I8 | I16 | I32 | U8 | U16 | U32 | U64 => Ok("int")
 		F32 | F64 => Ok("float")
 		Dec => Ok("decimal")
 		Named(name, args, _) =>
@@ -639,6 +638,8 @@ Types :: {}.{
 				}
 			},
 		)
+		# `int` holds no more than an `I64`, and the encoder writes a larger `U64` as a decimal.
+		U64 => ["${subject} >= 0"]
 		other => match Types.int_range(other) {
 			Ok({ lo, hi }) => ["${subject} >= ${lo.to_str()} AND ${subject} <= ${hi.to_str()}"]
 			Err(_) => []
@@ -692,8 +693,15 @@ Types :: {}.{
 			ListOf(item) => match Types.unwrap(item) {
 				Record(fields) => {
 					kids = children(fields, "${path}[*]")?
-					check = Types.key_check(fields)
-					Ok(kids.prepend({ path: path, top: first, ty: wrap("array<object>"), asserts: guard([check]), defaults }))
+					if Types.has_default(item) {
+						check = Types.key_check(fields)
+						Ok(kids.prepend({ path: path, top: first, ty: wrap("array<object>"), asserts: guard([check]), defaults }))
+					} else {
+						# The literal type of the element refuses extra keys, and holds the
+						# member types, so the members keep only their conditions.
+						literal = Types.inline_type(f.ty, registry)?
+						Ok(kids.map(|k| { ..k, ty: "" }).prepend({ path: path, top: first, ty: wrap(literal), asserts: [], defaults }))
+					}
 				}
 				_ => Types.leaf(path, first, f.ty, optional, defaults, registry)
 			}
@@ -707,6 +715,22 @@ Types :: {}.{
 		cs = Types.constraints(ty, "$value", 0)
 		asserts = if (optional) cs.map(|c| "($value = NONE OR (${c}))") else cs
 		Ok([{ path: path, top: top, ty: if (optional) "option<${type}>" else type, asserts: asserts, defaults }])
+	}
+
+	## Whether a record has a member with a default at any depth, through
+	## records and lists. A literal element type takes no missing key, so a
+	## list of such records is an `array<object>` with a definition for each
+	## member.
+	has_default : Code.Ty -> Bool
+	has_default = |ty| match Types.unwrap(ty) {
+		Record(fields) => fields.any(
+			|f| Types.has_default(f.ty) or match f.presence {
+				Required | Optional => Bool.False
+				Default(_) | DefaultComputed => Bool.True
+			},
+		)
+		ListOf(item) => Types.has_default(item)
+		_ => Bool.False
 	}
 
 	## Elements of an `array<object>` may carry extra keys, so the keys are
@@ -863,6 +887,8 @@ expect Types.dot("payment", "value") == "payment.value"
 expect Types.dot("a", "x y") == "a.⟨x y⟩"
 expect Types.constraints(U8, "$value", 0) == ["$value >= 0 AND $value <= 255"]
 expect Types.constraints(Str, "$value", 0) == []
+expect Types.constraints(U64, "$value", 0) == ["$value >= 0"]
+expect Types.constraints(ListOf(U64), "$value", 0) == ["$value.all(|$e1| $e1 >= 0)"]
 expect Types.constraints(ListOf(I8), "$value", 0) == ["$value.all(|$e1| $e1 >= -128 AND $e1 <= 127)"]
 expect Types.constraints(ListOf(ListOf(U8)), "$value", 0) == ["$value.all(|$e1| $e1.all(|$e2| $e2 >= 0 AND $e2 <= 255))"]
 expect Types.constraints(Record([{ name: "n", ty: U16, presence: Optional }]), "$value", 0) == ["($value.n = NONE OR ($value.n >= 0 AND $value.n <= 65535))"]
@@ -872,7 +898,8 @@ expect Types.key_check([{ name: "a", ty: Str, presence: Required }, { name: "it'
 expect Types.union_type([{ name: "A", payloads: [] }, { name: "B", payloads: [Str] }, { name: "C", payloads: [Str, I64] }], []) == Ok("\"A\" | { kind: \"B\", value: string } | { kind: \"C\", value: [string, int] }")
 expect Types.union_type([], []) == Err(BadSchema("an empty union has no values"))
 expect Types.inline_type(ListOf(Record([{ name: "n", ty: I64, presence: Optional }])), []) == Ok("array<{ n: option<int> }>")
-expect Types.inline_type(U64, []).is_err()
+expect Types.inline_type(U64, []) == Ok("int")
+expect Types.inline_type(I128, []).is_err()
 expect Types.inline_type(Tuple([Str]), []).is_err()
 expect Types.inline_type(Recursive("C"), []).is_err()
 expect Types.surreal_type(Record([]), []) == Ok("object")

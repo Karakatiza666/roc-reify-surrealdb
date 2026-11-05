@@ -29,6 +29,10 @@ import "fixtures/queries/twin_in_transaction.cbor" as twin_in_transaction_reply 
 import "fixtures/queries/bins_after_abort.cbor" as bins_after_abort_reply : List(U8)
 import "fixtures/queries/twin_then_rows.cbor" as twin_then_rows_reply : List(U8)
 import "fixtures/queries/stock_up.cbor" as stock_up_reply : List(U8)
+import "fixtures/queries/twins_in_list.cbor" as twins_in_list_reply : List(U8)
+import "fixtures/queries/spares_in_list.cbor" as spares_in_list_reply : List(U8)
+import "fixtures/queries/unpin_labels.cbor" as unpin_labels_reply : List(U8)
+import "fixtures/queries/pin_labels_again.cbor" as pin_labels_again_reply : List(U8)
 import "fixtures/queries/create_shift.cbor" as create_shift_reply : List(U8)
 import "fixtures/queries/insert_shifts.cbor" as insert_shifts_reply : List(U8)
 import "fixtures/queries/insert_tasks.cbor" as insert_tasks_reply : List(U8)
@@ -463,6 +467,49 @@ expect ready(stock_up).result(stock_up_reply) == Ok((([side_bin], [low_bin]), Li
 
 # A transaction is one part of a batch: its failure is the error of its side.
 expect batch(twin_in_transaction, bin_rows).map_ok(|p| p.request()) == Ok("BEGIN;\nCREATE bin:⟨b3⟩ CONTENT { label: 'Side' } RETURN AFTER;\nINSERT INTO bin [{ id: 'b4', label: 'Low' }, { id: 'b2', label: 'Top' }] RETURN AFTER;\nCOMMIT;\nSELECT record::id(id) AS id, label FROM bin;")
+
+# A list of writes of one type as one transaction (`Surreal.transaction`).
+all_of : List(Try(Surreal.Prepared(a), Surreal.Error)) -> Try(Surreal.Prepared(List(a)), Surreal.Error)
+all_of = |writes| Surreal.transaction(writes.map_try(|w| w)?)
+
+spare_bin : Bin
+spare_bin = { id: "b5", label: "Spare" }
+
+rack_bin : Bin
+rack_bin = { id: "b6", label: "Rack" }
+
+twins_in_list : Try(Surreal.Prepared(List(List(Bin))), Surreal.Error)
+twins_in_list = all_of([bins.create(spare_bin), bins.create(twin_bin)])
+
+expect request_of(twins_in_list) == Ok("BEGIN;\nCREATE bin:⟨b5⟩ CONTENT { label: 'Spare' } RETURN AFTER;\nCREATE bin:⟨b2⟩ CONTENT { label: 'Top' } RETURN AFTER;\nCOMMIT;")
+expect Surreal.transaction([]).map_ok(|p| p.request()) == Err(Unsupported("a transaction needs a statement"))
+
+# The second create fails all: the error is at its place. When all commit,
+# the result is the result of each, in order.
+expect ready(twins_in_list).result(twins_in_list_reply) == Err(Aborted({ at: 1, error: label_taken }))
+expect ready(all_of([bins.create(spare_bin), bins.create(rack_bin)])).result(spares_in_list_reply) == Ok([[spare_bin], [rack_bin]])
+
+# A section of a migration is one transaction with no result: the removal
+# of the unique index applies, and the index again, over two bins with one
+# label, fails with the error of the index.
+migrate : List(Surreal.Defined), List(Surreal.Defined) -> Surreal.Prepared({})
+migrate = |old, new| match Surreal.plan(Surreal.schema(old) ?? "", new, V3).map_ok(|p| p.prepare(DropData)) {
+	Ok(Ok([one])) => one
+	_ => crash "the schemas of client.roc translate, and each migration is one section"
+}
+
+pinned : List(Surreal.Defined)
+pinned = [bins.define().unique(|b| b.label).done()]
+
+loose : List(Surreal.Defined)
+loose = [bins.define().done()]
+
+expect migrate(pinned, loose).request() == "BEGIN;\nREMOVE INDEX IF EXISTS bin_label_unique ON bin;\nCOMMIT;"
+expect migrate(pinned, loose).result(unpin_labels_reply) == Ok({})
+expect migrate(loose, pinned).result(pin_labels_again_reply) == Err(Server(label_taken))
+
+# A migration with no statement has no section, so nothing is sent.
+expect Surreal.plan(Surreal.schema(loose) ?? "", loose, V3).map_ok(|p| p.prepare(DropData).map_ok(|all| all.len())) == Ok(Ok(0))
 
 # ------------------------------------------- keys that the server makes
 

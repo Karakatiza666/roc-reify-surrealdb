@@ -26,16 +26,9 @@ Clinic :: {}.{
 	seen_from : { seen : Surreal.Datetime, ..r }, Surreal.Datetime -> Bool
 	seen_from = |v, at| v.seen >= at
 
-	seen_before : { seen : Surreal.Datetime, ..r }, Surreal.Datetime -> Bool
-	seen_before = |v, at| v.seen < at
-
 	## Seen at or after the parameter `since`.
 	seen_since : { since : Surreal.Datetime, ..p }, { seen : Surreal.Datetime, ..r } -> Bool
 	seen_since = |p, v| Clinic.seen_from(v, p.since)
-
-	## Seen before the parameter `before`: past the retention time.
-	too_old : { before : Surreal.Datetime, ..p }, { seen : Surreal.Datetime, ..r } -> Bool
-	too_old = |p, v| Clinic.seen_before(v, p.before)
 
 	## Less stock than the parameter `floor`.
 	low_stock : { floor : I32, ..p }, { stock : I32, ..r } -> Bool

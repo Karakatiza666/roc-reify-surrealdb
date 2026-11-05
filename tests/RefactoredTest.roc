@@ -148,12 +148,6 @@ outcome_text = |result| match result {
 	}
 }
 
-needs_attention : Outcome -> Bool
-needs_attention = |result| match result {
-	Treated => Bool.False
-	_ => Bool.True
-}
-
 ## What a visit costs: the fee and the medication that was given.
 bill : Visit -> Dec
 bill = |stay| {
@@ -175,8 +169,6 @@ expect !valid_email("ada.example.org")
 expect label_of("Aspirin", "tablet") == "Aspirin (tablet)"
 expect species_label(Bird({ wingspan_cm: 30 })) == "bird"
 expect species_label(Exotic({ latin: "gecko" })) == "gecko"
-expect needs_attention(Followup({ days: 7 }))
-expect !needs_attention(Treated)
 
 ## The constraints are functions too. Each one is named, used in the schema,
 ## and tried on a bad row in Roc and in the database.
@@ -451,10 +443,7 @@ ReferralLine : { id : Str, by : Str }
 
 referral_line : Owner -> ReferralLine
 referral_line = |who| {
-	by = match who.?referred_by {
-		Err(_) => "nobody"
-		Ok(friend) => friend.get().name
-	}
+	by = who.?referred_by.map_ok(|friend| friend.get().name) ?? "nobody"
 	{ by, id: who.id }
 }
 
@@ -478,14 +467,8 @@ ChipLine : { id : Str, chip : Str, by : Str }
 
 chip_line : Patient -> ChipLine
 chip_line = |pet| {
-	by = match pet.?chip {
-		Ok(implant) => implant.implanted_by.get().name
-		Err(_) => "nobody"
-	}
-	code = match pet.?chip {
-		Ok(implant) => implant.code
-		Err(_) => "none"
-	}
+	by = pet.?chip.map_ok(|implant| implant.implanted_by.get().name) ?? "nobody"
+	code = pet.?chip.map_ok(|implant| implant.code) ?? "none"
 	{ by, chip: code, id: pet.id }
 }
 
@@ -520,7 +503,7 @@ outcome_line = |stay| {
 }
 
 needs_follow_up : Visit -> Bool
-needs_follow_up = |stay| needs_attention(stay.outcome)
+needs_follow_up = |stay| stay.outcome != Treated
 
 ## Edges leaving a vet: how many patients, and how many are the vet's own.
 CaseLoad : { name : Str, patients : I64, primary : I64 }
@@ -546,7 +529,7 @@ Ledger : { vet : Str, visits : I64, revenue : Dec, avg_fee : F64 }
 ledger_line : Str, List(Visit) -> Ledger
 ledger_line = |who, stays| {
 	revenue = stays.map(|stay| stay.fee).sum()
-	avg_fee = Surreal.Math.mean(stays.map(|stay| stay.fee.to_f64()))
+	avg_fee = Surreal.Math.mean_dec(stays.map(|stay| stay.fee))
 	{ visits: stays.len().to_i64_wrap(), vet: who, revenue, avg_fee }
 }
 
@@ -656,6 +639,9 @@ edge_line : Treats -> EdgeLine
 edge_line = |link| { patient: link.to.get().name, vet: link.from.get().name, id: link.id }
 
 RetentionParam : { before : Surreal.Datetime }
+
+too_old : RetentionParam, Visit -> Bool
+too_old = |param, stay| stay.seen < param.before
 
 # ------------------- the reference results: the seed rows, filtered in Roc
 
@@ -936,7 +922,7 @@ reads = [
 	block(
 		"-- query: whole_vets",
 		[],
-		Surreal.from(vets).select_value(|vet| vet).prepare({}),
+		Surreal.from(vets).ready(),
 		Surreal.Mirror.literal(seed_vets),
 	),
 	block(
@@ -995,7 +981,7 @@ lyon_place : Address
 lyon_place = { city: "Lyon", line: "Rue Merciere 9" }
 
 script : Str
-script = Str.join_with([schema_block].concat(seeds).concat(reads).concat(refusals).concat(writes).concat(totals_blocks), "\n\n")
+script = Str.join_with([schema_block].concat(seeds).concat(reads).concat(path_blocks).concat(refusals).concat(writes).concat(totals_blocks), "\n\n")
 
 seeds : List(Str)
 seeds = [
@@ -1010,7 +996,8 @@ seeds = [
 refusals : List(Str)
 refusals = [
 	rejects("check_as_assert", "field `weight_kg`", patients.create(light_patient)),
-	rejects("check_as_event", "visit: items need a fee", visits.create(free_medication)),
+	rejects("check_over_two_fields", "field `fee`", visits.create(free_medication)),
+	rejects("check_over_two_fields_on_update", "field `fee`", visits.update_at(visits.id("v1"), |v| { ..v, fee: 0 }).prepare({})),
 	rejects("assert_email", "field `email`", owners.create(bad_email_owner)),
 	rejects("assert_on_nested_path", "field `contact.email`", vets.create({ ..shared_email_vet, contact: { email: "no-at-sign", phone: "1" } })),
 	rejects("assert_on_union", "field `species`", patients.create(wingless_bird)),
@@ -1144,10 +1131,10 @@ writes = [
 		"-- write: retention",
 		["-- ordered"],
 		then_read(
-			visits.delete_by(Clinic.too_old).prepare({ before: cutoff }),
+			visits.delete_by(too_old).prepare({ before: cutoff }),
 			Surreal.from(visits).select(|v| { id: v.id }).order_by(|r| r.id, Asc).prepare({}),
 		),
-		Surreal.Mirror.literal(visits_now.keep_if(|v| !Clinic.too_old({ before: cutoff }, v)).map(|v| { id: v.id })),
+		Surreal.Mirror.literal(visits_now.keep_if(|v| !too_old({ before: cutoff }, v)).map(|v| { id: v.id })),
 	),
 	block(
 		"-- write: add_notes",
@@ -1201,7 +1188,7 @@ visit_totals = |rows| {
 
 totals_blocks : List(Str)
 totals_blocks = {
-	kept = visits_now.keep_if(|v| !Clinic.too_old({ before: cutoff }, v))
+	kept = visits_now.keep_if(|v| !too_old({ before: cutoff }, v))
 	costly = Surreal.from(visits).filter(|v| v.fee > 1000)
 	[
 		block(
@@ -1218,3 +1205,66 @@ totals_blocks = {
 		),
 	]
 }
+
+# ------------------------------------------------------------ graph paths
+
+## A graph path: the owners of the patients that a vet treats as primary.
+owners_of_primary : List(Treats) -> List(Str)
+owners_of_primary = |links| {
+	own = links.keep_if(|link| link.primary)
+	own.map(|link| link.to.get().owner.get().name)
+}
+
+PrimaryOwners : { name : Str, owners : List(Str) }
+
+primary_owners : Vet -> PrimaryOwners
+primary_owners = |doc| {
+	links = treats.edges_from(doc)
+	{ owners: owners_of_primary(links), name: doc.name }
+}
+
+LeadPatients : { name : Str, patients : List(Str) }
+
+## A path of two edges, with the hop back to the vet extracted.
+lead_vets : Patient -> List(Vet)
+lead_vets = |pet| treats.edges_to(pet).keep_if(|link| link.primary).map(|link| link.from.get())
+
+lead_patients : Patient -> LeadPatients
+lead_patients = |pet| {
+	names = lead_vets(pet).join_map(|vet| treats.edges_from(vet)).map(|link| link.to.get().name)
+	{ patients: names, name: pet.name }
+}
+
+primary_cities : List(Treats) -> List(Str)
+primary_cities = |links| links.keep_if(|link| link.primary).map(|link| link.to.get().owner.get().address.city)
+
+treats_for_oslo : Vet -> Bool
+treats_for_oslo = |doc| {
+	cities = primary_cities(treats.edges_from(doc))
+	cities.contains("Oslo")
+}
+
+lead_patients_in_memory : Patient -> LeadPatients
+lead_patients_in_memory = |p| { name: p.name, patients: edges_of_patient(p).keep_if(|e| e.primary).join_map(|e| edges_of_vet(e.from.get())).map(|e| e.to.get().name) }
+
+path_blocks : List(Str)
+path_blocks = [
+	block(
+		"-- query: primary_owners",
+		[],
+		Surreal.from(vets).select(primary_owners).prepare({}),
+		Surreal.Mirror.literal(seed_vets.map(|v| { name: v.name, owners: owners_of_primary(edges_of_vet(v)) })),
+	),
+	block(
+		"-- query: lead_patients",
+		[],
+		Surreal.from(patients).select(lead_patients).prepare({}),
+		Surreal.Mirror.literal(seed_patients.map(lead_patients_in_memory)),
+	),
+	block(
+		"-- query: treats_for_oslo",
+		[],
+		Surreal.from(vets).filter(treats_for_oslo).select_value(|doc| doc.name).prepare({}),
+		Surreal.Mirror.literal(seed_vets.keep_if(|v| primary_cities(edges_of_vet(v)).contains("Oslo")).map(|v| v.name)),
+	),
+]

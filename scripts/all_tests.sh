@@ -22,6 +22,10 @@ mkdir -p "$ROC_CACHE_DIR"
 for f in examples/*.roc; do
 	"$ROC" check "$f"
 done
+# `examples/migrate.roc`: its committed snapshot is its schema.
+"$ROC" test examples/migrate.roc
+# `tests/MigrateServer.roc` runs on a server (check.py); here it must check.
+"$ROC" check tests/MigrateServer.roc
 # `examples/main.roc` prints the golden script.
 "$ROC" examples/main.roc | diff - tests/expected_output.surql
 # The tests: apps with expects, over the internal modules and the recorded
