@@ -228,9 +228,23 @@ A write to a reading sends one notice, for the kennel of its key. Before, it sen
 | `x == v` where `x` reads only the key of the element (`v.id.series()`, `v.id`) and `v` is a value of the row | The row that the written key names. A write never changes a key | `FROM <x of $parent>`, or `WHERE <v> = <x of $parent>` when `v` is not the record id of the row |
 | `x == v` where `x` reads a field of the element (`o.customer.id()`) | The rows that the written row names before the write and after it. A row that moves from one row of the result to another reaches both | `FROM array::distinct([$before, $after].filter(..).map(\|$w\| <x of $w>))`, or `WHERE <v> IN ..` |
 | `xs.contains(v)` where `xs` is a list of the element (`c.tags`) | The rows whose value is in the list, before or after the write | `WHERE <v> IN array::distinct(array::flatten(..))` |
+| `xs.any(\|x\| x.f == v)` where `xs` is a list of the element (`r.stops`), and `x.f` a path of `x`; also an `any` in that function | The rows that the list names, before or after the write | `FROM array::distinct(array::flatten(..map(\|$w\| $w.stops[*].kennel)))`. A list of lists has one `array::flatten` more for each level |
 | Any other function, or one more read of the same table without a relation | Every row of the result's table | `FROM <table>` |
 
 The relation is a conjunct of the function: `|o| o.customer.id() == customers.id(c.id) and o.total > 10` has one. `Surreal.Mirror.related` gives the same rows in Roc.
+
+From `examples/monitoring.roc`, `kennel_rounds` counts the rounds whose list of stops links to the kennel:
+
+```roc
+# Fragment: uses `kennels`, `rounds` and `definitions` from examples/monitoring.roc.
+Surreal.from(kennels).select(|k| { label: k.label, rounds: rounds.rows().count_if(|r| r.stops.any(|st| st.kennel.id() == kennels.id(k.id))) }).ready_live(definitions)
+```
+
+```surql
+LIVE SELECT VALUE (SELECT VALUE { ref: id, row: { label: label, rounds: $this.chain(|$v1_0| (SELECT VALUE id FROM round WHERE $v1_0.id IN stops[*].kennel)).len() }, now: true } FROM array::distinct(array::flatten([$before, $after].filter(|$w| $w != NONE).map(|$w| $w.stops[*].kennel)))) FROM round;
+```
+
+A write to a round sends a notice for each kennel that it stops at, before or after the write. With 300 kennels and 15 writes, it sent 300 notices for each write before, and now 1 to 3 (SurrealDB 3.3.5 and 4.0.0).
 
 ### A filter that reads only the record id
 

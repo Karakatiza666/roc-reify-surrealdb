@@ -148,7 +148,7 @@ contact_line : Patient -> ContactLine
 contact_line = |p| { id: p.id, city: p.owner.get().address.city, vets: p.vaccines.map(|v| v.vet.get().name) }
 ```
 
-`contact_line` is a name for this page. `examples/main.roc` reads the same links in `pet_line` and in the query `vaccinated_by_ruth`. `Surreal.from(patients).select(contact_line)` gives:
+`contact_line` is from `examples/main.roc`, the query `linked_fields`. `Surreal.from(patients).select(contact_line)` gives:
 
 ```surql
 SELECT owner.address.city AS city, record::id(id) AS id, vaccines.map(|$v1| $v1.vet.name) AS vets FROM patient

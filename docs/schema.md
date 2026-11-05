@@ -118,7 +118,7 @@ visit_def : Surreal.Defined
 visit_def = visits.define().check("items need a fee", Clinic.fee_covers_items).done()
 ```
 
-These clauses are in the `owners.define()` and `visits.define()` entries of `definitions` in `examples/main.roc`. `owner_def` and `visit_def` are names for this page. Each of the first three clauses reads one field, so each is a field `ASSERT`:
+These clauses are in `owner_def` and `visit_def` in `examples/main.roc`. Each of the first three clauses reads one field, so each is a field `ASSERT`:
 
 ```surql
 DEFINE FIELD OVERWRITE email ON owner TYPE string ASSERT string::contains($value, '@') AND (!string::starts_with($value, '@'));
@@ -192,7 +192,7 @@ A failed write gives a `ServerError` tag that depends on the constraint (see [Er
 | `.index(\|o\| o.address.city)` | `DEFINE INDEX OVERWRITE owner_address_city_index ON owner FIELDS address.city;` |
 | `.unique(\|e\| { from: e.from, to: e.to })` on `treats` | `DEFINE INDEX OVERWRITE treats_in_out_unique ON treats FIELDS in, out UNIQUE;` |
 
-These clauses are in the `owners.define()` and `treats.define()` entries of `definitions` in `examples/main.roc`. The last row keeps one edge between two rows. The ends `from` and `to` are written as `in` and `out`.
+These clauses are in `owner_def` and `treats_def` in `examples/main.roc`. The last row keeps one edge between two rows. The ends `from` and `to` are written as `in` and `out`.
 
 An optional field at the end of a path is allowed: `.unique(|p| p.?zip)`. A path that goes through an optional record or a union arm is a branch. It is refused: ``Unsupported("a field path reads fields only; this one calls `a branch`")``. You can index the whole optional record, `.index(|p| p.?chip)`, or a whole union field.
 
@@ -256,7 +256,7 @@ patient_def =
 		.done()
 ```
 
-These clauses are in the `patients.define()` entry of `definitions` in `examples/main.roc`, and `patient_def` is a name for this page. The result for the two links:
+These clauses are in `patient_def` in `examples/main.roc`. The result for the two links:
 
 ```surql
 DEFINE FIELD OVERWRITE allergies ON patient TYPE array<record<medication>> REFERENCE ON DELETE UNSET ASSERT $value.all(|$e1| record::exists($e1));

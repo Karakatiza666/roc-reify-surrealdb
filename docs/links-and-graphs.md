@@ -381,9 +381,29 @@ fevered = Surreal.from(kennels).filter(|k| has_fever(vitals.rows(), k)).select_v
 SELECT VALUE label FROM kennel WHERE id.chain(|$v1| (SELECT VALUE id FROM vital:[$v1, NONE]..=[$v1, ..])).any(|$v2| $v2.fevered);
 ```
 
-The block `kennels_fevered` of `examples/monitoring.roc` runs this. The key of a `vital` is a time series key. A `keep_if` that tests `v.id.series()` against a value that does not read `v` is a range scan of the keys of that series: `vital:[$v1, NONE]..=[$v1, ..]`. SurrealDB reads the keys of one kennel. `kennels.id(k.id)` of the row that the statement reads is its record id, `id`. A `filter` of the whole table (`(SELECT VALUE id FROM vital).filter(..)`) reads every row of `vital` for each kennel, so the range is much faster on a large series. Any other test on the key, or on a table with no time series key, is a `filter` over the whole table. With `visits.rows()` and `x.vet.get().id == v.id` the text is `record::id($v1.vet) = record::id(id)`.
+The block `kennels_fevered` of `examples/monitoring.roc` runs this. The key of a `vital` is a time series key. A `keep_if` that tests `v.id.series()` against a value that does not read `v` is a range scan of the keys of that series: `vital:[$v1, NONE]..=[$v1, ..]`. SurrealDB reads the keys of one kennel. `kennels.id(k.id)` of the row that the statement reads is its record id, `id`. A `filter` of the whole table (`(SELECT VALUE id FROM vital).filter(..)`) reads every row of `vital` for each kennel, so the range is much faster on a large series. Any other test goes into the `WHERE` of the subquery when it reads the row of the other table (see below).
 
-Each `rows()` reads the whole table for each row of the query. Prefer a link or an edge when the rows are linked. A live query that reads `rows()` sends a notice, on a write to the other table, for each row of the result that the written row is related to, such as the kennel of a reading. With no such relation, it sends one for each row of the result (see [Live queries](live-queries.md#only-the-rows-that-a-write-reaches)).
+The function of `keep_if`, `count_if`, `any` or `find_first` over `rows()` is cut at `and`. Each conjunct that reads the row of the other table goes into the `WHERE` of the subquery, so an index can serve it. A value of the clause that it reads is bound around the subquery with `chain`, because the subquery reads its own row. The other conjuncts stay a `filter`. From `examples/monitoring.roc`, `site_kennels`:
+
+```roc
+# Fragment: uses `sites` and `kennels` from examples/monitoring.roc.
+Surreal.from(sites).select(|s| { name: s.name, kennels: kennels.rows().count_if(|k| k.site.id() == sites.id(s.id)) })
+```
+
+```surql
+SELECT VALUE { name: name, kennels: id.chain(|$v1_0| (SELECT VALUE id FROM kennel WHERE site = $v1_0)).len() } FROM site;
+```
+
+| Function | Subquery |
+| --- | --- |
+| `keep_if` | `(SELECT VALUE id FROM t WHERE ..)`, with `ORDER BY id` when a test is not `==` (the order of the table) |
+| `count_if`, `keep_if(..).len()` | `(SELECT VALUE id FROM t WHERE ..).len()` |
+| `any` | `(SELECT VALUE id FROM t WHERE .. LIMIT 1) != []` |
+| `find_first` | `(SELECT VALUE id FROM t WHERE .. LIMIT 1)[0]` |
+
+Measured with 30 sites and 30000 kennels, the count above: 6.7 s with `.filter(..)` and 0.11 s with the `WHERE` on SurrealDB 3.3.5 (`EXPLAIN`: the index of `site`); 4.4 s and 0.6 s on 4.0.0, which scans the table (`TableScan`) in a correlated subquery. `$parent.id` in place of `chain` is not used: it is a `TableScan` on both, and on 3.3.5 it is `NONE` in an `UPDATE .. WHERE` and in a view. With `visits.rows()` and `x.vet.get().id == v.id` the test is `record::id(vet) = $v1_0`, which no index serves.
+
+A `rows()` with no test of the row reads the whole table for each row of the query. Prefer a link or an edge when the rows are linked. A live query that reads `rows()` sends a notice, on a write to the other table, for each row of the result that the written row is related to, such as the kennel of a reading. With no such relation, it sends one for each row of the result (see [Live queries](live-queries.md#only-the-rows-that-a-write-reaches)).
 
 ## Limits
 

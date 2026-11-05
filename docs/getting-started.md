@@ -109,7 +109,7 @@ schema_text : Try(Str, Surreal.Error)
 schema_text = Surreal.schema([owner_def])
 ```
 
-The `owners.define()` entry of `definitions` in `examples/main.roc` has more clauses, and `owner_def` is a name for this page. `Surreal.schema` takes the list of every definition and gives the script. The script from a real run:
+`owner_def` in `examples/main.roc` has more clauses. `Surreal.schema` takes the list of every definition and gives the script. The script from a real run:
 
 ```surql
 DEFINE TABLE OVERWRITE owner SCHEMAFULL;
@@ -152,7 +152,7 @@ owner_card = |o| { id: o.id, name: o.name, phone: o.?phone ?? "none" }
 owners_in_city = Surreal.from(owners).filter_by(in_city).select(owner_card).order_by(|r| r.id, Asc)
 ```
 
-`owner_card` is from `examples/main.roc`. The example writes the filter as the lambda `|p, o| o.address.city == p.city`, and `CityParam` and `in_city` are names for this page. The type `OwnerCard` is the type of each result row. The compiler checks it.
+`CityParam`, `in_city` and `owner_card` are from `examples/main.roc`. The type `OwnerCard` is the type of each result row. The compiler checks it.
 
 ### Print the SurrealQL
 

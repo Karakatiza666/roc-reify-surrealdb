@@ -149,6 +149,9 @@ outcome_text = |outcome| match outcome {
 	Referred(r) => "referred to ${r.to.get().name}"
 }
 
+needs_attention : Outcome -> Bool
+needs_attention = |outcome| outcome != Treated
+
 wide_wings : Patient -> Bool
 wide_wings = |p| match p.species {
 	Bird(b) => b.wingspan_cm >= 20
@@ -160,6 +163,8 @@ expect !valid_email("ada.example.org")
 expect label_of("Aspirin", "tablet") == "Aspirin (tablet)"
 expect species_label(Bird({ wingspan_cm: 30 })) == "bird"
 expect species_label(Exotic({ latin: "gecko" })) == "gecko"
+expect needs_attention(Followup({ days: 7 }))
+expect !needs_attention(Treated)
 
 ## The constraints are functions too. Each one is named, used in the schema,
 ## and tried on a bad row in Roc and in the database. `Clinic.positive_doses`
@@ -342,8 +347,8 @@ seed_treats = [
 
 # ------------------------------------------------------------------ schema
 
-definitions : List(Surreal.Defined)
-definitions = [
+owner_def : Surreal.Defined
+owner_def =
 	owners.define()
 		.unique(|o| o.email)
 		.unique(|o| { city: o.address.city, line: o.address.line })
@@ -352,17 +357,26 @@ definitions = [
 		.check("named", |o| named(o.name))
 		.index(|o| o.address.city)
 		.on_delete(owners, Unset)
-		.done(),
+		.done()
+
+vet_def : Surreal.Defined
+vet_def =
 	vets.define()
 		.unique(|v| v.contact.email)
 		.assert(|v| v.contact.email, |e| Surreal.Text.is_email(e))
 		.assert(|v| v.license, |l| l.starts_with("VET-"))
 		.readonly(|v| v.license)
 		.check("positive rate", |v| v.rate > 0)
-		.done(),
+		.done()
+
+medication_def : Surreal.Defined
+medication_def =
 	medications.define()
 		.computed(|m| m.label, |m| label_of(m.name, m.form))
-		.done(),
+		.done()
+
+patient_def : Surreal.Defined
+patient_def =
 	patients.define()
 		.unique(|p| { name: p.name, owner: p.owner })
 		.assert(|p| p.species, possible_species)
@@ -373,7 +387,10 @@ definitions = [
 		.on_delete(owners, Cascade)
 		.on_delete(vets, Reject)
 		.on_delete_at(|p| p.allergies, Unset)
-		.done(),
+		.done()
+
+visit_def : Surreal.Defined
+visit_def =
 	visits.define()
 		.assert_each(|v| v.items, Clinic.positive_doses)
 		.assert(|v| v.outcome, sane_outcome)
@@ -382,18 +399,21 @@ definitions = [
 		.index(|v| v.seen)
 		.on_delete(patients, Cascade)
 		.on_delete(medications, Reject)
-		.done(),
+		.done()
+
+treats_def : Surreal.Defined
+treats_def =
 	treats.define()
 		.check("since a real year", |e| e.since_year >= 1990)
 		.unique(|e| { from: e.from, to: e.to })
-		.done(),
-	notes.define().default_by(|n| n.id, |_| Surreal.Rand.ulid()).done(),
-]
+		.done()
 
 # ---------------------------------------------------------------- queries
 
-# A projection or a filter is a lambda written in the query. A function gets
-# a name where the program calls it too, or where several queries share it.
+CityParam : { city : Str }
+
+in_city : CityParam, Owner -> Bool
+in_city = |p, o| o.address.city == p.city
 
 OwnerCard : { id : Str, name : Str, phone : Str }
 
@@ -401,20 +421,73 @@ OwnerCard : { id : Str, name : Str, phone : Str }
 owner_card : Owner -> OwnerCard
 owner_card = |o| { id: o.id, name: o.name, phone: o.?phone ?? "none" }
 
+## A link to a row of the same table, read through `.?`.
+ReferralLine : { id : Str, by : Str }
+
+referral_line : Owner -> ReferralLine
+referral_line = |o| { id: o.id, by: o.?referred_by.map_ok(|r| r.get().name) ?? "nobody" }
+
+is_vip : Owner -> Bool
+is_vip = |o| o.tags.contains("vip")
+
 ## A traversal through the owner link, and a `match` on the union.
 PetLine : { id : Str, kind : Str, owner : Str }
 
 pet_line : Patient -> PetLine
 pet_line = |p| { id: p.id, kind: species_label(p.species), owner: p.owner.get().name }
 
+## A link inside an optional record: the chip's vet, or nobody.
+ChipLine : { id : Str, chip : Str, by : Str }
+
+chip_line : Patient -> ChipLine
+chip_line = |p| { id: p.id, chip: p.?chip.map_ok(|c| c.code) ?? "none", by: p.?chip.map_ok(|c| c.implanted_by.get().name) ?? "nobody" }
+
+## Links inside a list of records.
+VaccineLine : { id : Str, vets : List(Str) }
+
+vaccine_line : Patient -> VaccineLine
+vaccine_line = |p| { id: p.id, vets: p.vaccines.map(|v| v.vet.get().name) }
+
 vaccinated_by_ruth : Patient -> Bool
 vaccinated_by_ruth = |p| p.vaccines.any(|v| v.vet.id() == ruth_id)
+
+SinceParam : { since : Surreal.Datetime }
+
+VisitLine : { id : Str, patient : Str, vet : Str, bill : Dec }
+
+visit_line : Visit -> VisitLine
+visit_line = |v| { id: v.id, patient: v.patient.get().name, vet: v.vet.get().name, bill: Clinic.bill(v) }
+
+OutcomeLine : { id : Str, text : Str }
+
+outcome_line : Visit -> OutcomeLine
+outcome_line = |v| { id: v.id, text: outcome_text(v.outcome) }
+
+needs_follow_up : Visit -> Bool
+needs_follow_up = |v| needs_attention(v.outcome)
+
+## Edges leaving a vet: how many patients, and how many are the vet's own.
+CaseLoad : { name : Str, patients : U64, primary : U64 }
+
+case_load : Vet, List(Treats) -> CaseLoad
+case_load = |v, edges| { name: v.name, patients: edges.len(), primary: edges.keep_if(|e| e.primary).len() }
+
+## Edges arriving at a patient: the lead vet, if any.
+TeamLine : { name : Str, team : U64, lead : List(Str) }
+
+team_line : Patient, List(Treats) -> TeamLine
+team_line = |p, edges| { name: p.name, team: edges.len(), lead: edges.keep_if(|e| e.primary).map(|e| e.from.get().name) }
 
 ## One function for the group in the database and the group in Roc.
 Ledger : { vet : Str, visits : U64, revenue : Dec, avg_fee : F64 }
 
 ledger_line : Str, List(Visit) -> Ledger
 ledger_line = |vet, rows| { vet, visits: rows.len(), revenue: rows.map(|v| v.fee).sum(), avg_fee: Surreal.Math.mean_dec(rows.map(|v| v.fee)) }
+
+PatientAge : { id : Str, age : U8 }
+
+patient_age : Patient -> PatientAge
+patient_age = |p| { id: p.id, age: p.age }
 
 ## A query written inside a function. The price limit exists only when the
 ## program runs, so the statement takes it as a `LET`.
@@ -433,32 +506,76 @@ owners_at = |places| Surreal.bind_captured(Surreal.select_where(owners, |o| plac
 owner_at : Address -> Try(Surreal.Prepared(List(Owner)), Surreal.Error)
 owner_at = |place| Surreal.bind_captured(Surreal.select_where(owners, |o| o.address == place))
 
+ContactLine : { id : Str, city : Str, vets : List(Str) }
+
+## Reads fields of the owner and of the vaccinating vets through their links.
+contact_line : Patient -> ContactLine
+contact_line = |p| { id: p.id, city: p.owner.get().address.city, vets: p.vaccines.map(|v| v.vet.get().name) }
+
+## Whole linked rows: the owner, and the vet of each vaccine.
+LinkedRows : { id : Str, owner : Owner, vets : List(Vet) }
+
+linked_rows : Patient -> LinkedRows
+linked_rows = |p| { id: p.id, owner: p.owner.get(), vets: p.vaccines.map(|v| v.vet.get()) }
+
 StockLine : { id : Str, label : Str, stock : I32 }
 
 stock_line : Medication -> StockLine
 stock_line = |m| { id: m.id, label: m.label, stock: m.stock }
+
+RestockParam : { floor : I32, add : I32 }
+
+refill : RestockParam, Medication -> Medication
+refill = |p, m| { ..m, stock: m.stock + p.add }
 
 SpecialtyLine : { id : Str, years : U8, specialty : Specialty }
 
 specialty_line : Vet -> SpecialtyLine
 specialty_line = |v| { id: v.id, years: v.years, specialty: v.specialty }
 
+## Tia passes her surgery boards. A patch of only the fields it sets:
+## `set_at` leaves the others as they are.
+certified : Vet -> { years : U8, specialty : Specialty }
+certified = |v| { years: v.years + 1, specialty: Surgery({ board: "ECVS" }) }
+
+## Jon goes by his middle initial. `Owner` has optional fields, so `..o`
+## keeps each one as it is: the update sets `name` alone.
+renamed : Owner -> Owner
+renamed = |o| { ..o, name: "Jon B. Berg" }
+
+## Lena's address gets its zip, and she has no phone now. A patch of only
+## the fields it sets; a `Try` sets an optional field, and `Err` removes it.
+moved : Owner -> { address : Address, phone : Try(Str, [Missing]) }
+moved = |o| { address: { ..o.address, zip: "69002" }, phone: Err(Missing) }
+
+lena_moved : Owner
+lena_moved = { id: "lena", name: "Lena Roux", email: "lena@example.org", address: { city: "Lyon", line: "Rue Merciere 9", zip: "69002" }, tags: [] }
+
 ReachLine : { id : Str, name : Str, phone : Str, zip : Str }
 
 reach_line : Owner -> ReachLine
 reach_line = |o| { id: o.id, name: o.name, phone: o.?phone ?? "none", zip: o.address.?zip ?? "none" }
+
+AllergyLine : { id : Str, allergies : List(Str) }
+
+allergy_line : Patient -> AllergyLine
+allergy_line = |p| { id: p.id, allergies: p.allergies.map(|a| a.get().name) }
 
 EdgeLine : { id : Str, vet : Str, patient : Str }
 
 edge_line : Treats -> EdgeLine
 edge_line = |e| { id: e.id, vet: e.from.get().name, patient: e.to.get().name }
 
+RetentionParam : { before : Surreal.Datetime }
+
 # ------------------- the reference results: the seed rows, filtered in Roc
 
 # Helpers for the `-- roc:` lines of the script. Each one computes a query's
 # result in Roc from the seed rows, and `check.py` compares it with the result
-# the database returns. The lambdas that a query writes in place are written
-# again here, over the seed rows.
+# the database returns.
+
+owners_in_city : Str -> List(OwnerCard)
+owners_in_city = |city| seed_owners.keep_if(|o| in_city({ city: city }, o)).map(owner_card)
 
 edges_of_vet : Vet -> List(Treats)
 edges_of_vet = |v| seed_treats.keep_if(|e| e.from.get().id == v.id)
@@ -472,16 +589,7 @@ visit_names = seed_visits.map(|v| v.vet.get().name).fold([], |seen, name| if (se
 ledger_in_memory : List(Ledger)
 ledger_in_memory = visit_names.map(|name| ledger_line(name, seed_visits.keep_if(|v| v.vet.get().name == name)))
 
-referral_line : Owner -> { id : Str, by : Str }
-referral_line = |o| { id: o.id, by: o.?referred_by.map_ok(|r| r.get().name) ?? "nobody" }
-
-chip_line : Patient -> { id : Str, chip : Str, by : Str }
-chip_line = |p| { id: p.id, chip: p.?chip.map_ok(|c| c.code) ?? "none", by: p.?chip.map_ok(|c| c.implanted_by.get().name) ?? "nobody" }
-
-visit_line : Visit -> { id : Str, patient : Str, vet : Str, bill : Dec }
-visit_line = |v| { id: v.id, patient: v.patient.get().name, vet: v.vet.get().name, bill: Clinic.bill(v) }
-
-expect seed_owners.keep_if(|o| o.address.city == "Oslo").map(|o| o.id) == ["jon", "mara"]
+expect owners_in_city("Oslo").map(|c| c.id) == ["jon", "mara"]
 expect owner_card(lena).phone == "555-0188"
 expect owner_card(jon).phone == "none"
 expect referral_line(noor) == { id: "noor", by: "Mara Ito" }
@@ -489,13 +597,14 @@ expect referral_line(jon).by == "nobody"
 expect pet_line(rex) == { id: "rex", kind: "dog", owner: "Mara Ito" }
 expect chip_line(rex) == { id: "rex", chip: "985-100", by: "Ruth Okafor" }
 expect chip_line(bo) == { id: "bo", chip: "none", by: "nobody" }
+expect vaccine_line(rex).vets == ["Ruth Okafor", "Sam Petrov"]
 expect wide_wings(kiwi) and !wide_wings(rex)
 expect seed_patients.keep_if(vaccinated_by_ruth).map(|p| p.id) == ["bo", "rex"]
 expect Clinic.bill(visit_of("v4")).to_str() == "89.1"
-expect edges_of_vet(ruth).keep_if(|e| e.primary).len() == 4
-expect edges_of_patient(luna).len() == 2
+expect case_load(ruth, edges_of_vet(ruth)) == { name: "Ruth Okafor", patients: 4, primary: 4 }
+expect team_line(luna, edges_of_patient(luna)) == { name: "Luna", team: 2, lead: ["Sam Petrov"] }
 expect ledger_in_memory.map(|l| l.vet) == ["Ruth Okafor", "Sam Petrov"]
-expect outcome_text(visit_of("v3").outcome) == "referred to Tia Brandt"
+expect outcome_line(visit_of("v3")).text == "referred to Tia Brandt"
 
 visit_of : Str -> Visit
 visit_of = |id| match seed_visits.find_first(|v| v.id == id) {
@@ -619,19 +728,14 @@ meloxicam = medication("meloxicam", "Meloxicam", "liquid", 2.5, 0)
 new_edge : Treats
 new_edge = edge("e9", tia, rex, 2026, Bool.False)
 
-## Lena after `move_owner`: her zip is set and her phone is gone.
-lena_moved : Owner
-lena_moved = { id: "lena", name: "Lena Roux", email: "lena@example.org", address: { city: "Lyon", line: "Rue Merciere 9", zip: "69002" }, tags: [] }
-
-## A removed field needs its type: the `Err` of `move_owner` is a `Try(Str, ..)`.
-no_phone : Try(Str, [Missing])
-no_phone = Err(Missing)
+refill_param : RestockParam
+refill_param = { floor: 60, add: 100 }
 
 cutoff : Surreal.Datetime
 cutoff = at("2026-02-15T00:00:00Z")
 
 schema_block : Str
-schema_block = match Surreal.schema(definitions) {
+schema_block = match Surreal.schema([owner_def, vet_def, medication_def, patient_def, visit_def, treats_def, note_def]) {
 	Ok(text) => "-- schema\n${text}"
 	Err(e) => "-- bad schema: ${Str.inspect(e)}"
 }
@@ -641,20 +745,19 @@ reads = [
 	block(
 		"-- query: owners_in_city",
 		["-- ordered"],
-		Surreal.from(owners).filter_by(|p, o| o.address.city == p.city).select(owner_card).order_by(|r| r.id, Asc).prepare({ city: "Oslo" }),
-		Surreal.Mirror.literal(seed_owners.keep_if(|o| o.address.city == "Oslo").map(owner_card)),
+		Surreal.from(owners).filter_by(in_city).select(owner_card).order_by(|r| r.id, Asc).prepare({ city: "Oslo" }),
+		Surreal.Mirror.literal(owners_in_city("Oslo")),
 	),
 	block(
 		"-- query: vip_owners",
 		[],
-		Surreal.from(owners).filter(|o| o.tags.contains("vip")).select(owner_card).ready(),
-		Surreal.Mirror.literal(seed_owners.keep_if(|o| o.tags.contains("vip")).map(owner_card)),
+		Surreal.from(owners).filter(is_vip).select(owner_card).ready(),
+		Surreal.Mirror.literal(seed_owners.keep_if(is_vip).map(owner_card)),
 	),
-	# A link to a row of the same table, read through `.?`.
 	block(
 		"-- query: referrals",
 		[],
-		Surreal.from(owners).filter(|o| o.?referred_by.is_ok()).select(|o| { id: o.id, by: o.?referred_by.map_ok(|r| r.get().name) ?? "nobody" }).ready(),
+		Surreal.from(owners).filter(|o| o.?referred_by.is_ok()).select(referral_line).ready(),
 		Surreal.Mirror.literal(seed_owners.keep_if(|o| o.?referred_by.is_ok()).map(referral_line)),
 	),
 	block(
@@ -681,24 +784,22 @@ reads = [
 		Surreal.from(patients).filter(wide_wings).select_value(|p| p.name).ready(),
 		Surreal.Mirror.literal(seed_patients.keep_if(wide_wings).map(|p| p.name)),
 	),
-	# A link inside an optional record: the chip's vet, or nobody.
 	block(
 		"-- query: chips",
 		[],
-		Surreal.from(patients).select(|p| { id: p.id, chip: p.?chip.map_ok(|c| c.code) ?? "none", by: p.?chip.map_ok(|c| c.implanted_by.get().name) ?? "nobody" }).ready(),
+		Surreal.from(patients).select(chip_line).ready(),
 		Surreal.Mirror.literal(seed_patients.map(chip_line)),
 	),
-	# Links inside a list of records.
 	block(
 		"-- query: vaccinated_by_ruth",
 		[],
-		Surreal.from(patients).filter(vaccinated_by_ruth).select(|p| { id: p.id, vets: p.vaccines.map(|v| v.vet.get().name) }).ready(),
-		Surreal.Mirror.literal(seed_patients.keep_if(vaccinated_by_ruth).map(|p| { id: p.id, vets: p.vaccines.map(|v| v.vet.get().name) })),
+		Surreal.from(patients).filter(vaccinated_by_ruth).select(vaccine_line).ready(),
+		Surreal.Mirror.literal(seed_patients.keep_if(vaccinated_by_ruth).map(vaccine_line)),
 	),
 	block(
 		"-- query: recent_visits",
 		["-- ordered"],
-		Clinic.by_id(Clinic.recent(Surreal.from(visits)).select(|v| { id: v.id, patient: v.patient.get().name, vet: v.vet.get().name, bill: Clinic.bill(v) })).prepare({ since: at("2026-03-01T00:00:00Z") }),
+		Clinic.by_id(Clinic.recent(Surreal.from(visits)).select(visit_line)).prepare({ since: at("2026-03-01T00:00:00Z") }),
 		Surreal.Mirror.literal(seed_visits.keep_if(|v| Clinic.seen_since({ since: at("2026-03-01T00:00:00Z") }, v)).map(visit_line)),
 	),
 	block(
@@ -710,20 +811,20 @@ reads = [
 	block(
 		"-- query: follow_ups",
 		[],
-		Surreal.from(visits).filter(|v| v.outcome != Treated).select(|v| { id: v.id, text: outcome_text(v.outcome) }).ready(),
-		Surreal.Mirror.literal(seed_visits.keep_if(|v| v.outcome != Treated).map(|v| { id: v.id, text: outcome_text(v.outcome) })),
+		Surreal.from(visits).filter(needs_follow_up).select(outcome_line).ready(),
+		Surreal.Mirror.literal(seed_visits.keep_if(needs_follow_up).map(outcome_line)),
 	),
 	block(
 		"-- query: case_load",
 		[],
-		Surreal.from(vets).outgoing(treats).select(|(v, edges)| { name: v.name, patients: edges.len(), primary: edges.keep_if(|e| e.primary).len() }).ready(),
-		Surreal.Mirror.literal(seed_vets.map(|v| { name: v.name, patients: edges_of_vet(v).len(), primary: edges_of_vet(v).keep_if(|e| e.primary).len() })),
+		Surreal.from(vets).outgoing(treats).select(|(v, edges)| case_load(v, edges)).ready(),
+		Surreal.Mirror.literal(seed_vets.map(|v| case_load(v, edges_of_vet(v)))),
 	),
 	block(
 		"-- query: teams",
 		[],
-		Surreal.from(patients).incoming(treats).select(|(p, edges)| { name: p.name, team: edges.len(), lead: edges.keep_if(|e| e.primary).map(|e| e.from.get().name) }).ready(),
-		Surreal.Mirror.literal(seed_patients.map(|p| { name: p.name, team: edges_of_patient(p).len(), lead: edges_of_patient(p).keep_if(|e| e.primary).map(|e| e.from.get().name) })),
+		Surreal.from(patients).incoming(treats).select(|(p, edges)| team_line(p, edges)).ready(),
+		Surreal.Mirror.literal(seed_patients.map(|p| team_line(p, edges_of_patient(p)))),
 	),
 	block(
 		"-- query: ledger",
@@ -734,8 +835,8 @@ reads = [
 	block(
 		"-- query: eldest",
 		["-- ordered"],
-		Surreal.from(patients).select(|p| { id: p.id, age: p.age }).order_by(|r| r.age, Desc).limit(3).ready(),
-		Surreal.Mirror.literal(seed_patients.map(|p| { id: p.id, age: p.age }).sort_by_reversed(|r| r.age).take_first(3)),
+		Surreal.from(patients).select(patient_age).order_by(|r| r.age, Desc).limit(3).ready(),
+		Surreal.Mirror.literal(seed_patients.map(patient_age).sort_by_reversed(|r| r.age).take_first(3)),
 	),
 	block(
 		"-- query: labels",
@@ -758,14 +859,14 @@ reads = [
 	block(
 		"-- query: linked_fields",
 		[],
-		Surreal.from(patients).select(|p| { id: p.id, city: p.owner.get().address.city, vets: p.vaccines.map(|v| v.vet.get().name) }).ready(),
-		Surreal.Mirror.literal(seed_patients.map(|p| { id: p.id, city: p.owner.get().address.city, vets: p.vaccines.map(|v| v.vet.get().name) })),
+		Surreal.from(patients).select(contact_line).ready(),
+		Surreal.Mirror.literal(seed_patients.map(contact_line)),
 	),
 	block(
 		"-- query: linked_rows",
 		[],
-		Surreal.from(patients).select(|p| { id: p.id, owner: p.owner.get(), vets: p.vaccines.map(|v| v.vet.get()) }).ready(),
-		Surreal.Mirror.literal(seed_patients.map(|p| { id: p.id, owner: p.owner.get(), vets: p.vaccines.map(|v| v.vet.get()) })),
+		Surreal.from(patients).select(linked_rows).ready(),
+		Surreal.Mirror.literal(seed_patients.map(linked_rows)),
 	),
 	block(
 		"-- query: cheaper_than",
@@ -859,6 +960,8 @@ owned_by_noor : Patient -> Bool
 owned_by_noor = |p| p.owner.get().id == "noor"
 
 expect without_aspirin(rex).allergies.map(|a| a.get().id) == ["amoxicillin"]
+expect refill(refill_param, { ..ivermectin, stock: 10 }).stock == 110
+expect certified(tia).years == 4
 
 visits_now : List(Visit)
 visits_now = seed_visits.keep_if(|v| !owned_by_noor(v.patient.get()))
@@ -881,52 +984,46 @@ writes = [
 		"-- write: restock",
 		["-- ordered"],
 		then_read(
-			medications.update_by(Clinic.low_stock, |p, m| { ..m, stock: m.stock + p.add }).prepare({ floor: 60, add: 100 }),
+			medications.update_by(Clinic.low_stock, refill).prepare(refill_param),
 			Surreal.from(medications).select(stock_line).order_by(|r| r.id, Asc).ready(),
 		),
-		Surreal.Mirror.literal(medications_now.map(|m| if (Clinic.low_stock({ floor: 60 }, m)) { ..m, stock: m.stock + 100 } else m).map(stock_line)),
+		Surreal.Mirror.literal(medications_now.map(|m| if (Clinic.low_stock(refill_param, m)) refill(refill_param, m) else m).map(stock_line)),
 	),
-	# Tia passes her surgery boards. `set_at` sets the fields of the patch
-	# and leaves the others as they are.
 	block(
 		"-- write: certify_vet",
 		["-- ordered"],
 		then_read(
-			vets.set_at(vets.id("tia"), |v| { years: v.years + 1, specialty: Surgery({ board: "ECVS" }) }).ready(),
+			vets.set_at(vets.id("tia"), certified).ready(),
 			Surreal.from(vets).select(specialty_line).order_by(|r| r.id, Asc).ready(),
 		),
-		Surreal.Mirror.literal(seed_vets.map(|v| if (v.id == "tia") { ..v, years: v.years + 1, specialty: Surgery({ board: "ECVS" }) } else v).map(specialty_line)),
+		Surreal.Mirror.literal(seed_vets.map(|v| if (v.id == "tia") { ..v, years: certified(v).years, specialty: certified(v).specialty } else v).map(specialty_line)),
 	),
-	# Jon goes by his middle initial. `Owner` has optional fields, so `..o`
-	# keeps each one as it is: the update sets `name` alone.
 	block(
 		"-- write: rename_owner",
 		["-- ordered"],
 		then_read(
-			owners.update_at(owners.id("jon"), |o| { ..o, name: "Jon B. Berg" }).ready(),
+			owners.update_at(owners.id("jon"), renamed).ready(),
 			Surreal.from(owners).select(reach_line).order_by(|r| r.id, Asc).ready(),
 		),
-		Surreal.Mirror.literal(seed_owners.map(|o| if (o.id == "jon") { ..o, name: "Jon B. Berg" } else o).map(reach_line)),
+		Surreal.Mirror.literal(seed_owners.map(|o| if (o.id == "jon") renamed(o) else o).map(reach_line)),
 	),
-	# Lena's address gets its zip, and she has no phone now. A `Try` sets an
-	# optional field, and `Err` removes it.
 	block(
 		"-- write: move_owner",
 		["-- ordered"],
 		then_read(
-			owners.set_at(owners.id("lena"), |o| { address: { ..o.address, zip: "69002" }, phone: no_phone }).ready(),
+			owners.set_at(owners.id("lena"), moved).ready(),
 			Surreal.from(owners).select(reach_line).order_by(|r| r.id, Asc).ready(),
 		),
-		Surreal.Mirror.literal(seed_owners.map(|o| if (o.id == "jon") { ..o, name: "Jon B. Berg" } else if (o.id == "lena") lena_moved else o).map(reach_line)),
+		Surreal.Mirror.literal(seed_owners.map(|o| if (o.id == "jon") renamed(o) else if (o.id == "lena") lena_moved else o).map(reach_line)),
 	),
 	block(
 		"-- write: delete_medication_unsets_allergies",
 		["-- ordered"],
 		then_read(
 			medications.delete_at(medications.id("aspirin")).ready(),
-			Surreal.from(patients).select(|p| { id: p.id, allergies: p.allergies.map(|a| a.get().name) }).order_by(|r| r.id, Asc).ready(),
+			Surreal.from(patients).select(allergy_line).order_by(|r| r.id, Asc).ready(),
 		),
-		Surreal.Mirror.literal(patients_now.map(without_aspirin).map(|p| { id: p.id, allergies: p.allergies.map(|a| a.get().name) })),
+		Surreal.Mirror.literal(patients_now.map(without_aspirin).map(allergy_line)),
 	),
 	block(
 		"-- write: relate_vet",
@@ -959,10 +1056,10 @@ writes = [
 		"-- write: retention",
 		["-- ordered"],
 		then_read(
-			visits.delete_by(|p, v| v.seen < p.before).prepare({ before: cutoff }),
+			visits.delete_by(Clinic.too_old).prepare({ before: cutoff }),
 			Surreal.from(visits).select(|v| { id: v.id }).order_by(|r| r.id, Asc).ready(),
 		),
-		Surreal.Mirror.literal(visits_now.keep_if(|v| v.seen >= cutoff).map(|v| { id: v.id })),
+		Surreal.Mirror.literal(visits_now.keep_if(|v| !Clinic.too_old({ before: cutoff }, v)).map(|v| { id: v.id })),
 	),
 	block(
 		"-- write: add_notes",
@@ -981,6 +1078,9 @@ Note : { id : Str, vet : Surreal.Link(Vet), text : Str }
 notes : Surreal.Table(Note)
 notes = Surreal.table("note")
 
+note_def : Surreal.Defined
+note_def = notes.define().default_by(|n| n.id, |_| Surreal.Rand.ulid()).done()
+
 ## The notes as written: a `Note` without its `id`.
 new_notes : List({ vet : Surreal.Link(Vet), text : Str })
 new_notes = [{ vet: vet_link(ruth), text: "Rex is due a booster" }, { vet: vet_link(sam), text: "Order gauze" }]
@@ -998,9 +1098,11 @@ main! = |_args| {
 
 # ------------------------------------------- GROUP ALL, after the writes
 
-## The totals of the visits in Roc, as the query writes them. For no visits
-## they are the values that SurrealDB gives: 0, 0 and `NaN`.
-visit_totals : List(Visit) -> { visits : U64, revenue : Dec, avg_fee : F64 }
+VisitTotals : { visits : U64, revenue : Dec, avg_fee : F64 }
+
+## The totals of the visits in Roc. For no visits they are the values that
+## SurrealDB gives: 0, 0 and `NaN`.
+visit_totals : List(Visit) -> VisitTotals
 visit_totals = |rows| { visits: rows.len(), revenue: rows.map(|v| v.fee).sum(), avg_fee: Surreal.Math.mean_dec(rows.map(|v| v.fee)) }
 
 ## One row each, also for a filter that no visit passes: its count is 0.
@@ -1013,8 +1115,8 @@ totals_blocks = [
 	block(
 		"-- query: visit_totals",
 		[],
-		Surreal.from(visits).totals(|rows| { visits: rows.len(), revenue: rows.map(|v| v.fee).sum(), avg_fee: Surreal.Math.mean_dec(rows.map(|v| v.fee)) }).ready(),
-		Surreal.Mirror.literal([visit_totals(visits_now.keep_if(|v| v.seen >= cutoff))]),
+		Surreal.from(visits).totals(visit_totals).ready(),
+		Surreal.Mirror.literal([visit_totals(visits_now.keep_if(|v| !Clinic.too_old({ before: cutoff }, v)))]),
 	),
 	block(
 		"-- query: no_visit_totals",

@@ -84,7 +84,7 @@ in_city = |p, o| o.address.city == p.city
 Surreal.from(owners).filter_by(in_city).select(owner_card).prepare({ city: "Oslo" })
 ```
 
-`owner_card` is from `examples/main.roc`. The example writes the filter as a lambda, and `in_city` is a name for this page. The script:
+`in_city` and `owner_card` are from `examples/main.roc`. The script:
 
 ```surql
 LET $city = 'Oslo';
@@ -246,7 +246,7 @@ SELECT id AS id, vet AS vet FROM (SELECT fee + math::sum(..) AS bill, record::id
 
 A row of a subquery is a copy, not a stored record. So `outgoing`, `incoming`, `between` and `live` are `Unsupported` after a subquery.
 
-To read another table inside a clause, use `table.rows()`. It is a subquery in the clause, such as a semi join: `.filter(|v| visits.rows().any(|x| x.vet.get().id == v.id))` on `vets` gives `WHERE (SELECT VALUE id FROM visit).any(|$v1| record::id($v1.vet) = record::id(id))`. The rows of one series of a time series are a range scan of the keys (see [Read other tables in a clause](links-and-graphs.md#read-other-tables-in-a-clause)). See [Ids, links and graph edges](links-and-graphs.md#read-other-tables-in-a-clause).
+To read another table inside a clause, use `table.rows()`. It is a subquery in the clause, such as a semi join: `.filter(|v| visits.rows().any(|x| x.vet.get().id == v.id))` on `vets` gives `WHERE record::id(id).chain(|$v1_0| (SELECT VALUE id FROM visit WHERE record::id(vet) = $v1_0 LIMIT 1)) != []`. The tests of the function that read the row of `visits` go into the `WHERE` of the subquery, and a value of the clause is bound around it with `chain`. The rows of one series of a time series are a range scan of the keys (see [Read other tables in a clause](links-and-graphs.md#read-other-tables-in-a-clause)). See [Ids, links and graph edges](links-and-graphs.md#read-other-tables-in-a-clause).
 
 ## Group rows
 

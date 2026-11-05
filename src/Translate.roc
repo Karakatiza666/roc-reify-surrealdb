@@ -2595,9 +2595,11 @@ Translate :: {}.{
 	## over a list `.len()`.
 	count : Code.Tree, Env -> Try(Binding, Ql.Error)
 	count = |list, env| match list {
-		Op({ op: Prim({ id, .. }), args: [rows, Op({ op: Closure(row), args: captures, .. })], .. }) if id == Code.prim(List.keep_if) =>
+		Op({ op: Prim({ id, .. }), args: [rows, Op({ op: Closure(row), args: captures, .. }) as f], .. }) if id == Code.prim(List.keep_if) =>
 			match Translate.eval(rows, env)? {
 				Group(source) => Ok(Binding.Expr("count(${Translate.over_group(row, captures, source, env)?})"))
+				# The rows of a table: a count needs no order (`Translate.where_of`).
+				found if Translate.rows_table(found).is_ok() => Translate.lambda(rows, f, "count", env)
 				_ => Ok(Binding.Expr("${Translate.list_at(list, env)?}.len()"))
 			}
 		_ => match Translate.eval(list, env)? {
@@ -2719,10 +2721,20 @@ Translate :: {}.{
 				}
 		}
 		values = captures.map_try(|c| Translate.eval(c, env))?
-		if name == "filter" {
+		if name == "filter" or name == "count" {
 			match Translate.series_range(list, row, values.append(element), var_name, env)? {
-				Ranged(range) => return Ok(Binding.ListOf({ at: range, items }))
+				Ranged(range) => return Ok(if (name == "count") Binding.Expr("${range}.len()") else Binding.ListOf({ at: range, items }))
 				Scan => {}
+			}
+		}
+		if ["filter", "count", "any", "find"].contains(name) {
+			match (Translate.rows_table(source), items) {
+				(Ok(table), Records(r)) =>
+					match Translate.where_of(table, r.edge, row, values, element, name, items, env)? {
+						Pushed(pushed) => return Ok(pushed)
+						Scan => {}
+					}
+				_ => {}
 			}
 		}
 		plain = match items {
@@ -2809,6 +2821,177 @@ Translate :: {}.{
 		}
 		key = Translate.operand(Translate.eval(key_tree, { ..env, params: values, row, nodes: [], depth: env.depth + 1 })?)?
 		Ok(Ranged("${key}.chain(|${var_name}| (SELECT VALUE id FROM ${Ql.ident(table)}:[${var_name}, NONE]..=[${var_name}, ..]))"))
+	}
+
+	## `t.rows()` with a `keep_if`, `count_if`, `any` or `find_first`: the
+	## conjuncts of the function that read the element go into the
+	## `WHERE` of the subquery, so an index can serve them; the other
+	## conjuncts stay a `filter`. A value of the
+	## clause that a conjunct compares with is bound around the subquery
+	## with `chain`, as the subquery reads its own row:
+	## `id.chain(|$v3_0| (SELECT VALUE id FROM kennel WHERE site = $v3_0)).len()`.
+	## `$parent.id` in place of `chain` is a `TableScan` on 3.3.5 and
+	## 4.0.0, and is `NONE` in an `UPDATE .. WHERE` and in a view on
+	## 3.3.5 (verified). `chain` uses the index on 3.3.5. A filter or a
+	## find with a test other than `==` reads the rows `ORDER BY id`, the
+	## order of the table. `Scan` when no conjunct can go into the `WHERE`.
+	where_of : Str, Bool, U32, List(Binding), Binding, Str, Items, Env -> Try([Pushed(Binding), Scan], Ql.Error)
+	where_of = |table, edge, row, values, element, name, items, env| {
+		k = values.len().to_u32_wrap()
+		var_name = "$v${row.to_str()}"
+		outside = { ..env, params: values.append(element), row, nodes: [], depth: env.depth + 1 }
+		inside = { ..outside, params: values.append(Translate.table_row(table, edge)) }
+		start = { kept: [], rest: [], chains: [], nodes: [], ordered: Bool.False }
+		split = Translate.conjuncts(Translate.body(env.graph.to_tree(row))).fold(
+			start,
+			|acc, c| match Translate.pushed_test(c, k, acc.nodes.len(), "${var_name}_", outside, inside) {
+				Ok(p) =>
+					{
+						kept: acc.kept.append(p.test),
+						rest: acc.rest,
+						chains: acc.chains.concat(p.chains),
+						nodes: acc.nodes.concat(p.nodes),
+						ordered: acc.ordered or !Translate.is_equality_tree(c, env),
+					}
+				Err(_) => { ..acc, rest: acc.rest.append(c) }
+			},
+		)
+		if split.kept.is_empty() {
+			return Ok(Scan)
+		}
+		# The pushed tests read the bound values as kept nodes.
+		tests = split.kept.map_try(
+			|tree| {
+				spelled = Translate.eval(tree, { ..inside, nodes: split.nodes })?
+				if (split.kept.len() == 1) Translate.text(spelled) else Translate.operand(spelled)
+			},
+		)?
+		rest = split.rest.map_try(|c| Translate.eval(c, outside))?
+		rest_text = match rest {
+			[] => ""
+			[one] => Translate.text(one)?
+			many => Str.join_with(many.map_try(Translate.operand)?, " AND ")
+		}
+		order = if (split.ordered and (name == "filter" or name == "find")) " ORDER BY id" else ""
+		select = |limit| split.chains.fold_rev("(SELECT VALUE id FROM ${table} WHERE ${Str.join_with(tests, " AND ")}${order}${limit})", |c, inner| "${c.value}.chain(|${c.slot}| ${inner})")
+		closure = |method| "${select("")}.${method}(|${var_name}| ${rest_text})"
+		pushed = match (name, rest_text) {
+			("filter", "") => Binding.ListOf({ at: select(""), items })
+			("filter", _) => Binding.ListOf({ at: closure("filter"), items })
+			("count", "") => Binding.Expr("${select("")}.len()")
+			("count", _) => Binding.Expr("${closure("filter")}.len()")
+			("any", "") => Binding.Infix("${select(" LIMIT 1")} != []")
+			("any", _) => Binding.Expr(closure("any"))
+			(_, "") => Binding.Maybe("${select(" LIMIT 1")}[0]")
+			_ => Binding.Maybe(closure("find"))
+		}
+		Ok(Pushed(pushed))
+	}
+
+	## One conjunct of a function over the rows of a table as a test of
+	## the `WHERE`: each largest part that does not read the element `k`
+	## and reads a value of the clause becomes a kept node, bound to that
+	## value. A `$` parameter is read in place; any other value is bound
+	## with `chain` to `<prefix><n>`. `Err` when the conjunct does not read
+	## the element as a value, or a part has no SurrealQL value to bind.
+	pushed_test : Code.Tree, U32, U64, Str, Env, Env -> Try({ test : Code.Tree, chains : List({ value : Str, slot : Str }), nodes : List({ id : U32, binding : Binding, ty : Try(Code.Ty, [Untyped]) }) }, [Stays])
+	pushed_test = |conjunct, k, before, prefix, outside, inside| {
+		# A conjunct that does not read the row is no test of the row.
+		if !Translate.reads_param(conjunct, k) {
+			return Err(Stays)
+		}
+		(test, parts) = Translate.lift(conjunct, k, before, [])?
+		bound = parts.map_try(
+			|part| {
+				n = part.n
+				ty = Translate.type_of(part.tree, outside)
+				at_place = |place| match ty {
+					Ok(found) => Translate.at(place, found)
+					Err(_) => Binding.Expr(place)
+				}
+				# A row of a table keeps its table, so `t.id(r.id)` stays its id.
+				(value, at_slot) = match Translate.eval(part.tree, outside) {
+					Ok(Expr(s)) | Ok(Maybe(s)) => (s, at_place)
+					Ok(Infix(s)) => ("(${s})", at_place)
+					Ok(ListOf({ at: place, items: Values })) | Ok(ListOf({ at: place, items: Made })) => (place, at_place)
+					Ok(Row(r)) if r.of != Obj => (if (r.at.is_empty()) "$this" else r.at, |place| Binding.Row({ ..r, at: place }))
+					_ => return Err(Stays)
+				}
+				node = |place| { id: Translate.lifted_id(n), binding: at_slot(place), ty }
+				if Translate.is_variable(value) {
+					Ok({ chains: [], node: node(value) })
+				} else {
+					slot = "${prefix}${n.to_str()}"
+					Ok({ chains: [{ value, slot }], node: node(slot) })
+				}
+			},
+		)?
+		# The test itself must spell in the subquery's row.
+		probe = Translate.eval(test, { ..inside, nodes: bound.map(|b| b.node) })
+		match probe {
+			Ok(Expr(_)) | Ok(Infix(_)) => Ok({ test, chains: bound.join_map(|b| b.chains), nodes: bound.map(|b| b.node) })
+			_ => Err(Stays)
+		}
+	}
+
+	## The id of the kept node of a lifted part `n`, above the ids of a
+	## row's own nodes.
+	lifted_id : U64 -> U32
+	lifted_id = |n| 4000000000 + n.to_u32_wrap()
+
+	## A tree with each largest part that does not read the parameter `k`
+	## and is not a constant replaced by a read of a kept node
+	## (`Translate.lifted_id`, numbered from `base`), and the parts in
+	## order. `Err` for a tree
+	## that reads `k` through a kept node or a region.
+	lift : Code.Tree, U32, U64, List({ n : U64, tree : Code.Tree }) -> Try((Code.Tree, List({ n : U64, tree : Code.Tree })), [Stays])
+	lift = |tree, k, base, parts| {
+		# A function is no value: its captured values are.
+		if !Translate.reads_param(tree, k) and !Translate.is_closure(tree) {
+			if Translate.closed(tree) {
+				return Ok((tree, parts))
+			}
+			n = base + parts.len()
+			return Ok((Def(Translate.lifted_id(n)), parts.append({ n, tree })))
+		}
+		match tree {
+			Param(p) if p == k => Ok((tree, parts))
+			Op({ op: held, args, ty }) if held.regions().is_empty() => {
+				(done, after) = args.fold_try(
+					([], parts),
+					|(kept, seen), a| {
+						(t, more) = Translate.lift(a, k, base, seen)?
+						Ok((kept.append(t), more))
+					},
+				)?
+				Ok((Op({ op: held, args: done, ty }), after))
+			}
+			_ => Err(Stays)
+		}
+	}
+
+	## Whether a tree reads no parameter and no kept node: a constant, or
+	## a parameter of the statement.
+	closed : Code.Tree -> Bool
+	closed = |tree| match tree {
+		Input(_) => Bool.True
+		Op({ op: held, args, .. }) => held.regions().is_empty() and args.all(Translate.closed)
+		_ => Bool.False
+	}
+
+	## Whether a text is a path off a `$` parameter that a subquery reads
+	## as the clause does: not `$this` or `$parent`, which name its row.
+	is_variable : Str -> Bool
+	is_variable = |spelled| {
+		names = spelled.drop_prefix("$").split_on(".")
+		root = names.first() ?? ""
+		spelled.starts_with("$") and names.all(|name| Ql.is_plain(name)) and root != "this" and root != "parent"
+	}
+
+	is_equality_tree : Code.Tree, Env -> Bool
+	is_equality_tree = |tree, env| match tree {
+		Op({ op: Prim({ id, .. }), .. }) => Translate.is_equality(id, env)
+		_ => Bool.False
 	}
 
 	## `xs.any(|x| x.f == v)` over a list of values, where `v` does not
@@ -2998,6 +3181,16 @@ Translate :: {}.{
 				}
 			Op({ op: Prim({ id, .. }), args: [list, item], .. }) if Translate.is_contains(id, env) =>
 				if of_element(list) and !Translate.reads_param(item, element) spelled(list, item, Bool.True) else Err(Unsupported("no relation"))
+			Op({ op: Prim({ id, .. }), args: [list, g], .. }) if Translate.is_any(id, env) => {
+				scope = |name| Ok({ ..inner, params: values.append(Translate.document(name, edge)) })
+				tie = Translate.nested_tie(list, g, [element], scope)?
+				on = |name| {
+					path_text = tie.path
+					path = path_text(name)?
+					Ok(Translate.flattened(path, tie.levels))
+				}
+				Ok({ node: tie.node, written: on("$parent")?, each: on("$w")?, many: Bool.True, fixed: Bool.False })
+			}
 			_ => Err(Unsupported("no relation"))
 		}
 		for c in Translate.conjuncts(Translate.body(env.graph.to_tree(row))) {
@@ -3008,6 +3201,96 @@ Translate :: {}.{
 		}
 		Every
 	}
+
+	## The relation in `xs.any(|x| ..)`, where `xs` is a path of an
+	## element of `tainted` (the element of the function over the rows):
+	## a conjunct of the function compares a path of `x` with a value
+	## that reads no element, or is such an `any` itself. `path` spells the
+	## values of the written row, `$w.stops[*].kennel`, with `scope(name)`
+	## the environment of the list where the row is `name`; `levels` are
+	## the list levels past the first, which `array::flatten` joins.
+	nested_tie : Code.Tree, Code.Tree, List(U32), (Str -> Try(Env, Ql.Error)) -> Try({ node : Str, path : Str -> Try(Str, Ql.Error), levels : U64 }, Ql.Error)
+	nested_tie = |list, f, tainted, scope| {
+		none = Unsupported("no relation")
+		(row, captures) = match f {
+			Op({ op: Closure(r), args: c, .. }) => (r, c)
+			_ => return Err(none)
+		}
+		owner = match tainted.last() {
+			Ok(k) => k
+			Err(_) => return Err(none)
+		}
+		if !(Translate.reads_param(list, owner) and !Translate.reads_below(list, owner)) {
+			return Err(none)
+		}
+		base = scope("$parent")?
+		graph = base.graph
+		params = graph.row(row).params
+		element = (params.len() - 1).to_u32_wrap()
+		element_ty = match params.last() {
+			Ok(found) => found
+			Err(_) => return Err(none)
+		}
+		# A captured value that reads an element is of the element too.
+		held = captures.fold({ i: 0.U32, found: [] }, |acc, c| { i: acc.i + 1, found: if (tainted.any(|t| Translate.reads_param(c, t))) acc.found.append(acc.i) else acc.found })
+		marked = held.found.append(element)
+		of_element = |t| marked.any(|m| Translate.reads_param(t, m))
+		each_of = |name| {
+			outer = scope(name)?
+			list_text = match Translate.eval(list, outer)? {
+				ListOf({ at: place, items: Values }) => place
+				_ => return Err(none)
+			}
+			values = captures.map_try(|c| Translate.eval(c, outer))?
+			each = "${list_text}[*]"
+			Ok({ each, env: { ..outer, params: values.append(Translate.at(each, element_ty)), row, nodes: [], depth: outer.depth + 1 } })
+		}
+		path_at = |a| |name| {
+			e = each_of(name)?
+			spelled = Translate.text(Translate.eval(a, e.env)?)?
+			if spelled.starts_with(e.each) and !spelled.contains("(") Ok(spelled) else Err(none)
+		}
+		one = |c| match c {
+			Op({ op: Prim({ id, .. }), args: [a, b], .. }) if Translate.is_equality(id, base) =>
+				if Translate.element_path(a, element, base) and !of_element(b) {
+					Ok({ node: Translate.operand(Translate.eval(b, each_of("$parent")?.env)?)?, path: path_at(a), levels: 0 })
+				} else if Translate.element_path(b, element, base) and !of_element(a) {
+					Ok({ node: Translate.operand(Translate.eval(a, each_of("$parent")?.env)?)?, path: path_at(b), levels: 0 })
+				} else {
+					Err(none)
+				}
+			Op({ op: Prim({ id, .. }), args: [inner_list, g], .. }) if Translate.is_any(id, base) => {
+				deeper = Translate.nested_tie(inner_list, g, marked, |name| each_of(name).map_ok(|e| e.env))?
+				# A path of a path of lists is one list level more.
+				Ok({ ..deeper, levels: deeper.levels + 1 })
+			}
+			_ => Err(none)
+		}
+		for c in Translate.conjuncts(Translate.body(graph.to_tree(row))) {
+			match one(c) {
+				Ok(found) => {
+					# Each path must spell for both names of the written row.
+					path_text = found.path
+					match (path_text("$parent"), path_text("$w")) {
+						(Ok(_), Ok(_)) => return Ok(found)
+						_ => {}
+					}
+				}
+				Err(_) => {}
+			}
+		}
+		Err(none)
+	}
+
+	is_any : Code.PrimId, Env -> Bool
+	is_any = |id, env| match Translate.form(id, env.extensions) {
+		Ok(Builtin({ owner: "List", method: "any" })) => Bool.True
+		_ => Bool.False
+	}
+
+	## `text` in `array::flatten` `times` times.
+	flattened : Str, U64 -> Str
+	flattened = |text_in, times| if (times == 0) text_in else Translate.flattened("array::flatten(${text_in})", times - 1)
 
 	is_closure : Code.Tree -> Bool
 	is_closure = |tree| match tree {
@@ -3032,9 +3315,10 @@ Translate :: {}.{
 	}
 
 	## The conjuncts of a condition: the operands of `and`, at any depth.
+	## An operand is a region, a block, even with no kept definitions.
 	conjuncts : Code.Tree -> List(Code.Tree)
 	conjuncts = |tree| match tree {
-		Op({ op: And(_), args, .. }) => args.join_map(Translate.conjuncts)
+		Op({ op: And(_), args, .. }) => args.join_map(|a| Translate.conjuncts(Translate.body(a)))
 		other => [other]
 	}
 
