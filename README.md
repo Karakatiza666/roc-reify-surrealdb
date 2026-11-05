@@ -42,7 +42,7 @@ with it. See [Requirements](#requirements).
 | Dependencies | [roc-cbor](https://github.com/Karakatiza666/roc-cbor) 0.4.0, [roc-websocket](https://github.com/Karakatiza666/roc-websocket) 0.0.5 |
 | Examples only | [roc-basic-cli-websocket](https://github.com/Karakatiza666/roc-basic-cli-websocket) 0.0.3 (basic-cli 0.26.0), [roc-basic-webserver-websocket](https://github.com/Karakatiza666/roc-basic-webserver-websocket) 0.0.2 (basic-webserver 0.20.0) |
 | Compiler | the `reify` branch of [Karakatiza666/roc](https://github.com/Karakatiza666/roc), at commit `c1e6af27a2` (based on Roc nightly 2026-11-03), pinned in `.roc-version` |
-| Database | SurrealDB 3.3.4 |
+| Database | SurrealDB 3.3.4. Migrations: 3.3.5 or later on 3.x (target `V3`), 4.0.0 (target `V4`) |
 | Tests | `scripts/all_tests.sh` |
 | License | UPL-1.0 (`LICENSE`) |
 
@@ -73,7 +73,7 @@ basic-webserver" for the rest of an app):
 app [main!] {
 	pf: platform "https://github.com/roc-lang/basic-cli/releases/download/0.26.0/GddgvsGjiNXrHFW6au5i5dUDbTs8FinQdrgE2Gqmw53t.tar.zst",
 	cli_ws: "https://github.com/Karakatiza666/roc-basic-cli-websocket/releases/download/0.0.3/9c6XLWHRSREuaoELdH1a835Yopw92Jxy2b5e151X6mZj.tar.zst",
-	surreal: "https://github.com/Karakatiza666/roc-reify-surrealdb/releases/download/0.0.1/7MmdAaAt5bThg6ih3nR9ewVgw4CtNGvuK5HNQhEgZoSV.tar.zst",
+	surreal: "https://github.com/Karakatiza666/roc-reify-surrealdb/releases/download/0.0.2/A6EBqeeUMvjuaUNqem6guFUgKnCJZnynqWxzTcqxHk4V.tar.zst",
 }
 
 import pf.Stdout
@@ -81,9 +81,9 @@ import surreal.Surreal
 ```
 
 The app must be compiled with the compiler of the next section. The release
-URL (`<hash>` in `.../releases/download/0.0.1/<hash>.tar.zst`) is in the notes
+URL (`<hash>` in `.../releases/download/0.0.2/<hash>.tar.zst`) is in the notes
 of each [release](https://github.com/Karakatiza666/roc-reify-surrealdb/releases),
-and `scripts/bundle.sh 0.0.1` prints it.
+and `scripts/bundle.sh 0.0.2` prints it.
 
 ## Requirements
 
@@ -120,7 +120,7 @@ described at compile time and passed to the library as data. The library
 translates it, and the compiler still checks it as an ordinary function.
 
 SurrealDB is needed to run the checks and the apps. The version the package is
-tested on is 3.3.4.
+tested on is 3.3.4. The migrations are also tested on 3.3.5 and 4.0.0.
 
 ## Setup
 
@@ -153,7 +153,7 @@ The app names basic-cli and the WebSocket adapter
 app [main!] {
 	pf: platform "https://github.com/roc-lang/basic-cli/releases/download/0.26.0/GddgvsGjiNXrHFW6au5i5dUDbTs8FinQdrgE2Gqmw53t.tar.zst",
 	cli_ws: "https://github.com/Karakatiza666/roc-basic-cli-websocket/releases/download/0.0.3/9c6XLWHRSREuaoELdH1a835Yopw92Jxy2b5e151X6mZj.tar.zst",
-	surreal: "https://github.com/Karakatiza666/roc-reify-surrealdb/releases/download/0.0.1/7MmdAaAt5bThg6ih3nR9ewVgw4CtNGvuK5HNQhEgZoSV.tar.zst",
+	surreal: "https://github.com/Karakatiza666/roc-reify-surrealdb/releases/download/0.0.2/A6EBqeeUMvjuaUNqem6guFUgKnCJZnynqWxzTcqxHk4V.tar.zst",
 }
 
 import pf.OsStr
@@ -220,7 +220,7 @@ app [Context, program] {
 	http: "https://github.com/roc-lang/http/releases/download/1.0.0/6ZUwqYhCS8PU9Mo6MF7oV82ET2o7KYb57CLKDq4cq4sS.tar.zst",
 	pf: platform "https://github.com/roc-lang/basic-webserver/releases/download/0.20.0/7dR2ewuEbpPQXTAZL3aH62weBwpNNjbCJtyyiRsufTNZ.tar.zst",
 	bws_ws: "https://github.com/Karakatiza666/roc-basic-webserver-websocket/releases/download/0.0.2/63RHisM5dNvGRLkMFurQZd7Gp1AqWpThfd5Dvtb2CTKj.tar.zst",
-	surreal: "https://github.com/Karakatiza666/roc-reify-surrealdb/releases/download/0.0.1/7MmdAaAt5bThg6ih3nR9ewVgw4CtNGvuK5HNQhEgZoSV.tar.zst",
+	surreal: "https://github.com/Karakatiza666/roc-reify-surrealdb/releases/download/0.0.2/A6EBqeeUMvjuaUNqem6guFUgKnCJZnynqWxzTcqxHk4V.tar.zst",
 }
 
 import pf.Server
@@ -368,7 +368,7 @@ server with `docker stop surreal-roc`.
 The release bundle has its own scripts:
 
 ```sh
-ROC=/path/to/fork/zig-out/bin/roc scripts/bundle.sh 0.0.1  # dist/<hash>.tar.zst, its file list and its release URL
+ROC=/path/to/fork/zig-out/bin/roc scripts/bundle.sh 0.0.2  # dist/<hash>.tar.zst, its file list and its release URL
 ROC=/path/to/fork/zig-out/bin/roc scripts/test_bundle.sh   # checks the examples against the bundle
 ```
 
@@ -2618,6 +2618,36 @@ The cost of a new feature is small and local:
   and its `??`, and each query uses functions that the application also calls.
 
 ## Changes
+
+### 0.0.2
+
+Same compiler pin (`c1e6af27a2`) and dependencies as 0.0.1.
+
+- Queries with no parameter: `ready`, `ready_one` and `ready_live(defs)` in
+  place of `.prepare({})`; a `Query` reads whole rows with no `select`.
+- `Math.mean_dec` for `Dec`; `U64` in results, parameters and stored fields.
+- Graph paths of several hops in clauses: `edges_from` and `edges_to`, with
+  `keep_if`, `map` and `join_map` chains as `->edge[WHERE ..]->table.field`.
+- `Surreal.transaction` over a list of prepared statements.
+- Migrations, redesigned (breaking: `Surreal.migration(old, new)` and
+  `to_script` are removed): `Surreal.plan` writes reviewed `.surql` files with
+  sections, `Session.migrate!` applies them with a history table, checksums,
+  a lock and resume, `Surreal.check` tests the schema against the snapshot,
+  squash with `replaces`, a `-- reify: edit` marker, targets `V3` and `V4`.
+  `examples/migrate.roc` is a dev tool to copy.
+- Generated SurrealQL:
+  - key ranges for the rows of a time series key;
+  - `IN` for list membership, so indexes serve delete events;
+  - a check over two fields is a field `ASSERT`;
+  - literal `array<{ .. }>` types;
+  - `chip.code ?? 'none'`;
+  - `!=` for a unit tag;
+  - durations as `1d`, `1w`, `1h30m`;
+  - the tests of `T.rows()` go into the `WHERE` of the subquery.
+- Live queries: a write to a table that a filter reads notifies only the rows
+  it reaches (by key, by a link field before and after the write, or through
+  a nested list); a filter that reads only the id and its edges is evaluated
+  once.
 
 ### 0.0.1
 

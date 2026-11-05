@@ -52,7 +52,7 @@ Name the package in the header of your app. Only the module `Surreal` is public.
 
 | Where | What to write |
 | --- | --- |
-| Release | `surreal: "https://github.com/Karakatiza666/roc-reify-surrealdb/releases/download/0.0.1/<hash>.tar.zst"` |
+| Release | `surreal: "https://github.com/Karakatiza666/roc-reify-surrealdb/releases/download/0.0.2/<hash>.tar.zst"` |
 | Checkout | `surreal: "/path/to/roc-reify-surrealdb/src/main.roc"` |
 
 The release notes of each [release](https://github.com/Karakatiza666/roc-reify-surrealdb/releases) show the full URL with its hash. `scripts/bundle.sh 0.0.1` prints it too.
