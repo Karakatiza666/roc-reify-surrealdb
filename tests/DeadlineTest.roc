@@ -27,7 +27,7 @@ mux_a : Surreal.Table(Row)
 mux_a = Surreal.table("mux_a")
 
 watch_a : Surreal.Watch(Row)
-watch_a = match Surreal.from(mux_a).select(|r| r).live({}, []) {
+watch_a = match Surreal.from(mux_a).select(|r| r).live({}, []).checked() {
 	Ok(w) => w
 	Err(_) => crash "a watch of a whole row translates"
 }

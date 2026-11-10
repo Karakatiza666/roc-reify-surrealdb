@@ -415,7 +415,7 @@ Migrate :: {}.{
 		if body.any(|l| l.trim().starts_with("-- reify: edit")) {
 			return fail(Edit)
 		}
-		first_word = |l| (Migrate.upper(l.trim()).split_on(" ").first() ?? "").drop_suffix(";")
+		first_word = |l| (l.trim().with_ascii_uppercased().split_on(" ").first() ?? "").drop_suffix(";")
 		if body.any(|l| ["BEGIN", "COMMIT", "CANCEL"].contains(first_word(l))) {
 			return fail(Text("a file has no BEGIN, COMMIT or CANCEL: the runner makes each section one transaction"))
 		}
@@ -431,14 +431,8 @@ Migrate :: {}.{
 				}
 			}
 		}
-		Ok({ name, target, replaces, sections: parts.map(|p| Str.join_with(p, "\n")), checksum, raises: Migrate.upper(text).contains("ALTER DATABASE COMPATIBILITY 4") })
+		Ok({ name, target, replaces, sections: parts.map(|p| Str.join_with(p, "\n")), checksum, raises: text.with_ascii_uppercased().contains("ALTER DATABASE COMPATIBILITY 4") })
 	}
-
-	## The text with ASCII capitals, in a new string. `Str.with_ascii_uppercased`
-	## on a part of a text (`split_on`, `trim`) changed the whole text in a
-	## build with `--opt=speed` (roc nightly of 2026-11), so it is not used.
-	upper : Str -> Str
-	upper = |text| Str.from_utf8(text.to_utf8().fold([], |acc, b| acc.append(if (b >= 'a' and b <= 'z') b - 32 else b))) ?? text
 
 	## Letters, digits, `_`, `-` and `.`: a key of a record id as it is.
 	is_name : Str -> Bool
@@ -453,7 +447,7 @@ Migrate :: {}.{
 			|l| {
 				# The keywords in capitals; a table name as it is written.
 				given = l.trim().split_on(" ").keep_if(|w| w != "")
-				words = given.map(Migrate.upper)
+				words = given.map(Str.with_ascii_uppercased)
 				name_at = |k| table(given.get(k) ?? "")
 				on = match words.find_first_index(|w| w == "ON") {
 					Ok(at) => name_at(at + 1)

@@ -63,7 +63,7 @@ When the text came from a `Prepared`, use `Surreal.Unchecked.result(session, pre
 
 ```roc
 # Fragment: uses `session` and `prepared` (a `Prepared(List(Card))`).
-sent = Surreal.Unchecked.query!(session, prepared.request())?
+sent = Surreal.Unchecked.query!(session, prepared.request()?)?
 card_rows = Surreal.Unchecked.result(sent.session, prepared, sent.reply)
 ```
 
@@ -134,7 +134,7 @@ An extension tells the translator the SurrealQL of those functions. Each functio
 | `Surreal.extension({ prims })` | A list of `{ prim, render }`. It gives a `Surreal.Extension` |
 | `prim` | `Code.prim(Temperature.is_gt)`: the id of the function |
 | `render` | `{ args : List(Str), evidence : List(Code.Evidence) } -> Try(Str, Str)`. It gets the SurrealQL of each argument and gives the SurrealQL of the call, or the reason why it has none |
-| `Surreal.select_where_with(table, [ext], f)` | Like `select_where`, with your extensions (see [Use values from around the function](queries.md#use-values-from-around-the-function)) |
+| `query.filter_with([ext], f)` | Like `filter`, with your extensions. The filter can read values from around the function (see [Use values from around the function](queries.md#use-values-from-around-the-function)) |
 | `Surreal.library` | The extension with the functions of `Surreal`. The package always adds it. You do not pass it |
 
 An operator puts its own parentheses. The type `Temperature` comes from `tests/Temperature.roc`: an opaque type over `Dec` with `from_celsius`, `celsius`, `is_gt` and `is_lt`, and `encoder_for : _`. Here the extension covers `from_celsius`, `celsius` and `is_gt`:
@@ -146,22 +146,23 @@ temperature_surreal = Surreal.extension({ prims: [
 	{ prim: Code.prim(Temperature.is_gt), render: binary(">") },
 ] })
 
-fever = |limit| Surreal.bind_captured(Surreal.select_where_with(readings, [temperature_surreal], |r| Temperature.from_celsius(r.temp_c) > limit))
+fever : Temperature -> Surreal.Prepared(List(Reading))
+fever = |limit| Surreal.from(readings).filter_with([temperature_surreal], |r| Temperature.from_celsius(r.temp_c) > limit).ready()
 ```
 
-From `tests/ExtensionTest.roc`, `temperature_surreal` and `fever`. The functions `only` and `binary` are in the same file. `only` takes one operand and returns it. `binary(op)` joins two operands with `op`. The script of `fever(Temperature.from_celsius(38.5)).statement().to_script()` from a real run:
+From `tests/ExtensionTest.roc:57`, `temperature_surreal` and `fever`. The functions `only` and `binary` are in the same file. `only` takes one operand and returns it. `binary(op)` joins two operands with `op`. The script of `fever(Temperature.from_celsius(38.5)).request()` from a real run:
 
 ```surql
 LET $_1 = 38.5dec;
 SELECT record::id(id) AS id, patient, temp_c FROM reading WHERE (temp_c > $_1);
 ```
 
-Without the extension, or for a function that the extension does not cover, the result is an `Err`. A real run gave these two:
+Without the extension, or for a function that the extension does not cover, the statement holds an error. `checked()` and `request()` give it. A real run gave these two:
 
 | Case | Result |
 | --- | --- |
-| `select_where_with(readings, [], ..)` with `>` | `Err(Unsupported("in the filter of `select_where`: `Temperature.is_gt` has no SurrealQL form"))` |
-| The extension above with `<` | `Err(Unsupported("in the filter of `select_where`: `Temperature.is_lt` has no SurrealQL form"))` |
+| `filter_with([], ..)` with `>` | `Err(Unsupported("in `filter_with`: `Temperature.is_gt` has no SurrealQL form"))` |
+| The extension above with `<` | `Err(Unsupported("in `filter_with`: `Temperature.is_lt` has no SurrealQL form"))` |
 
 `Temperature.is_gt` and `Dec.is_gt` have two ids. The extension for the first never changes the meaning of `>` on a `Dec`.
 
@@ -169,7 +170,7 @@ Without the extension, or for a function that the extension does not cover, the 
 
 A value of your type that the clause captures (`limit` above) is a bound value. The type needs `encoder_for : _` in its declaration. The package binds the value as the encoder writes it: a temperature is its `Dec`. The field of a captured record, such as `ward.alarm`, is one bound value too.
 
-A captured `Surreal.Id` or `Surreal.Datetime` is a compile error in `select_where_with`. Capture its text, or use `select_where`.
+A captured `Surreal.Id` or `Surreal.Datetime` is a compile error in `filter_with`. Capture its text, or use `filter`.
 
 ## Test with the Mirror
 
@@ -179,7 +180,7 @@ A captured `Surreal.Id` or `Surreal.Datetime` is a compile error in `select_wher
 
 | Call | Gives |
 | --- | --- |
-| `table.edit(Create(row))`, `Replace(old, new)`, `Delete(row)` | The write itself as a `Try(Prepared(List(row)), Error)` |
+| `table.edit(Create(row))`, `Replace(old, new)`, `Delete(row)` | The write itself as a `Prepared(List(row))` |
 | `table.ref(row)` | The `Ref` (record id) of a row: `Try(Ref, Error)` |
 | `view.group_ref(key)` | The `Ref` of a row of a view, from its group key |
 | `ref.to_str()` | The record id as text |
@@ -213,8 +214,8 @@ For `Create(jon)` and a filter `in_oslo`, `Mirror.notices` gave one notice with 
 | Step | Call |
 | --- | --- |
 | Make the reference | `Surreal.Mirror.literal(rows.keep_if(in_oslo).map(card))` |
-| Make the block | `prepared.statement().block("-- query: in_oslo", ["-- roc: ${expected}"])` |
-| Make a live block | `watch.block(header, directives, writes)`, with `Mirror.notices_literal` in `directives` |
+| Make the block | `prepared.statement()?.block("-- query: in_oslo", ["-- roc: ${expected}"])` |
+| Make a live block | `watch.block(header, directives, writes)?`, with `Mirror.notices_literal` in `directives`. It gives a `Try` |
 | Run | `python3 tests/check.py "$ROC"` |
 
 The block that a real run printed:
@@ -236,8 +237,8 @@ SELECT record::id(id) AS id, name AS name FROM owner WHERE address.city = 'Oslo'
 | A `LIVE` in raw text is not watched | Use `live!` |
 | `select_star` has no row type: no `prepare`, no `live` | Send the text with `query!` and read it with `decode`, or select the fields with `select` |
 | `fetch` takes a path as text and nothing checks it | Test the text against a server |
-| Only `select_where_with` takes an extension, and only for the filter of a query that reads whole rows | For a column or a schema clause, send raw text with `Unchecked.query!` |
+| Only `filter_with` takes an extension, and only for the filter of a query on whole rows | For a column or a schema clause, send raw text with `Unchecked.query!` |
 | An extension gives the SurrealQL of calls only. A field of an opaque type has no SurrealDB type, so a row cannot hold one (`BadSchema`) | Store the plain type (`Dec`), and convert at the edge of the program |
-| A captured `Id` or `Datetime` is a compile error in `select_where_with` | Capture the text, or use `select_where` |
+| A captured `Id` or `Datetime` is a compile error in `filter_with` | Capture the text, or use `filter` |
 | The Mirror has no call for `live_diff` | Compare the patches with the server |
 | The Mirror is for tests. It makes no request | Run the same writes on a server and compare |

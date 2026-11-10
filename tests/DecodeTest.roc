@@ -115,13 +115,13 @@ fevered_edits = {
 }
 
 fevered : Surreal.Watch(VitalLine)
-fevered = match Surreal.from(vitals).filter(|v| fever_fn.call2(v.temp_c, v.pulse)).select(vital_line).live({}, []) {
+fevered = match Surreal.from(vitals).filter(|v| fever_fn.call2(v.temp_c, v.pulse)).select(vital_line).live({}, []).checked() {
 	Ok(w) => w
 	Err(_) => crash "the watch of monitoring.roc translates"
 }
 
 unattended : Surreal.Watch(Unattended)
-unattended = match Surreal.from(kennels).incoming(cares_for).filter(no_carer).select(unattended_line).live({}, []) {
+unattended = match Surreal.from(kennels).incoming(cares_for).filter(no_carer).select(unattended_line).live({}, []).checked() {
 	Ok(w) => w
 	Err(_) => crash "the watch of monitoring.roc translates"
 }
@@ -142,7 +142,7 @@ kennel_reads = Surreal.table("kennel")
 KennelSite : { label : Str, site : Str }
 
 kennel_sites : Surreal.Watch(KennelSite)
-kennel_sites = match Surreal.from(kennel_reads).select(|k| { label: k.label, site: k.site.name }).live({}, [sites.define().done()]) {
+kennel_sites = match Surreal.from(kennel_reads).select(|k| { label: k.label, site: k.site.name }).live({}, [sites.define().done()]).checked() {
 	Ok(w) => w
 	Err(_) => crash "the watch of monitoring.roc translates"
 }

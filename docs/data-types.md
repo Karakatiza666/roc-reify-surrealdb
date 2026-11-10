@@ -240,7 +240,7 @@ LET $since = d'2026-03-01T00:00:00Z';
 SELECT record::id(id) AS id, seen AS seen FROM visit WHERE $since <= seen;
 ```
 
-`Surreal.select_where` takes a datetime from around the function too (see [Writing queries](queries.md#use-values-from-around-the-function)).
+A clause can also read a datetime from around the function (see [Writing queries](queries.md#use-values-from-around-the-function)).
 
 ### Durations
 
@@ -264,7 +264,7 @@ recent = |v| v.seen > Surreal.Time.minus(Surreal.Time.now(), Surreal.Time.days(7
 SELECT VALUE record::id(id) FROM visit WHERE (time::now() - 1w) < seen
 ```
 
-A `Duration` is not a column type. A field of this type is a `BadSchema`. A captured `Duration` in `select_where` is ``Unsupported("a captured `Duration` has no SurrealQL value; build it in the clause, as `Time.hours(1)`")``. Build the duration in the clause.
+A `Duration` is not a column type. A field of this type is a `BadSchema`. A clause can read a `Duration` from around the function. Its slot is a duration literal: `LET $_1 = 1h;`.
 
 ## Time series keys
 
@@ -348,7 +348,7 @@ A point can be built in a clause: `Surreal.point(10.0, 59.0)` gives `<point> [10
 | A `??` that is not a literal is a `BadSchema` | Use `.default_by(..)` |
 | A `??` in the record of a union arm is not in the schema. A write from outside the program that leaves the field out is refused | Write the field every time. A write from Roc always has it |
 | `I128` and `U128` are refused as field types and as parameter fields | Use `I64` or a narrower integer. A `U64` is an `int` with `ASSERT $value >= 0`. A `U64` above the `I64` range is sent as a decimal, so a comparison is exact and a field of type `int` refuses it |
-| A `Duration` is not a column type and not a captured value | Build it in the clause with `Time.hours(2)` |
+| A `Duration` is not a column type | Store a count, and build the duration in the clause with `Time.hours(2)` |
 | `Surreal.datetime` takes UTC text with `Z` only | Convert the offset before you call it |
 | A clause cannot call `Surreal.datetime` | Pass the datetime as a parameter or a captured value |
 | An opaque row (`::`) is refused | Use `:=` or an alias |

@@ -22,8 +22,8 @@
 # which the app makes again each time with the tables of the watches.
 app [main!] {
 	cbor: "https://github.com/Karakatiza666/roc-cbor/releases/download/0.4.0/EnfRKFT7uPHmd3zT5PcwAiBWUtGmBXapJqFK5166U33J.tar.zst",
-	pf: platform "https://github.com/roc-lang/basic-cli/releases/download/0.26.0/GddgvsGjiNXrHFW6au5i5dUDbTs8FinQdrgE2Gqmw53t.tar.zst",
-	cli_ws: "https://github.com/Karakatiza666/roc-basic-cli-websocket/releases/download/0.0.3/9c6XLWHRSREuaoELdH1a835Yopw92Jxy2b5e151X6mZj.tar.zst",
+	pf: platform "https://github.com/roc-lang/basic-cli/releases/download/0.27.0/9yjxqdGTP4xSpSEmDazwTmRsehfRZzA19pwEKkR6fj1g.tar.zst",
+	cli_ws: "https://github.com/Karakatiza666/roc-basic-cli-websocket/releases/download/0.0.4/B5j45zNdyW8Qxq6GpQ6ZVNmcPC5hwx3TxPRW4cq8wiLV.tar.zst",
 	surreal: "../src/main.roc",
 }
 
@@ -80,7 +80,7 @@ is_fever : Vital -> Bool
 is_fever = |v| fever(v.temp_c, v.pulse)
 
 ## The fevered readings.
-fevered : Try(Surreal.Watch(VitalLine), Surreal.Error)
+fevered : Surreal.Watch(VitalLine)
 fevered = Surreal.from(vitals).filter(|v| fever_fn.call2(v.temp_c, v.pulse)).select(vital_line).ready_live(definitions)
 
 ## The patches of each write to a reading.
@@ -96,7 +96,7 @@ unattended_line : (Kennel, List(CaresFor)) -> Unattended
 unattended_line = |(k, edges)| { label: k.label, carers: edges.len() }
 
 ## The kennels with no carer.
-unattended : Try(Surreal.Watch(Unattended), Surreal.Error)
+unattended : Surreal.Watch(Unattended)
 unattended = Surreal.from(kennels).incoming(cares_for).filter(no_carer).select(unattended_line).ready_live(definitions)
 
 KennelSite : { label : Str, site : Str }
@@ -104,7 +104,7 @@ KennelSite : { label : Str, site : Str }
 ## Each kennel with the name of its site, read through the link. A new
 ## name of a site is an update of each kennel at it: a `LIVE` on `site`
 ## reads the kennels that link to the site.
-kennel_sites : Try(Surreal.Watch(KennelSite), Surreal.Error)
+kennel_sites : Surreal.Watch(KennelSite)
 kennel_sites = Surreal.from(kennels).select(|k| { label: k.label, site: k.site.get().name }).ready_live(definitions)
 
 # ---------------------------------------------------------------- the writes
@@ -251,7 +251,7 @@ Label : { label : Str }
 
 ## Each kennel by its label. The read row has a site and carers, and the
 ## clause reads neither, so the watch is the `LIVE` of the kennels alone.
-labels : Try(Surreal.Watch(Label), Surreal.Error)
+labels : Surreal.Watch(Label)
 labels = Surreal.from(kennel_reads).select(|k| { label: k.label }).ready_live(read_definitions)
 
 CarerNames : { label : Str, carers : List(Str) }
@@ -259,7 +259,7 @@ CarerNames : { label : Str, carers : List(Str) }
 ## Each kennel with the names of its carers, read through the `from` of
 ## each edge: the edge statement, and a `read` statement on `carer` with
 ## the test `$parent.id IN <-cares_for.in`.
-carer_names : Try(Surreal.Watch(CarerNames), Surreal.Error)
+carer_names : Surreal.Watch(CarerNames)
 carer_names = Surreal.from(kennels).incoming(cares_for).select(|(k, edges)| { label: k.label, carers: edges.map(|e| e.from.get().name) }).ready_live(read_definitions)
 
 BadgeSite : { note : Str, site : Str }
@@ -267,7 +267,7 @@ BadgeSite : { note : Str, site : Str }
 ## Each badge with the name of the site of its kennel, two hops: a `read`
 ## statement on `kennel` (`kennel = $parent.id`) and one on `site`
 ## (`kennel.site = $parent.id`).
-badge_sites : Try(Surreal.Watch(BadgeSite), Surreal.Error)
+badge_sites : Surreal.Watch(BadgeSite)
 badge_sites = Surreal.from(badges).select(|b| { note: b.note, site: b.kennel.get().site.get().name }).ready_live(read_definitions)
 
 CarerName : { name : Str }
@@ -276,7 +276,7 @@ CarerName : { name : Str }
 ## through the link of each badge of `rows()`: a `read` statement on
 ## `badge`, and one on `kennel` with the test
 ## `$parent.id IN (SELECT VALUE id FROM badge).kennel`.
-badged_carers : Try(Surreal.Watch(CarerName), Surreal.Error)
+badged_carers : Surreal.Watch(CarerName)
 badged_carers = Surreal.from(carers).filter(|c| badges.rows().any(|b| b.kennel.get().label == c.name)).select(|c| { name: c.name }).ready_live(read_definitions)
 
 dock : Site
@@ -463,9 +463,9 @@ Sent : [
 ]
 
 ## Sends one prepared write, with no wait for its reply.
-send_one! : Surreal.Session, Try(Surreal.Prepared(a), Surreal.Error) => Try({ session : Surreal.Session, ticket : Surreal.Ticket(a), prepared : Surreal.Prepared(a) }, Str)
+send_one! : Surreal.Session, Surreal.Prepared(a) => Try({ session : Surreal.Session, ticket : Surreal.Ticket(a), prepared : Surreal.Prepared(a) }, Str)
 send_one! = |session, prepared| {
-	statement = prepared.map_err(Str.inspect)?
+	statement = prepared.checked().map_err(Str.inspect)?
 	sent = session.send!(statement).map_err(Str.inspect)?
 	Ok({ session: sent.session, ticket: sent.ticket, prepared: statement })
 }
@@ -552,9 +552,9 @@ missing = |want, have| have.fold(want, |left, got|
 ## before it sent the second (`README.md`, the session). Only a notice
 ## that came before the app sent a write is before the notice of that
 ## write.
-check_watch! : Surreal.Session, Str, Try(Surreal.Watch(out), Surreal.Error), List(List(Step(out))) => Try({ session : Surreal.Session, failures : U64 }, Str) where [out.Cbor.Readable(errs), out.is_eq : out, out -> Bool]
+check_watch! : Surreal.Session, Str, Surreal.Watch(out), List(List(Step(out))) => Try({ session : Surreal.Session, failures : U64 }, Str) where [out.Cbor.Readable(errs), out.is_eq : out, out -> Bool]
 check_watch! = |session, name, watch, groups| {
-	started = session.live!(watch.map_err(Str.inspect)?).map_err(Str.inspect)?
+	started = session.live!(watch.checked().map_err(Str.inspect)?).map_err(Str.inspect)?
 	say!("${name}: ${started.view.rows().len().to_str()} rows in the snapshot")?
 	predicted = expected(started.live.members(), groups).map_err(Str.inspect)?
 	var $session = started.session

@@ -24,7 +24,7 @@ The function stays a Roc function. A test, a seed list and your own code can cal
 
 | Need | Value |
 | --- | --- |
-| Compiler | The `reify` branch of [Karakatiza666/roc](https://github.com/Karakatiza666/roc), at the commit in `.roc-version` (`reify-c1e6af27a29303f2e409b037aa1d4a32ebd68217` for release 0.0.1) |
+| Compiler | The `reify` branch of [Karakatiza666/roc](https://github.com/Karakatiza666/roc), at the commit in `.roc-version` (`reify-0aedb1ae0046480f8442c97cf9138534659e8ab2` from release 0.0.3) |
 | Zig, to build the compiler | 0.17.0 |
 | Database, to run queries | SurrealDB 3.3.4 |
 
@@ -35,7 +35,7 @@ Build the compiler and point `ROC` at it:
 ```sh
 git clone https://github.com/Karakatiza666/roc.git
 cd roc
-git checkout c1e6af27a29303f2e409b037aa1d4a32ebd68217
+git checkout 0aedb1ae0046480f8442c97cf9138534659e8ab2
 zig build roc
 export ROC=$PWD/zig-out/bin/roc
 ```
@@ -134,7 +134,7 @@ Start from the table with `Surreal.from`. Add clauses. Each one is a function th
 | `filter_by(f)` | `p, row -> Bool` | A `Query(p, row)` with a parameter record `p` |
 | `select(f)` | `row -> out` | A `Selected(p, out)`. The fields of the record that `f` builds are the columns |
 | `order_by(f, Asc)` | `out -> key`, `Asc` or `Desc` | A `Selected(p, out)` |
-| `prepare(params)` | A value of type `p` | `Try(Prepared(List(out)), Error)` |
+| `prepare(params)` | A value of type `p` | `Prepared(List(out))` |
 | `ready()` | Nothing. For a query with no parameter | The same as `prepare({})` |
 
 ```roc
@@ -161,9 +161,9 @@ You have two ways to get the text:
 | Call | Gives | Parameters |
 | --- | --- | --- |
 | `selected.to_surql()` | `Try(Str, Error)` | A `$name` for each one |
-| `prepared.statement().to_script()` | `Str` | A `LET $name = value;` line for each one, then the statement |
+| `prepared.request()` | `Try(Str, Error)` | A `LET $name = value;` line for each one, then the statement |
 
-`prepare({ city: "Oslo" })` gives the `Prepared`. `statement()` gives its `Statement`. A query that reads no parameter takes `ready()` in place of `prepare({})`. Real output of the second way:
+`prepare({ city: "Oslo" })` gives the `Prepared`. `request()` gives its text. A query that reads no parameter takes `ready()` in place of `prepare({})`. Real output of the second way:
 
 ```surql
 LET $city = 'Oslo';
@@ -172,13 +172,13 @@ SELECT record::id(id) AS id, name AS name, phone ?? 'none' AS phone FROM owner W
 
 The first way prints the same `SELECT` with no `LET` line and no final `;`.
 
-A script app prints it. Both `to_surql` and `prepare` give a `Try`, so match on it:
+A script app prints it. Both `to_surql` and `request` give a `Try`, so match on it:
 
 ```roc
 # Fragment: uses `owners_in_city` from above.
 main! = |_args| {
-	match owners_in_city.prepare({ city: "Oslo" }) {
-		Ok(prepared) => echo!("${prepared.statement().to_script()}\n")
+	match owners_in_city.prepare({ city: "Oslo" }).request() {
+		Ok(text) => echo!("${text}\n")
 		Err(why) => echo!("not built: ${Str.inspect(why)}\n")
 	}
 	Ok({})
@@ -272,7 +272,7 @@ An intrinsic called outside a clause is different. It is a compile error (see th
 | `Surreal.Mirror` | The Roc model of the notices that a live query sends. Tests use it. Written "the Mirror". It is not a mirror function. |
 | read row | A row type for reading linked rows and edges in one query. Its fields can be `Linked(r)`, `Out(e)` and `In(e)`. A `define_read()` entry checks it. |
 | parameter record | The record `p` that a `filter_by` clause reads and that `prepare(p)` fills. Each field becomes a `$name`. |
-| captured value | A run-time value from around a clause, used in a `select_where` clause. It is a `$_1` slot in the text. |
+| captured value | A run-time value from around a clause, in a function whose result is a `Prepared` or a `Watch`. It is a `$_1` slot in the text. |
 | prepared statement | A `Surreal.Prepared(out)`. It holds the statement text and the reader that turns the reply into `out`. |
 | script app | An app header with no platform. It can print SurrealQL. It cannot open a session. |
 

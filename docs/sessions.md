@@ -34,8 +34,8 @@ A `Surreal.Transport` says how the session reaches the server. It is one type wi
 
 | Platform | Adapter package | WebSocket constructor | `Http.send!` call |
 | --- | --- | --- | --- |
-| basic-cli 0.26.0 | roc-basic-cli-websocket 0.0.3 | `websocket_timed` | `Http.send!(request, {})` |
-| basic-webserver 0.20.0 | roc-basic-webserver-websocket 0.0.2 | `websocket` | `Http.send!(request)` |
+| basic-cli 0.27.0 | roc-basic-cli-websocket 0.0.4 | `websocket_timed` | `Http.send!(request, {})` |
+| basic-webserver 0.21.0 | roc-basic-webserver-websocket 0.0.3 | `websocket` | `Http.send!(request)` |
 
 The adapter of basic-cli has `receive_within!`, so it takes either WebSocket constructor. The adapter of basic-webserver has none, so it takes only `websocket`. The package header lines are in [Add the package](getting-started.md#add-the-package). The full headers are in `examples/client.roc` and `examples/server.roc`.
 
@@ -170,13 +170,13 @@ A statement that the server refuses is `Err(Server(error))`, typed by its kind (
 
 ```roc
 # Fragment: uses `bins`, `bin_rows` and `twin_bin` from examples/client.roc.
-batch = |first, second| first?.then(second?)
+batch = |first, second| first.then(second)
 
 twin_then_rows = batch(bins.create(twin_bin), bin_rows)
-# twin_then_rows : Try(Prepared((Try(List(Bin), Error), Try(List(Bin), Error))), Error)
+# twin_then_rows : Prepared((Try(List(Bin), Error), Try(List(Bin), Error)))
 ```
 
-From `examples/client.roc`, `batch` and `twin_then_rows`. A real run, where `b1` has the label `Top` and the unique index refuses the twin:
+From `examples/client.roc:368`, `batch` and `twin_then_rows`. A real run, where `b1` has the label `Top` and the unique index refuses the twin:
 
 ```text
 Ok((Ok([{ id: "b2", label: "Mid" }]), Err(Server(Unique({ fields: ["label"], .. })))))
@@ -203,7 +203,7 @@ got_two = sent_two.session.await!(sent_two.ticket, bin_b1)
 got_one = got_two.session.await!(sent_one.ticket, all_bins)
 ```
 
-Each reply goes to its ticket, so you can await in any order. `examples/client.roc` does this in `pipelined!`, and `examples/watch.roc` sends two writes this way.
+A `prepared` that cannot be built sends nothing. Its ticket holds the error, and `await!` gives it as the result. Each reply goes to its ticket, so you can await in any order. `examples/client.roc` does this in `pipelined!`, and `examples/watch.roc` sends two writes this way.
 
 | Transport | What happens |
 | --- | --- |
@@ -218,18 +218,18 @@ A transaction runs all its statements or none of their writes. Start with `begin
 
 ```roc
 # Fragment: uses `bins` and `bin_rows` from examples/client.roc.
-atomic3 = |first, second, third| Ok(first?.begin().then(second?)?.then(third?)?.commit())
+atomic3 = |first, second, third| first.begin().then(second).then(third).commit()
 
 stock_up = atomic3(bins.create(side_bin), bins.insert([low_bin]), bin_rows)
-# stock_up : Try(Prepared(((List(Bin), List(Bin)), List(Bin))), Error)
+# stock_up : Prepared(((List(Bin), List(Bin)), List(Bin)))
 ```
 
-From `examples/client.roc`, `atomic3` and `stock_up`.
+From `examples/client.roc:376`, `atomic3` and `stock_up`. A part that cannot be built makes the whole transaction hold its error. The first error is kept.
 
 | Call | Gives |
 | --- | --- |
 | `p.begin()` | A `Transaction(out)` with `p` as its first part |
-| `t.then(q)` | `Try(Transaction((a, b)), Error)`. Each `then` nests the result pair once more |
+| `t.then(q)` | `Transaction((a, b))`. Each `then` nests the result pair once more |
 | `t.commit()` | A `Prepared(out)` for `run!`, `send!` or `then` |
 
 The request is `BEGIN`, the statements, `COMMIT`. A real print of a create and a second create, as one transaction:
@@ -260,8 +260,8 @@ A transaction works the same on both transports, because it is one request. See 
 
 ```roc
 # Fragment: uses `bins` and `Bin` from examples/client.roc.
-add_two : Bin, Bin -> Try(Surreal.Prepared(List(List(Bin))), Surreal.Error)
-add_two = |first, second| Surreal.transaction([bins.create(first)?, bins.create(second)?])
+add_two : Bin, Bin -> Surreal.Prepared(List(List(Bin)))
+add_two = |first, second| Surreal.transaction([bins.create(first), bins.create(second)])
 ```
 
 The request is the same as the one of `begin().then(..).commit()`:

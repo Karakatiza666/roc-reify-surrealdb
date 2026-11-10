@@ -133,15 +133,15 @@ day_line : DayKey, List(Vital) -> Daily
 day_line = |k, rows| { kennel: k.kennel, day: k.day, readings: rows.len().to_i64_wrap(), fevers: rows.keep_if(|v| fever_fn.call2(v.temp_c, v.pulse)).len().to_i64_wrap() }
 
 ## A prepared statement that translates.
-ready : Try(Surreal.Prepared(out), Surreal.Error) -> Surreal.Prepared(out)
-ready = |prepared| match prepared {
+ready : Surreal.Prepared(out) -> Surreal.Prepared(out)
+ready = |prepared| match prepared.checked() {
 	Ok(p) => p
 	Err(_) => crash "the query of client.roc translates"
 }
 
 ## The text of a request, or why there is none.
-request_of : Try(Surreal.Prepared(out), Surreal.Error) -> Try(Str, Surreal.Error)
-request_of = |prepared| prepared.map_ok(|p| p.request())
+request_of : Surreal.Prepared(out) -> Try(Str, Surreal.Error)
+request_of = |prepared| prepared.request()
 
 fevers : Surreal.Prepared(List(VitalLine))
 fevers = ready(Surreal.from(vitals).filter(|v| fever_fn.call2(v.temp_c, v.pulse)).select(vital_line).prepare({}))
@@ -209,19 +209,16 @@ noon = { ..reading("a", "2026-03-10T12:00:00Z", 85, 39.4), fevered: Bool.False }
 
 KennelLine : { label : Str, carers : I64 }
 
-relabel_write : Try(Surreal.Prepared(List(Kennel)), Surreal.Error)
+relabel_write : Surreal.Prepared(List(Kennel))
 relabel_write = kennels.update_by(|p, k| k.id == p.key, |p, k| { ..k, label: p.label }).prepare({ key: "q", label: "Quay wing" })
 
-relabel_read : Try(Surreal.Prepared(List(KennelLine)), Surreal.Error)
+relabel_read : Surreal.Prepared(List(KennelLine))
 relabel_read = Surreal.from(kennel_reads).filter_by(|p, k| k.id == p.key).select(|k| { label: k.label, carers: k.cares_for.list().len().to_i64_wrap() }).prepare({ key: "q" })
 
-relabel : Try(Surreal.Prepared((Try(List(Kennel), Surreal.Error), Try(List(KennelLine), Surreal.Error))), Surreal.Error)
-relabel = match (relabel_write, relabel_read) {
-	(Ok(write), Ok(read)) => write.then(read)
-	(Err(e), _) | (_, Err(e)) => Err(e)
-}
+relabel : Surreal.Prepared((Try(List(Kennel), Surreal.Error), Try(List(KennelLine), Surreal.Error)))
+relabel = relabel_write.then(relabel_read)
 
-remove_carers : Try(Surreal.Prepared(List(Carer)), Surreal.Error)
+remove_carers : Surreal.Prepared(List(Carer))
 remove_carers = carers.delete(|c| c.id == "kim" or c.id == "lea").prepare({})
 
 ## Each form of an arm: no payload, a record, one value, two values.
@@ -266,8 +263,8 @@ facts = |v| "${vitals.ref(v).map_ok(|r| r.to_str()) ?? "?"} pulse ${v.pulse.to_s
 # ------------------------------------------------------- the requests
 
 # A query: the text of `prepare`, and a `LET` for each parameter.
-expect request_of(Ok(fevers)) == Surreal.from(vitals).filter(|v| fever_fn.call2(v.temp_c, v.pulse)).select(vital_line).prepare({}).map_ok(|s| s.statement().to_script())
-expect busy_days.request().starts_with("LET $least = 2;\nSELECT ")
+expect request_of(fevers) == Surreal.from(vitals).filter(|v| fever_fn.call2(v.temp_c, v.pulse)).select(vital_line).prepare({}).request()
+expect busy_days.request().map_ok(|t| t.starts_with("LET $least = 2;\nSELECT ")) == Ok(Bool.True)
 
 # A write of one row returns the row as stored: after a create, a relate
 # and a replace, before a delete.
@@ -281,12 +278,12 @@ expect request_of(kennels.replace(quay_wing)) == Ok("UPDATE kennel:⟨q⟩ CONTE
 expect request_of(kennels.delete_at(kennels.id("q")).prepare({})) == Ok("DELETE kennel:⟨q⟩ RETURN BEFORE;")
 expect request_of(cares_for.delete_at(cares_for.id("ida_q")).prepare({})) == Ok("DELETE cares_for:⟨ida_q⟩ RETURN BEFORE;")
 expect request_of(kennels.update_at_by(kennels.id("q"), |p, k| { ..k, label: p.label }).prepare({ label: "Quay wing" })) == Ok("LET $label = 'Quay wing';\nUPDATE kennel:⟨q⟩ SET label = $label RETURN AFTER;")
-expect request_of(kennels.delete_at(Surreal.Unchecked.id("site", "q")).prepare({})) == Err(Unsupported("the id `site:⟨q⟩` is of the table `site`, not of `kennel`"))
+expect request_of(kennels.delete_at(Surreal.Unchecked.id("site", "q")).prepare({})) == Err(Unsupported("the id `site:⟨q⟩` is not of the table `kennel`"))
 expect request_of(daily_view.replace({ kennel: kennels.id("a"), day: day_start, readings: 1, fevers: 0 })) == Err(Unsupported("`vital_daily` is a view, and a view is read-only"))
 
 # The row of one key: `FROM` the record, read as the row or `NotFound`.
-expect oslo_site.request() == "SELECT area, record::id(id) AS id, location, name FROM site:⟨oslo⟩;"
-expect oslo_value.request() == "SELECT VALUE { area: area, id: record::id(id), location: location, name: name } FROM site:⟨oslo⟩;"
+expect oslo_site.request() == Ok("SELECT area, record::id(id) AS id, location, name FROM site:⟨oslo⟩;")
+expect oslo_value.request() == Ok("SELECT VALUE { area: area, id: record::id(id), location: location, name: name } FROM site:⟨oslo⟩;")
 expect request_of(Surreal.from(sites).select(|r| r).prepare_one({})) == Err(Unsupported("`prepare_one` reads the row of one key, a query from `Table.at`; this query can return several rows: take `prepare`"))
 
 expect request_of(carers.upsert(kim_b)) == Ok("UPSERT carer:⟨kim⟩ CONTENT { name: 'Kim B' } RETURN AFTER;")
@@ -302,10 +299,10 @@ expect request_of(relabel) == Ok("LET $key = 'q';\nLET $label = 'Quay wing';\nUP
 
 # A tag union: the arm in `kind`, one payload in `value`, two in the array `value`.
 expect request_of(payments.insert(paid)) == Ok("BEGIN;\nINSERT INTO payment [{ id: 'cash', pay: 'Cash' }, { id: 'card', pay: { kind: 'Card', last4: '4242' } }, { id: 'check', pay: { kind: 'Check', value: 7 } }, { id: 'wire', pay: { kind: 'Wire', value: ['eu', 9] } }] RETURN AFTER;\nCOMMIT;")
-expect payment_lines.request() == "SELECT (IF pay.kind = 'Card' THEN 1 ELSE IF pay = 'Cash' THEN 0 ELSE IF pay.kind = 'Check' THEN pay.value ELSE pay.value[1] END) AS amount, record::id(id) AS id FROM payment;"
+expect payment_lines.request() == Ok("SELECT (IF pay.kind = 'Card' THEN 1 ELSE IF pay = 'Cash' THEN 0 ELSE IF pay.kind = 'Check' THEN pay.value ELSE pay.value[1] END) AS amount, record::id(id) AS id FROM payment;")
 
 # A view is read-only, for a delete too.
-expect daily_view.edit(Delete({ kennel: kennels.id("a"), day: day_start, readings: 1, fevers: 0 })).map_ok(|_| {}) == Err(Unsupported("`vital_daily` is a view, and a view is read-only"))
+expect daily_view.edit(Delete({ kennel: kennels.id("a"), day: day_start, readings: 1, fevers: 0 })).checked().map_ok(|_| {}) == Err(Unsupported("`vital_daily` is a view, and a view is read-only"))
 
 # ------------------------------------------------------- the replies
 
@@ -421,25 +418,25 @@ side_bin = { id: "b3", label: "Side" }
 low_bin : Bin
 low_bin = { id: "b4", label: "Low" }
 
-bin_rows : Try(Surreal.Prepared(List(Bin)), Surreal.Error)
+bin_rows : Surreal.Prepared(List(Bin))
 bin_rows = Surreal.from(bins).select(|r| r).prepare({})
 
-batch : Try(Surreal.Prepared(a), Surreal.Error), Try(Surreal.Prepared(b), Surreal.Error) -> Try(Surreal.Prepared((Try(a, Surreal.Error), Try(b, Surreal.Error))), Surreal.Error)
-batch = |first, second| first?.then(second?)
+batch : Surreal.Prepared(a), Surreal.Prepared(b) -> Surreal.Prepared((Try(a, Surreal.Error), Try(b, Surreal.Error)))
+batch = |first, second| first.then(second)
 
-atomic : Try(Surreal.Prepared(a), Surreal.Error), Try(Surreal.Prepared(b), Surreal.Error) -> Try(Surreal.Prepared((a, b)), Surreal.Error)
-atomic = |first, second| Ok(first?.begin().then(second?)?.commit())
+atomic : Surreal.Prepared(a), Surreal.Prepared(b) -> Surreal.Prepared((a, b))
+atomic = |first, second| first.begin().then(second).commit()
 
-atomic3 : Try(Surreal.Prepared(a), Surreal.Error), Try(Surreal.Prepared(b), Surreal.Error), Try(Surreal.Prepared(c), Surreal.Error) -> Try(Surreal.Prepared(((a, b), c)), Surreal.Error)
-atomic3 = |first, second, third| Ok(first?.begin().then(second?)?.then(third?)?.commit())
+atomic3 : Surreal.Prepared(a), Surreal.Prepared(b), Surreal.Prepared(c) -> Surreal.Prepared(((a, b), c))
+atomic3 = |first, second, third| first.begin().then(second).then(third).commit()
 
-twin_in_transaction : Try(Surreal.Prepared((List(Bin), List(Bin))), Surreal.Error)
+twin_in_transaction : Surreal.Prepared((List(Bin), List(Bin)))
 twin_in_transaction = atomic(bins.create(side_bin), bins.insert([low_bin, twin_bin]))
 
-twin_then_rows : Try(Surreal.Prepared((Try(List(Bin), Surreal.Error), Try(List(Bin), Surreal.Error))), Surreal.Error)
+twin_then_rows : Surreal.Prepared((Try(List(Bin), Surreal.Error), Try(List(Bin), Surreal.Error)))
 twin_then_rows = batch(bins.create(twin_bin), bin_rows)
 
-stock_up : Try(Surreal.Prepared(((List(Bin), List(Bin)), List(Bin))), Surreal.Error)
+stock_up : Surreal.Prepared(((List(Bin), List(Bin)), List(Bin)))
 stock_up = atomic3(bins.create(side_bin), bins.insert([low_bin]), bin_rows)
 
 ## The error of the unique index on `bin.label`, with no schema known.
@@ -466,11 +463,11 @@ expect ready(twin_then_rows).result(twin_then_rows_reply) == Ok((Err(Server(labe
 expect ready(stock_up).result(stock_up_reply) == Ok((([side_bin], [low_bin]), List.concat(stock, [side_bin, low_bin])))
 
 # A transaction is one part of a batch: its failure is the error of its side.
-expect batch(twin_in_transaction, bin_rows).map_ok(|p| p.request()) == Ok("BEGIN;\nCREATE bin:⟨b3⟩ CONTENT { label: 'Side' } RETURN AFTER;\nINSERT INTO bin [{ id: 'b4', label: 'Low' }, { id: 'b2', label: 'Top' }] RETURN AFTER;\nCOMMIT;\nSELECT record::id(id) AS id, label FROM bin;")
+expect batch(twin_in_transaction, bin_rows).request() == Ok("BEGIN;\nCREATE bin:⟨b3⟩ CONTENT { label: 'Side' } RETURN AFTER;\nINSERT INTO bin [{ id: 'b4', label: 'Low' }, { id: 'b2', label: 'Top' }] RETURN AFTER;\nCOMMIT;\nSELECT record::id(id) AS id, label FROM bin;")
 
 # A list of writes of one type as one transaction (`Surreal.transaction`).
-all_of : List(Try(Surreal.Prepared(a), Surreal.Error)) -> Try(Surreal.Prepared(List(a)), Surreal.Error)
-all_of = |writes| Surreal.transaction(writes.map_try(|w| w)?)
+all_of : List(Surreal.Prepared(a)) -> Surreal.Prepared(List(a))
+all_of = |writes| Surreal.transaction(writes)
 
 spare_bin : Bin
 spare_bin = { id: "b5", label: "Spare" }
@@ -478,11 +475,11 @@ spare_bin = { id: "b5", label: "Spare" }
 rack_bin : Bin
 rack_bin = { id: "b6", label: "Rack" }
 
-twins_in_list : Try(Surreal.Prepared(List(List(Bin))), Surreal.Error)
+twins_in_list : Surreal.Prepared(List(List(Bin)))
 twins_in_list = all_of([bins.create(spare_bin), bins.create(twin_bin)])
 
 expect request_of(twins_in_list) == Ok("BEGIN;\nCREATE bin:⟨b5⟩ CONTENT { label: 'Spare' } RETURN AFTER;\nCREATE bin:⟨b2⟩ CONTENT { label: 'Top' } RETURN AFTER;\nCOMMIT;")
-expect Surreal.transaction([]).map_ok(|p| p.request()) == Err(Unsupported("a transaction needs a statement"))
+expect Surreal.transaction([]).request() == Err(Unsupported("a transaction needs a statement"))
 
 # The second create fails all: the error is at its place. When all commit,
 # the result is the result of each, in order.
@@ -504,7 +501,7 @@ pinned = [bins.define().unique(|b| b.label).done()]
 loose : List(Surreal.Defined)
 loose = [bins.define().done()]
 
-expect migrate(pinned, loose).request() == "BEGIN;\nREMOVE INDEX IF EXISTS bin_label_unique ON bin;\nCOMMIT;"
+expect migrate(pinned, loose).request() == Ok("BEGIN;\nREMOVE INDEX IF EXISTS bin_label_unique ON bin;\nCOMMIT;")
 expect migrate(pinned, loose).result(unpin_labels_reply) == Ok({})
 expect migrate(loose, pinned).result(pin_labels_again_reply) == Err(Server(label_taken))
 
@@ -572,7 +569,7 @@ expect ready(shifts.delete_at(early).prepare({})).result(delete_shift_reply) == 
 expect ready(tasks.create_new(feed)).result(create_shift_reply).map_ok(|rows| rows.map(|r| r.id)) == Err(Wire("a row that a write of `task` made has no text key of `task`"))
 
 # A create and an insert of rows with no key, in one transaction.
-expect atomic(shifts.create_new({ label: "Early" }), shifts.insert_new([{ label: "Late" }])).map_ok(|p| p.request()) == Ok("BEGIN;\nCREATE shift CONTENT { label: 'Early' } RETURN AFTER;\nINSERT INTO shift [{ label: 'Late' }] RETURN AFTER;\nCOMMIT;")
+expect atomic(shifts.create_new({ label: "Early" }), shifts.insert_new([{ label: "Late" }])).request() == Ok("BEGIN;\nCREATE shift CONTENT { label: 'Early' } RETURN AFTER;\nINSERT INTO shift [{ label: 'Late' }] RETURN AFTER;\nCOMMIT;")
 
 # ------------------------------------------------ full-text and vector search
 
@@ -602,13 +599,13 @@ seed_case_notes = [
 cough : List(F64)
 cough = [0.1, 0.8]
 
-ranked_notes : Try(Surreal.Prepared(List({ id : Str, score : F64, marked : Str })), Surreal.Error)
+ranked_notes : Surreal.Prepared(List({ id : Str, score : F64, marked : Str }))
 ranked_notes = Surreal.from(case_notes).search(case_text, "fever").select(|(n, hit)| { id: n.id, score: hit.score(), marked: hit.highlight("*", "*") }).order_by(|r| r.score, Desc).prepare({})
 
-close_notes : Try(Surreal.Prepared(List({ id : Str, distance : F64 })), Surreal.Error)
+close_notes : Surreal.Prepared(List({ id : Str, distance : F64 }))
 close_notes = Surreal.from(case_notes).nearest(case_vectors, cough, Exact(2)).select(|(n, near)| { id: n.id, distance: near.distance() }).order_by(|r| r.distance, Asc).prepare({})
 
-close_coughs : Try(Surreal.Prepared(List(Str)), Surreal.Error)
+close_coughs : Surreal.Prepared(List(Str))
 close_coughs = Surreal.from(case_notes).filter(|n| n.id != "n3").nearest(case_vectors, cough, Approx({ k: 1, ef: 40 })).select_value(|(n, _)| n.id).prepare({})
 
 expect request_of(ranked_notes) == Ok("SELECT record::id(id) AS id, search::highlight('*', '*', 1) AS marked, search::score(1) AS score FROM case_note WHERE body @1@ 'fever' ORDER BY score DESC;")

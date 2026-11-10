@@ -111,10 +111,10 @@ expect Surreal.from(orders).group_by(|o| o.total).aggregate(|_, rows| { n: rows.
 expect Surreal.from(orders).totals(|rows| { n: rows.len(), revenue: rows.map(|o| o.total).sum() }).to_surql() == Ok("SELECT count() AS n, math::sum(total) AS revenue FROM order GROUP ALL")
 expect Surreal.from(orders).filter(|o| o.total > 10).totals(|rows| { big: rows.keep_if(|o| o.payment == Cash).len(), mean: Surreal.Math.mean(rows.map(|o| o.total.to_f64())) }).to_surql() == Ok("SELECT count(payment = 'Cash') AS big, math::mean(<float>total) AS mean FROM order WHERE total > 10.0dec GROUP ALL")
 expect Surreal.from(orders).totals(|rows| { mid: Surreal.Math.median(rows.map(|o| o.total.to_f64())) }).to_surql() == Err(Unsupported("in `totals`: `math::median` of no rows is `NONE`, not a number, and `totals` always gives one row; take the median per group with `group_by`"))
-expect Surreal.from(orders).filter_by(|p, o| o.total > p.least).totals(|rows| { n: rows.len() }).prepare({ least: 2 }).map_ok(|s| s.statement().to_script()) == Ok("LET $least = 2.0dec;\nSELECT count() AS n FROM order WHERE total > $least GROUP ALL;")
+expect Surreal.from(orders).filter_by(|p, o| o.total > p.least).totals(|rows| { n: rows.len() }).prepare({ least: 2 }).request() == Ok("LET $least = 2.0dec;\nSELECT count() AS n FROM order WHERE total > $least GROUP ALL;")
 # A `U64` parameter: an `int`, or a decimal above the range of an `int`.
-expect Surreal.from(orders).filter_by(|p, o| o.items.len() >= p.least).select_value(|o| o.id).prepare({ least: 2 }).map_ok(|s| s.statement().to_script()) == Ok("LET $least = 2;\nSELECT VALUE record::id(id) FROM order WHERE $least <= items.len();")
-expect Surreal.from(orders).filter_by(|p, o| o.items.len() >= p.least).select_value(|o| o.id).prepare({ least: 18446744073709551615 }).map_ok(|s| s.statement().to_script()) == Ok("LET $least = 18446744073709551615.0dec;\nSELECT VALUE record::id(id) FROM order WHERE $least <= items.len();")
+expect Surreal.from(orders).filter_by(|p, o| o.items.len() >= p.least).select_value(|o| o.id).prepare({ least: 2 }).request() == Ok("LET $least = 2;\nSELECT VALUE record::id(id) FROM order WHERE $least <= items.len();")
+expect Surreal.from(orders).filter_by(|p, o| o.items.len() >= p.least).select_value(|o| o.id).prepare({ least: 18446744073709551615 }).request() == Ok("LET $least = 18446744073709551615.0dec;\nSELECT VALUE record::id(id) FROM order WHERE $least <= items.len();")
 
 # ------------------------------------------------------ query fragments
 
@@ -250,7 +250,7 @@ expect Surreal.from(orders).select(|o| { city: o.customer.get().address.city }).
 expect Surreal.from(orders).select(|o| { who: o.customer.get().name, owner: o.customer.get() }).query().select(|r| r).to_surql() == Ok("SELECT customer.{ address, id: record::id(id), name, tags } AS owner, customer.name AS who FROM order")
 expect Surreal.from(orders).select_value(|o| o.customer.get()).limit(1).query().select_value(|c| c.address.city).to_surql() == Ok("SELECT VALUE address.city FROM (SELECT VALUE customer.{ address, id: record::id(id), name, tags } FROM order LIMIT 1)")
 # A parameter of a filter over a subquery is a `LET`, as anywhere.
-expect Surreal.from(orders).group_by(|o| o.customer.get().address.city).aggregate(|city, rows| { city, n: rows.len().to_i64_wrap() }).query().filter_by(|p, r| r.n >= p.least).select(|r| r).prepare({ least: 2 }).map_ok(|s| s.statement().to_script()) == Ok("LET $least = 2;\nSELECT city, n FROM (SELECT customer.address.city AS city, count() AS n FROM order GROUP BY city) WHERE $least <= n;")
+expect Surreal.from(orders).group_by(|o| o.customer.get().address.city).aggregate(|city, rows| { city, n: rows.len().to_i64_wrap() }).query().filter_by(|p, r| r.n >= p.least).select(|r| r).prepare({ least: 2 }).request() == Ok("LET $least = 2;\nSELECT city, n FROM (SELECT customer.address.city AS city, count() AS n FROM order GROUP BY city) WHERE $least <= n;")
 # A row of the table keeps its edges after a projection of the whole row. A row of a subquery has none.
 expect Surreal.from(customers).select(|r| r).query().outgoing(purchased).select(|(c, bought)| { name: c.name, n: bought.len() }).to_surql() == Ok("SELECT ->purchased.len() AS n, name AS name FROM customer")
 expect Surreal.from(customers).select(|r| r).limit(2).query().outgoing(purchased).select(|(c, bought)| { name: c.name, n: bought.len() }).to_surql() == Err(Unsupported("only a row of a table has edges; take `outgoing` or `incoming` before `select`"))
@@ -272,12 +272,12 @@ by_min : Surreal.Selected(Params, Order)
 by_min = Surreal.from(orders).filter_by(|p, o| o.total >= p.min_total).select(|r| r)
 
 expect by_min.to_surql() == Ok("SELECT customer, record::id(id) AS id, items, payment, total FROM order WHERE total >= $min_total")
-expect by_min.prepare({ min_total: 20 }).map_ok(|s| s.statement().surql) == Ok("SELECT customer, record::id(id) AS id, items, payment, total FROM order WHERE total >= $min_total")
-expect by_min.prepare({ min_total: 20 }).map_ok(|s| s.statement().inlined) == Ok("SELECT customer, record::id(id) AS id, items, payment, total FROM order WHERE total >= 20.0dec")
-expect by_min.prepare({ min_total: 20 }).map_ok(|s| s.statement().lets.map(|l| (l.name, Ql.literal(l.value)))) == Ok([("min_total", "20.0dec")])
-expect by_min.prepare({ min_total: 20 }).map_ok(|s| s.statement().to_script()) == Ok("LET $min_total = 20.0dec;\nSELECT customer, record::id(id) AS id, items, payment, total FROM order WHERE total >= $min_total;")
-expect by_min.prepare({ min_total: 20 }).map_ok(|s| s.statement().block("-- query: big_orders", ["-- ordered"])) == Ok("-- query: big_orders\n-- ordered\nLET $min_total = 20.0dec;\nSELECT customer, record::id(id) AS id, items, payment, total FROM order WHERE total >= $min_total;")
-expect Surreal.from(orders).select(|r| r).prepare({}).map_ok(|s| s.statement().to_script()) == Ok("SELECT customer, record::id(id) AS id, items, payment, total FROM order;")
+expect by_min.prepare({ min_total: 20 }).statement().map_ok(|st| st.surql) == Ok("SELECT customer, record::id(id) AS id, items, payment, total FROM order WHERE total >= $min_total")
+expect by_min.prepare({ min_total: 20 }).statement().map_ok(|st| st.inlined) == Ok("SELECT customer, record::id(id) AS id, items, payment, total FROM order WHERE total >= 20.0dec")
+expect by_min.prepare({ min_total: 20 }).statement().map_ok(|st| st.lets.map(|l| (l.name, Ql.literal(l.value)))) == Ok([("min_total", "20.0dec")])
+expect by_min.prepare({ min_total: 20 }).request() == Ok("LET $min_total = 20.0dec;\nSELECT customer, record::id(id) AS id, items, payment, total FROM order WHERE total >= $min_total;")
+expect by_min.prepare({ min_total: 20 }).statement().map_ok(|st| st.block("-- query: big_orders", ["-- ordered"])) == Ok("-- query: big_orders\n-- ordered\nLET $min_total = 20.0dec;\nSELECT customer, record::id(id) AS id, items, payment, total FROM order WHERE total >= $min_total;")
+expect Surreal.from(orders).select(|r| r).prepare({}).request() == Ok("SELECT customer, record::id(id) AS id, items, payment, total FROM order;")
 
 # A parameter that is a record, a list or an id is bound whole.
 Window : { lo : Dec, tags : List(Str), who : Surreal.Id(Product) }
@@ -285,7 +285,7 @@ Window : { lo : Dec, tags : List(Str), who : Surreal.Id(Product) }
 windowed : Surreal.Selected(Window, Order)
 windowed = Surreal.from(orders).filter_by(|p, o| o.total >= p.lo and o.items.any(|i| i.product.id() == p.who)).select(|r| r)
 
-expect windowed.prepare({ lo: 1, tags: ["a"], who: Surreal.Unchecked.id("product", "pen") }).map_ok(|s| s.statement().inlined) == Ok("SELECT customer, record::id(id) AS id, items, payment, total FROM order WHERE (total >= 1.0dec) AND (product:⟨pen⟩ IN items[*].product)")
+expect windowed.prepare({ lo: 1, tags: ["a"], who: Surreal.Unchecked.id("product", "pen") }).statement().map_ok(|st| st.inlined) == Ok("SELECT customer, record::id(id) AS id, items, payment, total FROM order WHERE (total >= 1.0dec) AND (product:⟨pen⟩ IN items[*].product)")
 
 # SurrealDB sets `$auth`, `$token`, `$session` and `$access` itself.
 Locked : { session : Str }
@@ -293,18 +293,20 @@ Locked : { session : Str }
 locked : Surreal.Selected(Locked, Order)
 locked = Surreal.from(orders).filter_by(|p, o| o.id == p.session).select(|r| r)
 
-expect locked.prepare({ session: "x" }).map_ok(|s| s.statement().surql) == Err(Unsupported("`$session` is a protected variable in SurrealDB; name the parameter otherwise"))
+expect locked.prepare({ session: "x" }).statement().map_ok(|st| st.surql) == Err(Unsupported("`$session` is a protected variable in SurrealDB; name the parameter otherwise"))
+
+## The request of a raw or a diff watch, or why it has none.
+live_text = |built| match built {
+	Ok(watch) => watch.request()
+	Err(e) => Err(e)
+}
 
 # Values captured from the function around the clause.
-orders_over : Dec, Surreal.Id(Product) -> Code.Bound(Try({ surql : Str, slots : List(Code.Ty) }, Surreal.Error))
-orders_over = |min, pen| Surreal.select_where(orders, |o| o.total >= min and o.items.any(|i| i.product.id() == pen))
+orders_over : Dec, Surreal.Id(Product) -> Surreal.Prepared(List(Order))
+orders_over = |min, pen| Surreal.from(orders).filter(|o| o.total >= min and o.items.any(|i| i.product.id() == pen)).ready()
 
-expect {
-	bound = orders_over(5, Surreal.Unchecked.id("product", "pen"))
-	bound.value().map_ok(|b| b.surql) == Ok("SELECT customer, record::id(id) AS id, items, payment, total FROM order WHERE (total >= $_1) AND ($_2 IN items[*].product)") and bound.inputs().len() == 2
-}
-expect Surreal.bind_captured(orders_over(5, Surreal.Unchecked.id("product", "pen"))).map_ok(|s| s.statement().inlined) == Ok("SELECT customer, record::id(id) AS id, items, payment, total FROM order WHERE (total >= 5.0dec) AND (product:⟨pen⟩ IN items[*].product)")
-expect Surreal.bind_captured(orders_over(5, Surreal.Unchecked.id("product", "pen"))).map_ok(|s| s.statement().to_script()) == Ok("LET $_1 = 5.0dec;\nLET $_2 = product:⟨pen⟩;\nSELECT customer, record::id(id) AS id, items, payment, total FROM order WHERE (total >= $_1) AND ($_2 IN items[*].product);")
+expect orders_over(5, Surreal.Unchecked.id("product", "pen")).statement().map_ok(|st| st.inlined) == Ok("SELECT customer, record::id(id) AS id, items, payment, total FROM order WHERE (total >= 5.0dec) AND (product:⟨pen⟩ IN items[*].product)")
+expect orders_over(5, Surreal.Unchecked.id("product", "pen")).request() == Ok("LET $_1 = 5.0dec;\nLET $_2 = product:⟨pen⟩;\nSELECT customer, record::id(id) AS id, items, payment, total FROM order WHERE (total >= $_1) AND ($_2 IN items[*].product);")
 
 # ------------------------------------------------------------ writes
 
@@ -319,20 +321,20 @@ edge1 = { id: "e1", from: customers.link("ada"), to: products.link("pen"), quant
 
 Edge : Purchased
 
-expect products.insert([pen, mug]).map_ok(|s| s.statement().surql) == Ok("BEGIN;\nINSERT INTO product [{ id: 'pen', price: 1.5dec, title: 'Pen' }, { id: 'mug', price: 4.0dec, title: 'O\\'Mug' }] RETURN AFTER;\nCOMMIT")
-expect products.insert([pen]).map_ok(|s| s.statement().to_script()) == Ok("BEGIN;\nINSERT INTO product [{ id: 'pen', price: 1.5dec, title: 'Pen' }] RETURN AFTER;\nCOMMIT;")
-expect products.insert([]).map_ok(|s| s.statement().surql) == Ok("BEGIN;\nINSERT INTO product [] RETURN AFTER;\nCOMMIT")
-expect purchased.insert([edge1]).map_ok(|s| s.statement().surql) == Ok("BEGIN;\nINSERT RELATION INTO purchased [{ in: customer:⟨ada⟩, id: 'e1', quantity: 2, out: product:⟨pen⟩ }] RETURN AFTER;\nCOMMIT")
-expect products.create(pen).map_ok(|s| s.statement().surql) == Ok("CREATE product:⟨pen⟩ CONTENT { price: 1.5dec, title: 'Pen' } RETURN AFTER")
-expect products.upsert(mug).map_ok(|s| s.statement().surql) == Ok("UPSERT product:⟨mug⟩ CONTENT { price: 4.0dec, title: 'O\\'Mug' } RETURN AFTER")
-expect purchased.create(edge1).map_ok(|s| s.statement().surql) == Ok("RELATE customer:⟨ada⟩->purchased:⟨e1⟩->product:⟨pen⟩ CONTENT { quantity: 2 } RETURN AFTER")
+expect products.insert([pen, mug]).statement().map_ok(|st| st.surql) == Ok("BEGIN;\nINSERT INTO product [{ id: 'pen', price: 1.5dec, title: 'Pen' }, { id: 'mug', price: 4.0dec, title: 'O\\'Mug' }] RETURN AFTER;\nCOMMIT")
+expect products.insert([pen]).request() == Ok("BEGIN;\nINSERT INTO product [{ id: 'pen', price: 1.5dec, title: 'Pen' }] RETURN AFTER;\nCOMMIT;")
+expect products.insert([]).statement().map_ok(|st| st.surql) == Ok("BEGIN;\nINSERT INTO product [] RETURN AFTER;\nCOMMIT")
+expect purchased.insert([edge1]).statement().map_ok(|st| st.surql) == Ok("BEGIN;\nINSERT RELATION INTO purchased [{ in: customer:⟨ada⟩, id: 'e1', quantity: 2, out: product:⟨pen⟩ }] RETURN AFTER;\nCOMMIT")
+expect products.create(pen).statement().map_ok(|st| st.surql) == Ok("CREATE product:⟨pen⟩ CONTENT { price: 1.5dec, title: 'Pen' } RETURN AFTER")
+expect products.upsert(mug).statement().map_ok(|st| st.surql) == Ok("UPSERT product:⟨mug⟩ CONTENT { price: 4.0dec, title: 'O\\'Mug' } RETURN AFTER")
+expect purchased.create(edge1).statement().map_ok(|st| st.surql) == Ok("RELATE customer:⟨ada⟩->purchased:⟨e1⟩->product:⟨pen⟩ CONTENT { quantity: 2 } RETURN AFTER")
 
 # Rows whose keys the server makes: each row without its `id`, and the
 # rows of the result are `Created`, with the key that the server gave.
-expect products.create_new({ title: "Pen", price: 1.5 }).map_ok(|s| s.statement().surql) == Ok("CREATE product CONTENT { price: 1.5dec, title: 'Pen' } RETURN AFTER")
-expect products.insert_new([{ title: "Pen", price: 1.5 }, { title: "O'Mug", price: 4 }]).map_ok(|s| s.statement().surql) == Ok("BEGIN;\nINSERT INTO product [{ price: 1.5dec, title: 'Pen' }, { price: 4.0dec, title: 'O\\'Mug' }] RETURN AFTER;\nCOMMIT")
-expect purchased.create_new({ from: customers.link("ada"), to: products.link("01K8Z3"), quantity: 2 }).map_ok(|s| s.statement().surql) == Ok("RELATE customer:⟨ada⟩->purchased->product:⟨01K8Z3⟩ CONTENT { quantity: 2 } RETURN AFTER")
-expect purchased.insert_new([{ from: customers.link("ada"), to: products.link("pen"), quantity: 2 }]).map_ok(|s| s.statement().surql) == Ok("BEGIN;\nINSERT RELATION INTO purchased [{ in: customer:⟨ada⟩, quantity: 2, out: product:⟨pen⟩ }] RETURN AFTER;\nCOMMIT")
+expect products.create_new({ title: "Pen", price: 1.5 }).statement().map_ok(|st| st.surql) == Ok("CREATE product CONTENT { price: 1.5dec, title: 'Pen' } RETURN AFTER")
+expect products.insert_new([{ title: "Pen", price: 1.5 }, { title: "O'Mug", price: 4 }]).statement().map_ok(|st| st.surql) == Ok("BEGIN;\nINSERT INTO product [{ price: 1.5dec, title: 'Pen' }, { price: 4.0dec, title: 'O\\'Mug' }] RETURN AFTER;\nCOMMIT")
+expect purchased.create_new({ from: customers.link("ada"), to: products.link("01K8Z3"), quantity: 2 }).statement().map_ok(|st| st.surql) == Ok("RELATE customer:⟨ada⟩->purchased->product:⟨01K8Z3⟩ CONTENT { quantity: 2 } RETURN AFTER")
+expect purchased.insert_new([{ from: customers.link("ada"), to: products.link("pen"), quantity: 2 }]).statement().map_ok(|st| st.surql) == Ok("BEGIN;\nINSERT RELATION INTO purchased [{ in: customer:⟨ada⟩, quantity: 2, out: product:⟨pen⟩ }] RETURN AFTER;\nCOMMIT")
 expect orders.update(|o| o.total > 100, |o| { ..o, total: o.total * 0.9, payment: Cash }).to_surql() == Ok("UPDATE order SET payment = 'Cash', total = total * 0.9dec WHERE total > 100.0dec")
 expect orders.update(|o| o.total > 100, |o| o).to_surql() == Err(Unsupported("in the patch of `update`: this update changes no field"))
 expect orders.update(|o| o.total > 100, |o| { ..o, id: "x" }).to_surql() == Err(Unsupported("in the patch of `update`: an update cannot change `id`, the record key"))
@@ -358,7 +360,7 @@ Rename : { key : Str, name : Str }
 rename : Surreal.Write(Rename, Customer)
 rename = customers.set_by(|p, c| c.id == p.key, |p, _| { name: p.name })
 
-expect rename.prepare({ key: "ada", name: "Ada L." }).map_ok(|s| s.statement().to_script()) == Ok("LET $key = 'ada';\nLET $name = 'Ada L.';\nUPDATE customer SET name = $name WHERE id = type::record('customer', $key) RETURN AFTER;")
+expect rename.prepare({ key: "ada", name: "Ada L." }).request() == Ok("LET $key = 'ada';\nLET $name = 'Ada L.';\nUPDATE customer SET name = $name WHERE id = type::record('customer', $key) RETURN AFTER;")
 
 # A key compared with a value given to the statement is the record id, which
 # SurrealDB reads as one record (`RecordIdScan`), where `record::id(id)` scans
@@ -380,17 +382,17 @@ ada : Surreal.Id(Customer)
 ada = customers.id("ada")
 
 expect customers.at(ada).select(|c| { name: c.name }).to_surql() == Ok("SELECT name AS name FROM customer:⟨ada⟩")
-expect customers.at(customers.id("x⟩; DELETE customer")).select(|c| { name: c.name }).to_surql() == Ok("SELECT name AS name FROM customer:⟨x\\u{27E9}; DELETE customer⟩")
+expect customers.at(Surreal.Unchecked.id("customer", "x⟩; DELETE customer")).select(|c| { name: c.name }).to_surql() == Ok("SELECT name AS name FROM customer:⟨x\\u{27E9}; DELETE customer⟩")
 expect customers.at(ada).filter(|c| c.name != "").select_value(|c| c.name).to_surql() == Ok("SELECT VALUE name FROM customer:⟨ada⟩ WHERE name != ''")
-expect customers.at(Surreal.Unchecked.id("order", "ada")).select(|c| { name: c.name }).to_surql() == Err(Unsupported("the id `order:⟨ada⟩` is of the table `order`, not of `customer`"))
-expect customers.at(ada).select_value(|c| c.name).live({}, []).map_ok(|w| w.request()) == Err(Unsupported("a live query reads a whole table, not the record of one key; filter on `v.id`"))
-expect Surreal.from(readings).select_value(|r| r.level).prepare_one({}).map_ok(|p| p.request()) == Err(Unsupported("`prepare_one` reads the row of one key, a query from `Table.at`; this query can return several rows: take `prepare`"))
-expect customers.at(ada).select_value(|c| c.name).prepare_one({}).map_ok(|p| p.request()) == Ok("SELECT VALUE name FROM customer:⟨ada⟩;")
+expect customers.at(Surreal.Unchecked.id("order", "ada")).select(|c| { name: c.name }).to_surql() == Err(Unsupported("the id `order:⟨ada⟩` is not of the table `customer`"))
+expect customers.at(ada).select_value(|c| c.name).live({}, []).request() == Err(Unsupported("a live query reads a whole table, not the record of one key; filter on `v.id`"))
+expect Surreal.from(readings).select_value(|r| r.level).prepare_one({}).request() == Err(Unsupported("`prepare_one` reads the row of one key, a query from `Table.at`; this query can return several rows: take `prepare`"))
+expect customers.at(ada).select_value(|c| c.name).prepare_one({}).request() == Ok("SELECT VALUE name FROM customer:⟨ada⟩;")
 
 # No parameter: `ready` is `prepare({})`. A `Query` has the whole rows, so
 # `prepare` and `live` need no `select(|r| r)`.
-request_text : Try(Surreal.Prepared(out), Surreal.Error) -> Try(Str, Surreal.Error)
-request_text = |prepared| prepared.map_ok(|p| p.request())
+request_text : Surreal.Prepared(out) -> Try(Str, Surreal.Error)
+request_text = |prepared| prepared.request()
 
 expect request_text(Surreal.from(customers).select(|c| { name: c.name }).ready()) == Ok("SELECT name AS name FROM customer;")
 expect request_text(Surreal.from(customers).select(|c| { name: c.name }).limit(2).ready()) == Ok("SELECT name AS name FROM customer LIMIT 2;")
@@ -415,28 +417,28 @@ expect request_of(Surreal.from(customers).filter_by(|p, c| c.name == p.name).liv
 expect request_of(Surreal.from(customers).ready_live([])) == Ok("LIVE SELECT VALUE { row: { address: address, id: record::id(id), name: name, tags: tags }, now: true } FROM customer;\nSELECT VALUE { ref: id, row: { address: address, id: record::id(id), name: name, tags: tags } } FROM customer;")
 expect customers.update_at(ada, |c| { ..c, name: "Ada L." }).to_surql() == Ok("UPDATE customer:⟨ada⟩ SET name = 'Ada L.'")
 expect customers.update_at(ada, |c| { ..c, id: "x" }).to_surql() == Err(Unsupported("in the patch of `update_at`: an update cannot change `id`, the record key"))
-expect customers.update_at_by(ada, |p, c| { ..c, name: p.name }).prepare({ name: "Ada L." }).map_ok(|s| s.statement().to_script()) == Ok("LET $name = 'Ada L.';\nUPDATE customer:⟨ada⟩ SET name = $name RETURN AFTER;")
+expect customers.update_at_by(ada, |p, c| { ..c, name: p.name }).prepare({ name: "Ada L." }).request() == Ok("LET $name = 'Ada L.';\nUPDATE customer:⟨ada⟩ SET name = $name RETURN AFTER;")
 expect customers.set_at(ada, |_| { tags: ["vip"] }).to_surql() == Ok("UPDATE customer:⟨ada⟩ SET tags = ['vip']")
 expect customers.set_at(ada, |_| { nmae: "typo" }).to_surql() == Err(BadSchema("the row has no field `nmae`, so a patch cannot set it; it has `address`, `id`, `name`, `tags`"))
-expect customers.set_at_by(ada, |p, _| { name: p.name }).prepare({ name: "Ada L." }).map_ok(|s| s.statement().inlined) == Ok("UPDATE customer:⟨ada⟩ SET name = 'Ada L.' RETURN AFTER")
+expect customers.set_at_by(ada, |p, _| { name: p.name }).prepare({ name: "Ada L." }).statement().map_ok(|st| st.inlined) == Ok("UPDATE customer:⟨ada⟩ SET name = 'Ada L.' RETURN AFTER")
 expect customers.delete_at(ada).to_surql() == Ok("DELETE customer:⟨ada⟩")
-expect purchased.delete_at(purchased.id("p1")).to_surql() == Ok("DELETE purchased:⟨p1⟩")
+expect purchased.delete_at(Surreal.Unchecked.id("purchased", "p1")).to_surql() == Ok("DELETE purchased:⟨p1⟩")
 expect daily.delete_at(Surreal.Unchecked.id("reading_daily", "x")).to_surql() == Err(Unsupported("`reading_daily` is a view, and a view is read-only"))
-expect customers.replace({ id: "ada", name: "Ada", address: { city: "Rome" }, tags: [] }).map_ok(|s| s.statement().to_script()) == Ok("UPDATE customer:⟨ada⟩ CONTENT { address: { city: 'Rome' }, name: 'Ada', tags: [] } RETURN AFTER;")
+expect customers.replace({ id: "ada", name: "Ada", address: { city: "Rome" }, tags: [] }).request() == Ok("UPDATE customer:⟨ada⟩ CONTENT { address: { city: 'Rome' }, name: 'Ada', tags: [] } RETURN AFTER;")
 # `insert_or_update`: the patch reads the new row at `$input` and the stored row by its fields.
-expect products.insert_or_update([pen, mug], |new, old| { ..old, price: old.price + new.price, title: new.title }).map_ok(|s| s.statement().surql) == Ok("BEGIN;\nINSERT INTO product [{ id: 'pen', price: 1.5dec, title: 'Pen' }, { id: 'mug', price: 4.0dec, title: 'O\\'Mug' }] ON DUPLICATE KEY UPDATE price = IF id != NONE { price + $input.price }, title = IF id != NONE { $input.title } RETURN AFTER;\nCOMMIT")
-expect products.insert_or_update([pen], |_, old| { ..old, price: old.price * 2 }).map_ok(|s| s.statement().surql) == Ok("BEGIN;\nINSERT INTO product [{ id: 'pen', price: 1.5dec, title: 'Pen' }] ON DUPLICATE KEY UPDATE price = IF id != NONE { price * 2.0dec } RETURN AFTER;\nCOMMIT")
-expect products.insert_or_update([pen], |_, old| { ..old, id: "x" }).map_ok(|s| s.statement().surql) == Err(Unsupported("in the patch of `insert_or_update`: an update cannot change `id`, the record key"))
-expect purchased.insert_or_update([edge1], |_, old| { ..old, quantity: 1 }).map_ok(|s| s.statement().surql) == Err(Unsupported("`insert_or_update` is not defined for the relation table `purchased`"))
-expect daily.insert_or_update([], |_, old| old).map_ok(|s| s.statement().surql) == Err(Unsupported("`reading_daily` is a view, and a view is read-only"))
+expect products.insert_or_update([pen, mug], |new, old| { ..old, price: old.price + new.price, title: new.title }).statement().map_ok(|st| st.surql) == Ok("BEGIN;\nINSERT INTO product [{ id: 'pen', price: 1.5dec, title: 'Pen' }, { id: 'mug', price: 4.0dec, title: 'O\\'Mug' }] ON DUPLICATE KEY UPDATE price = IF id != NONE { price + $input.price }, title = IF id != NONE { $input.title } RETURN AFTER;\nCOMMIT")
+expect products.insert_or_update([pen], |_, old| { ..old, price: old.price * 2 }).statement().map_ok(|st| st.surql) == Ok("BEGIN;\nINSERT INTO product [{ id: 'pen', price: 1.5dec, title: 'Pen' }] ON DUPLICATE KEY UPDATE price = IF id != NONE { price * 2.0dec } RETURN AFTER;\nCOMMIT")
+expect products.insert_or_update([pen], |_, old| { ..old, id: "x" }).statement().map_ok(|st| st.surql) == Err(Unsupported("in the patch of `insert_or_update`: an update cannot change `id`, the record key"))
+expect purchased.insert_or_update([edge1], |_, old| { ..old, quantity: 1 }).statement().map_ok(|st| st.surql) == Err(Unsupported("`insert_or_update` is not defined for the relation table `purchased`"))
+expect daily.insert_or_update([], |_, old| old).statement().map_ok(|st| st.surql) == Err(Unsupported("`reading_daily` is a view, and a view is read-only"))
 # `merge_at`: a record of the app with only the fields to change.
-expect customers.merge_at(ada, { name: "Ada L.", address: { city: "Rome" } }).map_ok(|s| s.statement().surql) == Ok("UPDATE customer:⟨ada⟩ MERGE { address: { city: 'Rome' }, name: 'Ada L.' } RETURN AFTER")
-expect customers.merge_at(ada, { tags: ["vip"] }).map_ok(|s| s.statement().to_script()) == Ok("UPDATE customer:⟨ada⟩ MERGE { tags: ['vip'] } RETURN AFTER;")
-expect customers.merge_at(ada, { id: "x" }).map_ok(|s| s.statement().surql) == Err(Unsupported("a merge cannot change `id`, the record key"))
-expect customers.merge_at(Surreal.Unchecked.id("order", "ada"), { name: "x" }).map_ok(|s| s.statement().surql) == Err(Unsupported("the id `order:⟨ada⟩` is of the table `order`, not of `customer`"))
-expect daily.merge_at(Surreal.Unchecked.id("reading_daily", "x"), { level: 1 }).map_ok(|s| s.statement().surql) == Err(Unsupported("`reading_daily` is a view, and a view is read-only"))
-expect customers.upsert_merge_at(ada, { name: "Ada" }).map_ok(|s| s.statement().surql) == Ok("UPSERT customer:⟨ada⟩ MERGE { name: 'Ada' } RETURN AFTER")
-expect customers.merge(|c| c.name == "Ada", { tags: ["vip"] }).map_ok(|s| s.statement().surql) == Ok("UPDATE customer MERGE { tags: ['vip'] } WHERE name = 'Ada' RETURN AFTER")
+expect customers.merge_at(ada, { name: "Ada L.", address: { city: "Rome" } }).statement().map_ok(|st| st.surql) == Ok("UPDATE customer:⟨ada⟩ MERGE { address: { city: 'Rome' }, name: 'Ada L.' } RETURN AFTER")
+expect customers.merge_at(ada, { tags: ["vip"] }).request() == Ok("UPDATE customer:⟨ada⟩ MERGE { tags: ['vip'] } RETURN AFTER;")
+expect customers.merge_at(ada, { id: "x" }).statement().map_ok(|st| st.surql) == Err(Unsupported("a merge cannot change `id`, the record key"))
+expect customers.merge_at(Surreal.Unchecked.id("order", "ada"), { name: "x" }).statement().map_ok(|st| st.surql) == Err(Unsupported("the id `order:⟨ada⟩` is of the table `order`, not of `customer`"))
+expect daily.merge_at(Surreal.Unchecked.id("reading_daily", "x"), { level: 1 }).statement().map_ok(|st| st.surql) == Err(Unsupported("`reading_daily` is a view, and a view is read-only"))
+expect customers.upsert_merge_at(ada, { name: "Ada" }).statement().map_ok(|st| st.surql) == Ok("UPSERT customer:⟨ada⟩ MERGE { name: 'Ada' } RETURN AFTER")
+expect customers.merge(|c| c.name == "Ada", { tags: ["vip"] }).statement().map_ok(|st| st.surql) == Ok("UPDATE customer MERGE { tags: ['vip'] } WHERE name = 'Ada' RETURN AFTER")
 a_change : Diff.Op
 a_change = match Diff.TextPatch.parse("@@ -1 +1 @@\n-a\n+b\n") {
 	Ok(text_patch) => Change(["name"], text_patch)
@@ -444,11 +446,11 @@ a_change = match Diff.TextPatch.parse("@@ -1 +1 @@\n-a\n+b\n") {
 }
 
 # `patch_ops_at`: JSON Patch ops, the paths and values written as text.
-expect customers.patch_ops_at(ada, [Replace(["name"], Cbor.Value.Text("Ada L.")), Add(["tags", "-"], Cbor.Value.Text("vip")), Remove(["address", "zip"])]).map_ok(|s| s.statement().surql) == Ok("UPDATE customer:⟨ada⟩ PATCH [{ op: 'replace', path: '/name', value: 'Ada L.' }, { op: 'add', path: '/tags/-', value: 'vip' }, { op: 'remove', path: '/address/zip' }] RETURN AFTER")
-expect customers.patch_ops_at(ada, []).map_ok(|s| s.statement().surql) == Ok("UPDATE customer:⟨ada⟩ PATCH [] RETURN AFTER")
-expect customers.patch_ops_at(ada, [Replace(["id"], Cbor.Value.Text("x"))]).map_ok(|s| s.statement().surql) == Err(Unsupported("a patch cannot change `id`, the record key (the op is at `/id`)"))
-expect customers.patch_ops_at(ada, [Replace([], Cbor.Value.Null)]).map_ok(|s| s.statement().surql) == Err(Unsupported("a patch of a delete: delete the row with `delete_at`"))
-expect customers.patch_ops_at(ada, [a_change]).map_ok(|s| s.statement().surql) == Err(Unsupported("a `change` op is a text diff, and the ORM reads it and does not write it; replay the field with a `replace`"))
+expect customers.patch_ops_at(ada, [Replace(["name"], Cbor.Value.Text("Ada L.")), Add(["tags", "-"], Cbor.Value.Text("vip")), Remove(["address", "zip"])]).statement().map_ok(|st| st.surql) == Ok("UPDATE customer:⟨ada⟩ PATCH [{ op: 'replace', path: '/name', value: 'Ada L.' }, { op: 'add', path: '/tags/-', value: 'vip' }, { op: 'remove', path: '/address/zip' }] RETURN AFTER")
+expect customers.patch_ops_at(ada, []).statement().map_ok(|st| st.surql) == Ok("UPDATE customer:⟨ada⟩ PATCH [] RETURN AFTER")
+expect customers.patch_ops_at(ada, [Replace(["id"], Cbor.Value.Text("x"))]).statement().map_ok(|st| st.surql) == Err(Unsupported("a patch cannot change `id`, the record key (the op is at `/id`)"))
+expect customers.patch_ops_at(ada, [Replace([], Cbor.Value.Null)]).statement().map_ok(|st| st.surql) == Err(Unsupported("a patch of a delete: delete the row with `delete_at`"))
+expect customers.patch_ops_at(ada, [a_change]).statement().map_ok(|st| st.surql) == Err(Unsupported("a `change` op is a text diff, and the ORM reads it and does not write it; replay the field with a `replace`"))
 
 Raise : { by : Dec, floor : Dec }
 
@@ -456,24 +458,21 @@ raise : Surreal.Write(Raise, Order)
 raise = orders.update_by(|p, o| o.total < p.floor, |p, o| { ..o, total: o.total + p.by })
 
 expect raise.to_surql() == Ok("UPDATE order SET total = total + $by WHERE total < $floor")
-expect raise.prepare({ by: 5, floor: 10 }).map_ok(|s| s.statement().to_script()) == Ok("LET $by = 5.0dec;\nLET $floor = 10.0dec;\nUPDATE order SET total = total + $by WHERE total < $floor RETURN AFTER;")
-expect raise.prepare({ by: 5, floor: 10 }).map_ok(|s| s.statement().inlined) == Ok("UPDATE order SET total = total + 5.0dec WHERE total < 10.0dec RETURN AFTER")
+expect raise.prepare({ by: 5, floor: 10 }).request() == Ok("LET $by = 5.0dec;\nLET $floor = 10.0dec;\nUPDATE order SET total = total + $by WHERE total < $floor RETURN AFTER;")
+expect raise.prepare({ by: 5, floor: 10 }).statement().map_ok(|st| st.inlined) == Ok("UPDATE order SET total = total + 5.0dec WHERE total < 10.0dec RETURN AFTER")
 
 Cap : { max : Dec }
 
 cap : Surreal.Write(Cap, Order)
 cap = orders.delete_by(|p, o| o.total > p.max)
 
-expect cap.prepare({ max: 1000 }).map_ok(|s| s.statement().inlined) == Ok("DELETE order WHERE total > 1000.0dec RETURN BEFORE")
+expect cap.prepare({ max: 1000 }).statement().map_ok(|st| st.inlined) == Ok("DELETE order WHERE total > 1000.0dec RETURN BEFORE")
 
 # A write, then the rows it changed: one block.
 expect {
 	write = orders.update(|o| o.total > 100, |o| { ..o, payment: Cash }).prepare({})
 	read = Surreal.from(orders).select(|r| r).prepare({})
-	match (write, read) {
-		(Ok(w), Ok(r)) => w.then(r).map_ok(|s| s.statement().to_script()) == Ok("UPDATE order SET payment = 'Cash' WHERE total > 100.0dec RETURN AFTER;\nSELECT customer, record::id(id) AS id, items, payment, total FROM order;")
-		_ => Bool.False
-	}
+	write.then(read).request() == Ok("UPDATE order SET payment = 'Cash' WHERE total > 100.0dec RETURN AFTER;\nSELECT customer, record::id(id) AS id, items, payment, total FROM order;")
 }
 
 # An optional parameter that is absent has no `LET`, so SurrealDB reads it as
@@ -483,10 +482,10 @@ Bounds : { lo : Dec, hi ?: Dec }
 bounded : Surreal.Selected(Bounds, Order)
 bounded = Surreal.from(orders).filter_by(|p, o| o.total >= p.lo and o.total <= (p.?hi ?? 1000)).select(|r| r)
 
-expect bounded.prepare({ lo: 1 }).map_ok(|s| s.statement().lets.len()) == Ok(1)
-expect bounded.prepare({ lo: 1, hi: 9 }).map_ok(|s| s.statement().lets.len()) == Ok(2)
-expect bounded.prepare({ lo: 1 }).map_ok(|s| s.statement().inlined.contains("$hi")) == Ok(Bool.True)
-expect bounded.prepare({ lo: 1, hi: 9 }).map_ok(|s| s.statement().inlined.contains("$hi")) == Ok(Bool.False)
+expect bounded.prepare({ lo: 1 }).statement().map_ok(|st| st.lets.len()) == Ok(1)
+expect bounded.prepare({ lo: 1, hi: 9 }).statement().map_ok(|st| st.lets.len()) == Ok(2)
+expect bounded.prepare({ lo: 1 }).statement().map_ok(|st| st.inlined.contains("$hi")) == Ok(Bool.True)
+expect bounded.prepare({ lo: 1, hi: 9 }).statement().map_ok(|st| st.inlined.contains("$hi")) == Ok(Bool.False)
 
 # ------------------------------------------------------------ time series
 
@@ -505,15 +504,15 @@ morning : Reading
 morning = { id: Surreal.time_key(pen_id, moment("2026-03-01T08:00:00Z")), level: 3 }
 
 # The key is the array `[series, time]` in a write and in the record id.
-expect readings.insert([morning]).map_ok(|s| s.statement().surql) == Ok("BEGIN;\nINSERT INTO reading [{ id: [product:⟨pen⟩, d'2026-03-01T08:00:00Z'], level: 3 }] RETURN AFTER;\nCOMMIT")
-expect readings.create(morning).map_ok(|s| s.statement().surql) == Ok("CREATE reading:[product:⟨pen⟩, d'2026-03-01T08:00:00Z'] CONTENT { level: 3 } RETURN AFTER")
-expect readings.upsert(morning).map_ok(|s| s.statement().surql) == Ok("UPSERT reading:[product:⟨pen⟩, d'2026-03-01T08:00:00Z'] CONTENT { level: 3 } RETURN AFTER")
+expect readings.insert([morning]).statement().map_ok(|st| st.surql) == Ok("BEGIN;\nINSERT INTO reading [{ id: [product:⟨pen⟩, d'2026-03-01T08:00:00Z'], level: 3 }] RETURN AFTER;\nCOMMIT")
+expect readings.create(morning).statement().map_ok(|st| st.surql) == Ok("CREATE reading:[product:⟨pen⟩, d'2026-03-01T08:00:00Z'] CONTENT { level: 3 } RETURN AFTER")
+expect readings.upsert(morning).statement().map_ok(|st| st.surql) == Ok("UPSERT reading:[product:⟨pen⟩, d'2026-03-01T08:00:00Z'] CONTENT { level: 3 } RETURN AFTER")
 
 # A range of keys of one series.
 expect Surreal.from(readings).between(pen_id, moment("2026-03-01T00:00:00Z"), moment("2026-03-02T00:00:00Z")).select(|r| { at: r.id.time(), level: r.level }).to_surql() == Ok("SELECT record::id(id)[1] AS at, level AS level FROM reading:[product:⟨pen⟩, d'2026-03-01T00:00:00Z']..[product:⟨pen⟩, d'2026-03-02T00:00:00Z']")
 expect Surreal.from(readings).between(pen_id, moment("2026-03-01T00:00:00Z"), moment("2026-03-02T00:00:00Z")).filter(|r| r.level > 2).select(|r| r).to_surql() == Ok("SELECT record::id(id) AS id, level FROM reading:[product:⟨pen⟩, d'2026-03-01T00:00:00Z']..[product:⟨pen⟩, d'2026-03-02T00:00:00Z'] WHERE level > 2")
 expect Surreal.from(readings).between(pen_id, moment("2026-03-01T00:00:00Z"), moment("2026-03-02T00:00:00Z")).between(pen_id, moment("2026-03-01T00:00:00Z"), moment("2026-03-02T00:00:00Z")).select(|r| r).to_surql() == Err(Unsupported("a query takes one `between`"))
-expect Surreal.from(readings).filter_by(|p, r| r.id.time() < p.before).select_value(|r| r.id.series()).prepare({ before: moment("2026-03-02T00:00:00Z") }).map_ok(|s| s.statement().inlined) == Ok("SELECT VALUE record::id(id)[0] FROM reading WHERE record::id(id)[1] < d'2026-03-02T00:00:00Z'")
+expect Surreal.from(readings).filter_by(|p, r| r.id.time() < p.before).select_value(|r| r.id.series()).prepare({ before: moment("2026-03-02T00:00:00Z") }).statement().map_ok(|st| st.inlined) == Ok("SELECT VALUE record::id(id)[0] FROM reading WHERE record::id(id)[1] < d'2026-03-02T00:00:00Z'")
 expect readings.delete_by(|p, r| r.id.time() < p.before).to_surql() == Ok("DELETE reading WHERE record::id(id)[1] < $before")
 
 # A key part that a column projects is grouped by the column's alias, so a
@@ -536,8 +535,8 @@ expect Surreal.from(readings).group_by(day_of).aggregate(|k, rows| { day: k.day,
 daily : Surreal.Table(DayLine)
 daily = Surreal.view("reading_daily")
 
-expect daily.insert([]).map_ok(|s| s.statement().surql) == Err(Unsupported("`reading_daily` is a view, and a view is read-only"))
-expect daily.create({ product: pen_id, day: moment("2026-03-01T00:00:00Z"), readings: 1, high: 0 }).map_ok(|s| s.statement().surql) == Err(Unsupported("`reading_daily` is a view, and a view is read-only"))
+expect daily.insert([]).statement().map_ok(|st| st.surql) == Err(Unsupported("`reading_daily` is a view, and a view is read-only"))
+expect daily.create({ product: pen_id, day: moment("2026-03-01T00:00:00Z"), readings: 1, high: 0 }).statement().map_ok(|st| st.surql) == Err(Unsupported("`reading_daily` is a view, and a view is read-only"))
 expect daily.delete(|d| d.readings > 0).to_surql() == Err(Unsupported("`reading_daily` is a view, and a view is read-only"))
 expect daily.update(|d| d.readings > 0, |d| { ..d, high: 0 }).to_surql() == Err(Unsupported("`reading_daily` is a view, and a view is read-only"))
 expect Surreal.from(daily).filter(|d| d.high > 0).select(|d| { day: d.day, high: d.high }).to_surql() == Ok("SELECT day AS day, high AS high FROM reading_daily WHERE high > 0")
@@ -553,9 +552,9 @@ unit_square : Surreal.Polygon
 unit_square = Surreal.Polygon.({ exterior: [Surreal.point(0, 0), Surreal.point(1, 0), Surreal.point(1, 1), Surreal.point(0, 0)], holes: [] })
 
 # A geometry parameter is a `LET` of its GeoJSON object, which SurrealDB reads as a geometry.
-expect Surreal.from(sites).filter_by(|p, s| Surreal.Geo.inside(s.location.to_geometry(), p.area.to_geometry())).select_value(|s| s.name).prepare({ area: unit_square }).map_ok(|s| s.statement().to_script()) == Ok("LET $area = { type: 'Polygon', coordinates: [[[0f, 0f], [1f, 0f], [1f, 1f], [0f, 0f]]] };\nSELECT VALUE name FROM site WHERE location INSIDE $area;")
+expect Surreal.from(sites).filter_by(|p, s| Surreal.Geo.inside(s.location.to_geometry(), p.area.to_geometry())).select_value(|s| s.name).prepare({ area: unit_square }).request() == Ok("LET $area = { type: 'Polygon', coordinates: [[[0f, 0f], [1f, 0f], [1f, 1f], [0f, 0f]]] };\nSELECT VALUE name FROM site WHERE location INSIDE $area;")
 # A row with a geometry writes its GeoJSON object.
-expect sites.create({ id: "home", name: "Home", location: Surreal.point(10.75, 59.91), area: unit_square }).map_ok(|s| s.statement().surql) == Ok("CREATE site:⟨home⟩ CONTENT { area: { type: 'Polygon', coordinates: [[[0f, 0f], [1f, 0f], [1f, 1f], [0f, 0f]]] }, location: { type: 'Point', coordinates: [10.75f, 59.91f] }, name: 'Home' } RETURN AFTER")
+expect sites.create({ id: "home", name: "Home", location: Surreal.point(10.75, 59.91), area: unit_square }).statement().map_ok(|st| st.surql) == Ok("CREATE site:⟨home⟩ CONTENT { area: { type: 'Polygon', coordinates: [[[0f, 0f], [1f, 0f], [1f, 1f], [0f, 0f]]] }, location: { type: 'Point', coordinates: [10.75f, 59.91f] }, name: 'Home' } RETURN AFTER")
 
 # ------------------------------------------------------ live queries
 
@@ -564,8 +563,8 @@ shop_tables : List(Surreal.Defined)
 shop_tables = [customers.define().done(), products.define().done(), orders.define().done()]
 
 ## The request of a watch: the `LET`s, the `LIVE`s, then the snapshot.
-request_of : Try(Surreal.Watch(out), Surreal.Error) -> Try(Str, Surreal.Error)
-request_of = |watch| watch.map_ok(|w| w.request())
+request_of : Surreal.Watch(out) -> Try(Str, Surreal.Error)
+request_of = |watch| watch.request()
 
 high : I64 -> Bool
 high = |level| level > 5
@@ -595,7 +594,7 @@ expect request_of(Surreal.from(readings).filter_by(|p, r| r.level > p.session).s
 # read the `name` of a customer, so an update of a customer that keeps
 # its name sends nothing either (the `WHERE` on `customer`).
 expect request_of(Surreal.from(orders).select(order_line).filter(|r| r.who == "Ada").live({}, shop_tables)) == Ok("LIVE SELECT VALUE { row: { total: total, who: customer.name }, now: customer.name = 'Ada' } FROM order WHERE (customer.name = 'Ada') OR ($before IS NOT NONE AND ($before.customer.name = 'Ada'));\nLIVE SELECT VALUE (SELECT VALUE { ref: id, row: { total: total, who: customer.name }, now: customer.name = 'Ada' } FROM order WHERE customer = $parent.id) FROM customer WHERE $before IS NONE OR $after IS NONE OR $before.name != $after.name;\nSELECT VALUE { ref: id, row: { total: total, who: customer.name } } FROM order WHERE customer.name = 'Ada';")
-expect Surreal.from(orders).select(order_line).live({}, shop_tables).map_ok(|w| w.block("-- live: orders", ["-- roc: []"], [])) == Ok("-- live: orders\n-- roles: node, read\n-- roc: []\nLIVE SELECT VALUE { row: { total: total, who: customer.name }, now: true } FROM order;\nLIVE SELECT VALUE (SELECT VALUE { ref: id, row: { total: total, who: customer.name }, now: true } FROM order WHERE customer = $parent.id) FROM customer WHERE $before IS NONE OR $after IS NONE OR $before.name != $after.name;\nSELECT VALUE { ref: id, row: { total: total, who: customer.name } } FROM order;")
+expect Surreal.from(orders).select(order_line).live({}, shop_tables).block("-- live: orders", ["-- roc: []"], []) == Ok("-- live: orders\n-- roles: node, read\n-- roc: []\nLIVE SELECT VALUE { row: { total: total, who: customer.name }, now: true } FROM order;\nLIVE SELECT VALUE (SELECT VALUE { ref: id, row: { total: total, who: customer.name }, now: true } FROM order WHERE customer = $parent.id) FROM customer WHERE $before IS NONE OR $after IS NONE OR $before.name != $after.name;\nSELECT VALUE { ref: id, row: { total: total, who: customer.name } } FROM order;")
 # A link finds its table in the definitions that `live` takes, as in the schema.
 expect request_of(Surreal.from(orders).select(order_line).live({}, [])) == Err(BadSchema("a live query watches the table of each link of its row, and the tables it takes do not name the one at `customer`: no table holds the row type `{ address : { city : Str, zip : Str }, id : Str, name : Str, tags : List(Str) }`; list its table in the schema"))
 # The links that the clauses read decide, not the row type: a filter that
@@ -641,26 +640,26 @@ expect request_of(Surreal.Unchecked.select_star(Surreal.from(orders)).live({}, [
 expect request_of(Surreal.Unchecked.fetch(Surreal.Unchecked.select_star(Surreal.from(orders)), "customer").live({}, [])) == Err(Unsupported("a live query sends typed rows, and `Unchecked.select_star` has no row type; select the fields with `select`"))
 
 # A `-- live:` block for `check.py`: the roles of the `LIVE`s, the directives, the request, then each write.
-expect Surreal.from(readings).filter(|r| r.level > 5).select_value(|r| r.level).live({}, []).map_ok(|w| w.block("-- live: high", ["-- roc: [[]]"], readings.edit(Delete(morning)).map_ok(|s| [s.statement()]) ?? [])) == Ok("-- live: high\n-- roles: node\n-- roc: [[]]\nLIVE SELECT VALUE { row: level, now: level > 5 } FROM reading WHERE (level > 5) OR ($before IS NOT NONE AND ($before.level > 5));\nSELECT VALUE { ref: id, row: level } FROM reading WHERE level > 5;\n-- write\nDELETE reading:[product:⟨pen⟩, d'2026-03-01T08:00:00Z'] RETURN BEFORE;")
+expect Surreal.from(readings).filter(|r| r.level > 5).select_value(|r| r.level).live({}, []).block("-- live: high", ["-- roc: [[]]"], readings.edit(Delete(morning)).statement().map_ok(|st| [st]) ?? []) == Ok("-- live: high\n-- roles: node\n-- roc: [[]]\nLIVE SELECT VALUE { row: level, now: level > 5 } FROM reading WHERE (level > 5) OR ($before IS NOT NONE AND ($before.level > 5));\nSELECT VALUE { ref: id, row: level } FROM reading WHERE level > 5;\n-- write\nDELETE reading:[product:⟨pen⟩, d'2026-03-01T08:00:00Z'] RETURN BEFORE;")
 
 # The raw events: the projection is the payload, and there is no `$before`.
-expect Surreal.from(readings).filter(|r| high_fn.call1(r.level)).select(reading_line).live_raw({}).map_ok(|w| w.request()) == Ok("LIVE SELECT VALUE { level: level, product: record::id(id)[0] } FROM reading WHERE fn::high(level);")
-expect Surreal.from(products).incoming(purchased).select(|(p, buys)| { title: p.title, buyers: buys.len().to_i64_wrap() }).live_raw({}).map_ok(|w| w.request()) == Ok("LIVE SELECT VALUE { buyers: <-purchased.len(), title: title } FROM product;")
-expect Surreal.from(readings).select(reading_line).order_by(|r| r.level, Desc).live_raw({}).map_ok(|w| w.request()) == Err(Unsupported("SurrealDB refuses ORDER BY, LIMIT and START in a live query; order the rows of a `View`"))
+expect live_text(Surreal.from(readings).filter(|r| high_fn.call1(r.level)).select(reading_line).live_raw({})) == Ok("LIVE SELECT VALUE { level: level, product: record::id(id)[0] } FROM reading WHERE fn::high(level);")
+expect live_text(Surreal.from(products).incoming(purchased).select(|(p, buys)| { title: p.title, buyers: buys.len().to_i64_wrap() }).live_raw({})) == Ok("LIVE SELECT VALUE { buyers: <-purchased.len(), title: title } FROM product;")
+expect live_text(Surreal.from(readings).select(reading_line).order_by(|r| r.level, Desc).live_raw({})) == Err(Unsupported("SurrealDB refuses ORDER BY, LIMIT and START in a live query; order the rows of a `View`"))
 
 # Patches of the stored rows: no projection, no edges.
-expect Surreal.from(readings).live_diff({}).map_ok(|w| w.request()) == Ok("LIVE SELECT DIFF FROM reading;")
-expect Surreal.from(readings).filter_by(|p, r| r.level > p.least).live_diff({ least: 4 }).map_ok(|w| w.request()) == Ok("LET $least = 4;\nLIVE SELECT DIFF FROM reading WHERE $least < level;")
-expect Surreal.from(products).incoming(purchased).live_diff({}).map_ok(|w| w.request()) == Err(Unsupported("a DIFF live query has no edges: its patches are of the stored row; watch the edges with `live`"))
-expect Surreal.from(orders).select(order_line).query().live_diff({}).map_ok(|w| w.request()) == Err(Unsupported("`live_diff` sends patches of the stored row, so it reads a table: take it on `Surreal.from(table)` with filters only"))
-expect Surreal.from(readings).between(pen_id, moment("2026-03-01T00:00:00Z"), moment("2026-03-02T00:00:00Z")).live_diff({}).map_ok(|w| w.request()) == Err(Unsupported("a live query reads a whole table, not a range of keys; filter on `v.id.time()`"))
+expect live_text(Surreal.from(readings).live_diff({})) == Ok("LIVE SELECT DIFF FROM reading;")
+expect live_text(Surreal.from(readings).filter_by(|p, r| r.level > p.least).live_diff({ least: 4 })) == Ok("LET $least = 4;\nLIVE SELECT DIFF FROM reading WHERE $least < level;")
+expect live_text(Surreal.from(products).incoming(purchased).live_diff({})) == Err(Unsupported("a DIFF live query has no edges: its patches are of the stored row; watch the edges with `live`"))
+expect live_text(Surreal.from(orders).select(order_line).query().live_diff({})) == Err(Unsupported("`live_diff` sends patches of the stored row, so it reads a table: take it on `Surreal.from(table)` with filters only"))
+expect live_text(Surreal.from(readings).between(pen_id, moment("2026-03-01T00:00:00Z"), moment("2026-03-02T00:00:00Z")).live_diff({})) == Err(Unsupported("a live query reads a whole table, not a range of keys; filter on `v.id.time()`"))
 
 # The writes of the Mirror: one statement for each kind of `Edit`.
-expect readings.edit(Create(morning)).map_ok(|s| s.statement().surql) == Ok("CREATE reading:[product:⟨pen⟩, d'2026-03-01T08:00:00Z'] CONTENT { level: 3 } RETURN AFTER")
-expect readings.edit(Replace(morning, { ..morning, level: 4 })).map_ok(|s| s.statement().surql) == Ok("UPDATE reading:[product:⟨pen⟩, d'2026-03-01T08:00:00Z'] CONTENT { level: 4 } RETURN AFTER")
-expect readings.edit(Delete(morning)).map_ok(|s| s.statement().surql) == Ok("DELETE reading:[product:⟨pen⟩, d'2026-03-01T08:00:00Z'] RETURN BEFORE")
-expect purchased.edit(Create({ id: "p1", from: customers.link("ada"), to: products.link("pen"), quantity: 2 })).map_ok(|s| s.statement().surql) == Ok("RELATE customer:⟨ada⟩->purchased:⟨p1⟩->product:⟨pen⟩ CONTENT { quantity: 2 } RETURN AFTER")
-expect daily.edit(Delete({ product: pen_id, day: moment("2026-03-01T00:00:00Z"), readings: 1, high: 0 })).map_ok(|s| s.statement().surql) == Err(Unsupported("`reading_daily` is a view, and a view is read-only"))
+expect readings.edit(Create(morning)).statement().map_ok(|st| st.surql) == Ok("CREATE reading:[product:⟨pen⟩, d'2026-03-01T08:00:00Z'] CONTENT { level: 3 } RETURN AFTER")
+expect readings.edit(Replace(morning, { ..morning, level: 4 })).statement().map_ok(|st| st.surql) == Ok("UPDATE reading:[product:⟨pen⟩, d'2026-03-01T08:00:00Z'] CONTENT { level: 4 } RETURN AFTER")
+expect readings.edit(Delete(morning)).statement().map_ok(|st| st.surql) == Ok("DELETE reading:[product:⟨pen⟩, d'2026-03-01T08:00:00Z'] RETURN BEFORE")
+expect purchased.edit(Create({ id: "p1", from: customers.link("ada"), to: products.link("pen"), quantity: 2 })).statement().map_ok(|st| st.surql) == Ok("RELATE customer:⟨ada⟩->purchased:⟨p1⟩->product:⟨pen⟩ CONTENT { quantity: 2 } RETURN AFTER")
+expect daily.edit(Delete({ product: pen_id, day: moment("2026-03-01T00:00:00Z"), readings: 1, high: 0 })).statement().map_ok(|st| st.surql) == Err(Unsupported("`reading_daily` is a view, and a view is read-only"))
 # The record of a row, and of a row of a view: its group key in name order.
 expect readings.ref(morning).map_ok(|r| r.to_str()) == Ok("reading:[product:⟨pen⟩, d'2026-03-01T08:00:00Z']")
 expect daily.group_ref({ product: pen_id, day: moment("2026-03-01T00:00:00Z") }).map_ok(|r| r.to_str()) == Ok("reading_daily:[d'2026-03-01T00:00:00Z', product:⟨pen⟩]")
@@ -719,24 +718,24 @@ expect request_of(Surreal.from(orders).filter(|o| o.customer.id == ada_id).selec
 # The field `fetched` is the row that the program holds, so a clause refuses it.
 expect Surreal.from(orders).filter(|o| o.customer.fetched == NotFetched).select_value(|o| o.id).to_surql() == Err(Unsupported("in `filter`: `fetched` is the row that the program holds, and the database has no such field; read a field of the row with `link.get().field`, or use `link.id`"))
 # A captured id and a captured list of ids, read with the field form.
-orders_of : Surreal.Id(Customer) -> Code.Bound(Try({ surql : Str, slots : List(Code.Ty) }, Surreal.Error))
-orders_of = |who| Surreal.select_where(orders, |o| o.customer.id == who)
+orders_of : Surreal.Id(Customer) -> Surreal.Prepared(List(Order))
+orders_of = |who| Surreal.from(orders).filter(|o| o.customer.id == who).ready()
 
 ## A captured key is a `$_1` too, and the record id is built from it.
-customer_at : Str -> Code.Bound(Try({ surql : Str, slots : List(Code.Ty) }, Surreal.Error))
-customer_at = |key| Surreal.select_where(customers, |c| c.id == key)
+customer_at : Str -> Surreal.Prepared(List(Customer))
+customer_at = |key| Surreal.from(customers).filter(|c| c.id == key).ready()
 
-expect Surreal.bind_captured(customer_at("ada")).map_ok(|s| s.statement().to_script()) == Ok("LET $_1 = 'ada';\nSELECT address, record::id(id) AS id, name, tags FROM customer WHERE id = type::record('customer', $_1);")
+expect customer_at("ada").request() == Ok("LET $_1 = 'ada';\nSELECT address, record::id(id) AS id, name, tags FROM customer WHERE id = type::record('customer', $_1);")
 
-orders_of_method : Surreal.Id(Customer) -> Code.Bound(Try({ surql : Str, slots : List(Code.Ty) }, Surreal.Error))
-orders_of_method = |who| Surreal.select_where(orders, |o| o.customer.id() == who)
+orders_of_method : Surreal.Id(Customer) -> Surreal.Prepared(List(Order))
+orders_of_method = |who| Surreal.from(orders).filter(|o| o.customer.id() == who).ready()
 
-orders_of_any : List(Surreal.Id(Customer)) -> Code.Bound(Try({ surql : Str, slots : List(Code.Ty) }, Surreal.Error))
-orders_of_any = |many| Surreal.select_where(orders, |o| many.contains(o.customer.id))
+orders_of_any : List(Surreal.Id(Customer)) -> Surreal.Prepared(List(Order))
+orders_of_any = |many| Surreal.from(orders).filter(|o| many.contains(o.customer.id)).ready()
 
-expect Surreal.bind_captured(orders_of(ada_id)).map_ok(|s| s.statement().inlined) == Surreal.bind_captured(orders_of_method(ada_id)).map_ok(|s| s.statement().inlined)
-expect Surreal.bind_captured(orders_of(ada_id)).map_ok(|s| s.statement().inlined) == Ok("SELECT customer, record::id(id) AS id, items, payment, total FROM order WHERE customer = customer:⟨ada⟩")
-expect Surreal.bind_captured(orders_of_any([ada_id])).map_ok(|s| s.statement().inlined) == Ok("SELECT customer, record::id(id) AS id, items, payment, total FROM order WHERE [customer:⟨ada⟩] CONTAINS customer")
+expect orders_of(ada_id).statement().map_ok(|st| st.inlined) == orders_of_method(ada_id).statement().map_ok(|st| st.inlined)
+expect orders_of(ada_id).statement().map_ok(|st| st.inlined) == Ok("SELECT customer, record::id(id) AS id, items, payment, total FROM order WHERE customer = customer:⟨ada⟩")
+expect orders_of_any([ada_id]).statement().map_ok(|st| st.inlined) == Ok("SELECT customer, record::id(id) AS id, items, payment, total FROM order WHERE customer IN [customer:⟨ada⟩]")
 # A whole record as the result row: a linked row and an object.
 expect Surreal.from(orders).select(|o| o.customer.get()).to_surql() == Ok("SELECT customer.address AS address, record::id(customer) AS id, customer.name AS name, customer.tags AS tags FROM order")
 expect Surreal.from(customers).select(|c| c.address).to_surql() == Ok("SELECT address.city AS city, address.zip AS zip FROM customer")
@@ -948,8 +947,8 @@ expect Surreal.from(reviews).filter(|r| r.text != "").nearest(review_vectors, [1
 expect Surreal.from(reviews).nearest(review_vectors, [1, 0, 0], Exact(2)).select_value(|(r, _)| r.id).to_surql() == Err(Unsupported("the probe of `nearest` has 3 numbers, and the vector index of `review.vec` has the dimension 2"))
 
 # A live query has no search.
-expect Surreal.from(reviews).search(review_text, "sturdy").select_value(|(r, _)| r.id).live({}, []).map_ok(|w| w.request()) == Err(Unsupported("a live query has no full-text or vector search: a search reads its index, and a notice is of one written row; watch the rows with a `filter`, and search them when a notice comes"))
-expect Surreal.from(reviews).nearest(review_vectors, [1, 0], Exact(2)).select_value(|(r, _)| r.id).live({}, []).map_ok(|w| w.request()) == Err(Unsupported("a live query has no full-text or vector search: a search reads its index, and a notice is of one written row; watch the rows with a `filter`, and search them when a notice comes"))
+expect Surreal.from(reviews).search(review_text, "sturdy").select_value(|(r, _)| r.id).live({}, []).request() == Err(Unsupported("a live query has no full-text or vector search: a search reads its index, and a notice is of one written row; watch the rows with a `filter`, and search them when a notice comes"))
+expect Surreal.from(reviews).nearest(review_vectors, [1, 0], Exact(2)).select_value(|(r, _)| r.id).live({}, []).request() == Err(Unsupported("a live query has no full-text or vector search: a search reads its index, and a notice is of one written row; watch the rows with a `filter`, and search them when a notice comes"))
 
 # A prepared search, with a parameter of another filter.
-expect Surreal.from(reviews).search(review_text, "sturdy").filter_by(|p, (r, _)| r.product.id == p.product).select_value(|(r, _)| r.id).prepare({ product: pen_id }).map_ok(|p| p.request()) == Ok("LET $product = product:⟨pen⟩;\nSELECT VALUE record::id(id) FROM review WHERE (text @1@ 'sturdy') AND (product = $product);")
+expect Surreal.from(reviews).search(review_text, "sturdy").filter_by(|p, (r, _)| r.product.id == p.product).select_value(|(r, _)| r.id).prepare({ product: pen_id }).request() == Ok("LET $product = product:⟨pen⟩;\nSELECT VALUE record::id(id) FROM review WHERE (text @1@ 'sturdy') AND (product = $product);")

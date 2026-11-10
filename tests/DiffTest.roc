@@ -266,7 +266,7 @@ quay : Surreal.Id(Kennel)
 quay = kennels.id("q")
 
 patch_script : Surreal.Id(Kennel), List(Surreal.Patch(Kennel)) -> Try(Str, Surreal.Error)
-patch_script = |id, patches| kennels.patch_at(id, patches).map_ok(|s| s.statement().surql)
+patch_script = |id, patches| kennels.patch_at(id, patches).statement().map_ok(|st| st.surql)
 
 # The ops of the patches are one `PATCH`, in order, on the row of the key.
 expect patch_script(quay, [relabel]) == Ok("UPDATE kennel:⟨q⟩ PATCH [{ op: 'replace', path: '/label', value: 'Quay wing' }] RETURN AFTER")
@@ -279,4 +279,4 @@ expect patch_script(kennels.id("a"), [relabel]) == Err(Unsupported("a patch is o
 expect patch_script(quay, [deleted]) == Err(Unsupported("a patch of a delete: delete the row with `delete_at`"))
 expect patch_script(quay, [changed]) == Err(Unsupported("a `change` op is a text diff, and the ORM reads it and does not write it; replay the field with a `replace`"))
 # The key of a time series is not a text key, so its patch is of no `Id`.
-expect vitals.patch_at(Surreal.Unchecked.id("vital", "x"), [patch_of(patch_update)]).map_ok(|s| s.statement().surql) == Err(Unsupported("a patch is of another row than `vital:⟨x⟩`"))
+expect vitals.patch_at(Surreal.Unchecked.id("vital", "x"), [patch_of(patch_update)]).statement().map_ok(|st| st.surql) == Err(Unsupported("a patch is of another row than `vital:⟨x⟩`"))

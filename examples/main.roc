@@ -491,20 +491,20 @@ patient_age = |p| { id: p.id, age: p.age }
 
 ## A query written inside a function. The price limit exists only when the
 ## program runs, so the statement takes it as a `LET`.
-cheaper_than : Dec -> Try(Surreal.Prepared(List(Medication)), Surreal.Error)
-cheaper_than = |limit| Surreal.bind_captured(Surreal.select_where(medications, |m| m.unit_price < limit))
+cheaper_than : Dec -> Surreal.Prepared(List(Medication))
+cheaper_than = |limit| Surreal.from(medications).filter(|m| m.unit_price < limit).ready()
 
 ## A query over captured records with an optional field. An address with
 ## no `zip` arrives with `Code.Value.Absent` for the field, and its object
 ## leaves the field out, as the stored owner rows do.
-owners_at : List(Address) -> Try(Surreal.Prepared(List(Owner)), Surreal.Error)
-owners_at = |places| Surreal.bind_captured(Surreal.select_where(owners, |o| places.contains(o.address)))
+owners_at : List(Address) -> Surreal.Prepared(List(Owner))
+owners_at = |places| Surreal.from(owners).filter(|o| places.contains(o.address)).ready()
 
 ## The same query over one captured address, compared with `==`. The
 ## comparison checks if the `zip` is present, then its value. An address with
 ## no `zip` matches only the rows that hold none.
-owner_at : Address -> Try(Surreal.Prepared(List(Owner)), Surreal.Error)
-owner_at = |place| Surreal.bind_captured(Surreal.select_where(owners, |o| o.address == place))
+owner_at : Address -> Surreal.Prepared(List(Owner))
+owner_at = |place| Surreal.from(owners).filter(|o| o.address == place).ready()
 
 ContactLine : { id : Str, city : Str, vets : List(Str) }
 
@@ -693,27 +693,24 @@ expect light_patient.weight_kg == 0
 # --------------------------------------------------------------- the script
 
 ## One block: the statement, then the Roc result for the same question.
-block : Str, List(Str), Try(Surreal.Prepared(out), Surreal.Error), Try(Str, Surreal.Error) -> Str
-block = |header, flags, prepared, reference| match (prepared, reference) {
-	(Ok(p), Ok(literal)) => p.statement().block(header, flags.append("-- roc: ${literal}"))
+block : Str, List(Str), Surreal.Prepared(out), Try(Str, Surreal.Error) -> Str
+block = |header, flags, prepared, reference| match (prepared.statement(), reference) {
+	(Ok(s), Ok(literal)) => s.block(header, flags.append("-- roc: ${literal}"))
 	(Err(e), _) | (_, Err(e)) => "-- unsupported ${header}: ${Str.inspect(e)}"
 }
 
 ## A block that has no Roc result: seeds and writes the database must refuse.
-plain : Str, List(Str), Try(Surreal.Prepared(out), Surreal.Error) -> Str
-plain = |header, flags, prepared| match prepared {
-	Ok(p) => p.statement().block(header, flags)
+plain : Str, List(Str), Surreal.Prepared(out) -> Str
+plain = |header, flags, prepared| match prepared.statement() {
+	Ok(s) => s.block(header, flags)
 	Err(e) => "-- unsupported ${header}: ${Str.inspect(e)}"
 }
 
 ## A write, then the rows it changed.
-then_read : Try(Surreal.Prepared(a), Surreal.Error), Try(Surreal.Prepared(b), Surreal.Error) -> Try(Surreal.Prepared((Try(a, Surreal.Error), Try(b, Surreal.Error))), Surreal.Error)
-then_read = |first, second| match (first, second) {
-	(Ok(a), Ok(b)) => a.then(b)
-	(Err(e), _) | (_, Err(e)) => Err(e)
-}
+then_read : Surreal.Prepared(a), Surreal.Prepared(b) -> Surreal.Prepared((Try(a, Surreal.Error), Try(b, Surreal.Error)))
+then_read = |first, second| first.then(second)
 
-rejects : Str, Str, Try(Surreal.Prepared(out), Surreal.Error) -> Str
+rejects : Str, Str, Surreal.Prepared(out) -> Str
 rejects = |name, why, prepared| plain("-- rejects: ${name}", ["-- error: ${why}"], prepared)
 
 pip : Patient

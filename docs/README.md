@@ -141,7 +141,7 @@ The other pages cover one topic each: links and edges, live queries, record user
 | `filter` with Roc operators and your own helpers | [queries.md#filter-rows](queries.md#filter-rows) |
 | A query with no parameter, `ready()`, `ready_one()` and `ready_live(defs)` | [queries.md#start-a-query](queries.md#start-a-query) |
 | Parameters with `filter_by` and `prepare(params)` | [queries.md#pass-parameters](queries.md#pass-parameters) |
-| Captured values with `select_where` and `bind_captured` | [queries.md#use-values-from-around-the-function](queries.md#use-values-from-around-the-function) |
+| Values from around the function: clauses, keys, `limit` and `start` | [queries.md#use-values-from-around-the-function](queries.md#use-values-from-around-the-function) |
 | `match`, `if`, `.?` and `??` in a clause | [queries.md#match-on-unions-and-optional-fields](queries.md#match-on-unions-and-optional-fields) |
 | Key comparison, and `prepare_one` for one row | [queries.md#compare-keys](queries.md#compare-keys) |
 | `order_by`, `start` and `limit` with the order checked by types | [queries.md#order-and-page-results](queries.md#order-and-page-results) |
@@ -270,7 +270,7 @@ The other pages cover one topic each: links and edges, live queries, record user
 | `Unchecked.decode` and `Unchecked.result` | [advanced.md#read-the-reply](advanced.md#read-the-reply) |
 | `Unchecked.select_star` and `Unchecked.fetch` | [advanced.md#select-every-field](advanced.md#select-every-field) |
 | `Unchecked.id` | [advanced.md#ids-by-table-name](advanced.md#ids-by-table-name) |
-| `Surreal.extension` and `select_where_with` | [advanced.md#extend-the-translator](advanced.md#extend-the-translator) |
+| `Surreal.extension` and `Query.filter_with` | [advanced.md#extend-the-translator](advanced.md#extend-the-translator) |
 | Captured values of your own type | [advanced.md#captured-values-of-your-type](advanced.md#captured-values-of-your-type) |
 | `Table.edit`, `ref`, `group_ref` and `Mirror.literal` | [advanced.md#test-with-the-mirror](advanced.md#test-with-the-mirror) |
 | Check blocks for `tests/check.py` | [advanced.md#check-blocks-for-checkpy](advanced.md#check-blocks-for-checkpy) |

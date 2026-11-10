@@ -423,7 +423,7 @@ Date: 2026-11-05. Servers: `surrealdb/surrealdb:v4.0.0` (port 8401) and `v3.3.5`
 
 ### 9.3 Compiler issue found
 
-`Str.with_ascii_uppercased` on a part of a text (`split_on`, `trim`) changed the whole text in a build with `--opt=speed` (roc nightly in use, 2026-11): the `replaces` names of a header came back in capitals, so a squashed file was run and not recorded. The interpreter and `--opt=dev` were correct. `Migrate.upper` builds a new string, and the checksum is computed before any other work on the text.
+`Str.with_ascii_uppercased` on a part of a text (`split_on`, `trim`) changed the whole text in a build with `--opt=speed` (roc nightly in use, 2026-11): the `replaces` names of a header came back in capitals, so a squashed file was run and not recorded. The interpreter and `--opt=dev` were correct. The fix is in roc `reify` `2bca002367`, so `Migrate.upper` is removed. The checksum is still computed before any other work on the text.
 
 ### 9.4 Tests, and the breaks that each one catches
 

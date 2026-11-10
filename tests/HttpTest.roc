@@ -104,8 +104,8 @@ vitals : Surreal.Table(Vital)
 vitals = Surreal.table("vital")
 
 ## A prepared statement that translates.
-ready : Try(Surreal.Prepared(out), Surreal.Error) -> Surreal.Prepared(out)
-ready = |prepared| match prepared {
+ready : Surreal.Prepared(out) -> Surreal.Prepared(out)
+ready = |prepared| match prepared.checked() {
 	Ok(p) => p
 	Err(_) => crash "the query of client.roc translates"
 }
@@ -135,16 +135,17 @@ bins = Surreal.table("bin")
 ## The transactions of `client.roc`: a create and an insert of a second
 ## `Top`, and a create, an insert and a read that commit.
 twin_in_transaction : Surreal.Prepared((List(Bin), List(Bin)))
-twin_in_transaction = match (bins.create({ id: "b3", label: "Side" }), bins.insert([{ id: "b4", label: "Low" }, { id: "b2", label: "Top" }])) {
-	(Ok(create), Ok(insert)) => ready(create.begin().then(insert).map_ok(|t| t.commit()))
-	_ => crash "the writes of client.roc translate"
+twin_in_transaction = {
+	create = bins.create({ id: "b3", label: "Side" })
+	insert = bins.insert([{ id: "b4", label: "Low" }, { id: "b2", label: "Top" }])
+	ready(create.begin().then(insert).commit())
 }
 
 stock_up : Surreal.Prepared(((List(Bin), List(Bin)), List(Bin)))
 stock_up = ready(atomic3(bins.create({ id: "b3", label: "Side" }), bins.insert([{ id: "b4", label: "Low" }]), Surreal.from(bins).select(|r| r).prepare({})))
 
-atomic3 : Try(Surreal.Prepared(a), Surreal.Error), Try(Surreal.Prepared(b), Surreal.Error), Try(Surreal.Prepared(c), Surreal.Error) -> Try(Surreal.Prepared(((a, b), c)), Surreal.Error)
-atomic3 = |first, second, third| Ok(first?.begin().then(second?)?.then(third?)?.commit())
+atomic3 : Surreal.Prepared(a), Surreal.Prepared(b), Surreal.Prepared(c) -> Surreal.Prepared(((a, b), c))
+atomic3 = |first, second, third| first.begin().then(second).then(third).commit()
 
 # A transaction is one request on HTTP too: it fails as a whole, and it
 # commits as a whole.
@@ -160,15 +161,17 @@ expect stock_up.result(stock_up_http).map_ok(|((created, inserted), rows)| (crea
 # A list of writes (`Surreal.transaction`) and a migration are one
 # request on HTTP too, with the result that a WebSocket gives.
 twins_in_list : Surreal.Prepared(List(List(Bin)))
-twins_in_list = match (bins.create({ id: "b5", label: "Spare" }), bins.create({ id: "b2", label: "Top" })) {
-	(Ok(spare), Ok(twin)) => ready(Surreal.transaction([spare, twin]))
-	_ => crash "the writes of client.roc translate"
+twins_in_list = {
+	spare = bins.create({ id: "b5", label: "Spare" })
+	twin = bins.create({ id: "b2", label: "Top" })
+	ready(Surreal.transaction([spare, twin]))
 }
 
 spares_in_list : Surreal.Prepared(List(List(Bin)))
-spares_in_list = match (bins.create({ id: "b5", label: "Spare" }), bins.create({ id: "b6", label: "Rack" })) {
-	(Ok(spare), Ok(rack)) => ready(Surreal.transaction([spare, rack]))
-	_ => crash "the writes of client.roc translate"
+spares_in_list = {
+	spare = bins.create({ id: "b5", label: "Spare" })
+	rack = bins.create({ id: "b6", label: "Rack" })
+	ready(Surreal.transaction([spare, rack]))
 }
 
 expect twins_in_list.result(twins_in_list_http) == twins_in_list.result(twins_in_list_ws)

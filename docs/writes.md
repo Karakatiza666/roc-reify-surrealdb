@@ -19,7 +19,7 @@ A write takes the row type of the table. The row type needs the derived encoder 
 
 ## Write whole rows
 
-These calls take a whole row. The `id` field is the record key. Each call gives `Try(Prepared(List(row)), Error)`.
+These calls take a whole row. The `id` field is the record key. Each call gives `Prepared(List(row))`.
 
 | Call | Statement | A row with the key exists | No row with the key |
 | --- | --- | --- | --- |
@@ -92,7 +92,7 @@ A row type keeps `id : Str`. When a row is new, leave the `id` out. `create_new`
 
 | Call | Takes | Gives |
 | --- | --- | --- |
-| `table.create_new(new)` | The row without `id` | `Try(Prepared(List(Created(row, new))), Error)` |
+| `table.create_new(new)` | The row without `id` | `Prepared(List(Created(row, new)))` |
 | `table.insert_new(list)` | A list of such rows | The same, in the order that you wrote the rows |
 
 A `Created(row, new)` is the record `{ id : Id(row), fields : new }`. The `id` is the key that the server made, as an `Id` of the table. The `fields` are the other fields as stored. Use `created.id` for `table.at`, `update_at`, `delete_at` and `table.link`. Real output:
@@ -352,7 +352,7 @@ A write that takes a clause (`update`, `set`, `delete` and the `_by` and `_at` f
 | Call | Gives |
 | --- | --- |
 | `write.to_surql()` | `Try(Str, Error)`. The statement with a `$name` for each parameter |
-| `write.prepare(params)` | `Try(Prepared(List(row)), Error)`. A `LET` for each field of `params`, then the statement |
+| `write.prepare(params)` | `Prepared(List(row))`. A `LET` for each field of `params`, then the statement |
 | `write.ready()` | The same as `prepare({})`, for a write with no parameter record |
 
 Use `ready()` when the write has no parameter record. `prepare({})` is the same call. A `Write` gives the rows after an update and the rows before a delete (`RETURN AFTER`, `RETURN BEFORE`). The calls of [Write whole rows](#write-whole-rows) and the calls for merge, patch and key already give a `Prepared`.

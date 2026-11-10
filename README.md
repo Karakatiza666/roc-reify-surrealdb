@@ -39,9 +39,9 @@ with it. See [Requirements](#requirements).
 | Item | Value |
 | --- | --- |
 | Modules | `Surreal` (the whole public API). `src/internal.roc` is a second header that also exposes `Ql`, `Encode`, `Types`, `Translate`, `Schema`, `Diff`, `Rpc` and `HttpRpc`, for the tests |
-| Dependencies | [roc-cbor](https://github.com/Karakatiza666/roc-cbor) 0.4.0, [roc-websocket](https://github.com/Karakatiza666/roc-websocket) 0.0.5 |
-| Examples only | [roc-basic-cli-websocket](https://github.com/Karakatiza666/roc-basic-cli-websocket) 0.0.3 (basic-cli 0.26.0), [roc-basic-webserver-websocket](https://github.com/Karakatiza666/roc-basic-webserver-websocket) 0.0.2 (basic-webserver 0.20.0) |
-| Compiler | the `reify` branch of [Karakatiza666/roc](https://github.com/Karakatiza666/roc), at commit `c1e6af27a2` (based on Roc nightly 2026-11-03), pinned in `.roc-version` |
+| Dependencies | [roc-cbor](https://github.com/Karakatiza666/roc-cbor) 0.4.0, [roc-websocket](https://github.com/Karakatiza666/roc-websocket) 0.0.6 |
+| Examples only | [roc-basic-cli-websocket](https://github.com/Karakatiza666/roc-basic-cli-websocket) 0.0.4 (basic-cli 0.27.0), [roc-basic-webserver-websocket](https://github.com/Karakatiza666/roc-basic-webserver-websocket) 0.0.3 (basic-webserver 0.21.0) |
+| Compiler | the `reify` branch of [Karakatiza666/roc](https://github.com/Karakatiza666/roc), at commit `0aedb1ae00` (based on Roc nightly 2026-11-07), pinned in `.roc-version` |
 | Database | SurrealDB 3.3.4. Migrations: 3.3.5 or later on 3.x (target `V3`), 4.0.0 (target `V4`) |
 | Tests | `scripts/all_tests.sh` |
 | License | UPL-1.0 (`LICENSE`) |
@@ -71,8 +71,8 @@ basic-webserver" for the rest of an app):
 
 ```roc
 app [main!] {
-	pf: platform "https://github.com/roc-lang/basic-cli/releases/download/0.26.0/GddgvsGjiNXrHFW6au5i5dUDbTs8FinQdrgE2Gqmw53t.tar.zst",
-	cli_ws: "https://github.com/Karakatiza666/roc-basic-cli-websocket/releases/download/0.0.3/9c6XLWHRSREuaoELdH1a835Yopw92Jxy2b5e151X6mZj.tar.zst",
+	pf: platform "https://github.com/roc-lang/basic-cli/releases/download/0.27.0/9yjxqdGTP4xSpSEmDazwTmRsehfRZzA19pwEKkR6fj1g.tar.zst",
+	cli_ws: "https://github.com/Karakatiza666/roc-basic-cli-websocket/releases/download/0.0.4/B5j45zNdyW8Qxq6GpQ6ZVNmcPC5hwx3TxPRW4cq8wiLV.tar.zst",
 	surreal: "https://github.com/Karakatiza666/roc-reify-surrealdb/releases/download/0.0.2/A6EBqeeUMvjuaUNqem6guFUgKnCJZnynqWxzTcqxHk4V.tar.zst",
 }
 
@@ -89,12 +89,12 @@ and `scripts/bundle.sh 0.0.2` prints it.
 
 The compiler is the `reify` branch of
 [github.com/Karakatiza666/roc](https://github.com/Karakatiza666/roc), at commit
-`c1e6af27a2`. It is based on Roc nightly 2026-11-03 (upstream commit
-`34bd006`). A release of this package names its commit in `.roc-version`, in
+`0aedb1ae00`. It is based on Roc nightly 2026-11-07 (upstream commit
+`ad3a5d2`). A release of this package names its commit in `.roc-version`, in
 the form `reify-<the 40 digits of the commit>`:
 
 ```
-reify-c1e6af27a29303f2e409b037aa1d4a32ebd68217
+reify-0aedb1ae0046480f8442c97cf9138534659e8ab2
 ```
 
 Build that commit with [Zig 0.17.0](https://ziglang.org/download/) and point
@@ -103,9 +103,9 @@ Build that commit with [Zig 0.17.0](https://ziglang.org/download/) and point
 ```sh
 git clone https://github.com/Karakatiza666/roc.git
 cd roc
-git checkout c1e6af27a29303f2e409b037aa1d4a32ebd68217
+git checkout 0aedb1ae0046480f8442c97cf9138534659e8ab2
 zig build roc                     # a Debug compiler, zig-out/bin/roc
-./zig-out/bin/roc version         # debug-c1e6af27
+./zig-out/bin/roc version         # debug-0aedb1ae
 export ROC=$PWD/zig-out/bin/roc
 ```
 
@@ -151,8 +151,8 @@ The app names basic-cli and the WebSocket adapter
 
 ```roc
 app [main!] {
-	pf: platform "https://github.com/roc-lang/basic-cli/releases/download/0.26.0/GddgvsGjiNXrHFW6au5i5dUDbTs8FinQdrgE2Gqmw53t.tar.zst",
-	cli_ws: "https://github.com/Karakatiza666/roc-basic-cli-websocket/releases/download/0.0.3/9c6XLWHRSREuaoELdH1a835Yopw92Jxy2b5e151X6mZj.tar.zst",
+	pf: platform "https://github.com/roc-lang/basic-cli/releases/download/0.27.0/9yjxqdGTP4xSpSEmDazwTmRsehfRZzA19pwEKkR6fj1g.tar.zst",
+	cli_ws: "https://github.com/Karakatiza666/roc-basic-cli-websocket/releases/download/0.0.4/B5j45zNdyW8Qxq6GpQ6ZVNmcPC5hwx3TxPRW4cq8wiLV.tar.zst",
 	surreal: "https://github.com/Karakatiza666/roc-reify-surrealdb/releases/download/0.0.2/A6EBqeeUMvjuaUNqem6guFUgKnCJZnynqWxzTcqxHk4V.tar.zst",
 }
 
@@ -218,8 +218,8 @@ of the URL):
 app [Context, program] {
 	cbor: "https://github.com/Karakatiza666/roc-cbor/releases/download/0.4.0/EnfRKFT7uPHmd3zT5PcwAiBWUtGmBXapJqFK5166U33J.tar.zst",
 	http: "https://github.com/roc-lang/http/releases/download/1.0.0/6ZUwqYhCS8PU9Mo6MF7oV82ET2o7KYb57CLKDq4cq4sS.tar.zst",
-	pf: platform "https://github.com/roc-lang/basic-webserver/releases/download/0.20.0/7dR2ewuEbpPQXTAZL3aH62weBwpNNjbCJtyyiRsufTNZ.tar.zst",
-	bws_ws: "https://github.com/Karakatiza666/roc-basic-webserver-websocket/releases/download/0.0.2/63RHisM5dNvGRLkMFurQZd7Gp1AqWpThfd5Dvtb2CTKj.tar.zst",
+	pf: platform "https://github.com/roc-lang/basic-webserver/releases/download/0.21.0/4viZsnWjdYsyH4Q87ESFAwM5c55Hnc15nAGW1UwzWpFU.tar.zst",
+	bws_ws: "https://github.com/Karakatiza666/roc-basic-webserver-websocket/releases/download/0.0.3/BjBcDpMFYd2ybt1xpiKiSHf2AgrnRnT6qRdFe2bQ2fgL.tar.zst",
 	surreal: "https://github.com/Karakatiza666/roc-reify-surrealdb/releases/download/0.0.2/A6EBqeeUMvjuaUNqem6guFUgKnCJZnynqWxzTcqxHk4V.tar.zst",
 }
 
@@ -295,12 +295,12 @@ kennel b at 2026-03-01T10:00:00Z: pulse 120, temp_c 39.0
 
 | File | What it is |
 | --- | --- |
-| `src/main.roc` | The package header. It exposes `Surreal`, and depends on roc-cbor 0.4.0 for the CBOR of a live session and on roc-websocket 0.0.5 for the types of a WebSocket adapter. |
+| `src/main.roc` | The package header. It exposes `Surreal`, and depends on roc-cbor 0.4.0 for the CBOR of a live session and on roc-websocket 0.0.6 for the types of a WebSocket adapter. |
 | `src/Surreal.roc` | The public API: ids, links, read rows (`Linked`, `Out`, `In`), datetimes, tables, the schema builder, queries and writes, live queries, `Mirror` (the Roc prediction of their notices, and the `-- roc:` literals that `check.py` compares), and `Unchecked` (the escape hatch: `SELECT *`, `FETCH`, record ids by text, decoding, and a raw `query!` with its `result`). The `parser_for` of each SurrealDB value, the reading of the messages of a live session, the `Session` itself with its `Inbox` of the replies and the notices that it read, the `Connection` that it runs on (a WebSocket, or HTTP), the patches of `live_diff` (`Patch`, `DiffView`), and the typed results of plain queries and writes (`Prepared`). Also the package functions for SurrealDB (`Text`, `Hash`, `Array`, `Time`, `Math`, `Rand`, `Vector`), analyzers and the full-text and vector indexes with their searches (`Analyzer`, `FullText`, `VectorIndex`, `Hit`, `Near`), database functions (`DbFn`), time series keys (`TimeKey`), views, the geometry types (`Point`, `Polygon`, ..) and their functions (`Geo`). |
 | `src/Translate.roc` | The translator. A `Code` graph in, a SurrealQL expression out. It knows a call by the id of its definition: the builtins in its own table, the functions of `Surreal` in the extension `Surreal.library`, and an app's in the extensions it passes (see "Extending the translator"). |
 | `src/Schema.roc` | `DEFINE` statements from row types, builder clauses and database functions. It also writes the delete policy of every link. |
 | `src/Types.roc` | Roc types as SurrealDB types, the `BadSchema` checks, and the list of link sites of a row. `Types.nominal` is the one place that knows a nominal type by its name. |
-| `src/Encode.roc` | The format that the derived `encoder_for` runs against. It turns a row into a SurrealQL literal. `Encode.Bind` is the byte format of a value that `select_where_with` captures, which reads back as the same literal. |
+| `src/Encode.roc` | The format that the derived `encoder_for` runs against. It turns a row into a SurrealQL literal. `Encode.Bind` is the byte format of a value that `Query.filter_with` captures, which reads back as the same literal. |
 | `src/Ql.roc` | SurrealQL text: values, quoting, identifiers and the error type, with the errors of a live session (`Wire`, `Server`, `Transport`). |
 | `src/Migrate.roc` | Migrations, pure: the statements of a plan for a target (`V3`, `V4`) in sections, the text of a migration file and what the runner reads from it, and what the runner does for each file from the history. |
 | `src/Diff.roc` | The ops of `LIVE SELECT DIFF`: the paths, the text patches, and each op applied to a stored row as a `Cbor.Value`. |
@@ -470,131 +470,131 @@ Roc tag unions with `match` in a query.
 
 | Feature | Roc | SurrealQL | Where |
 | --- | --- | --- | --- |
-| Check over one field | `.check("weight above zero", \|p\| p.weight_kg > 0)` | `weight_kg ... TYPE decimal ASSERT $value > 0.0dec` | `examples/main.roc:384` |
-| Check over several fields | `.check("items need a fee", Clinic.fee_covers_items)` | `fee ... TYPE decimal ASSERT ($this.items.len() = 0 OR $value > 0.0dec) AND ..`: the assert of the first required field that the check reads (`$this` is the row with the new values). A read-only field, a field with a permission, or a read of the record key or an edge end make it `DEFINE EVENT ... ON visit WHEN $event IN ['CREATE', 'UPDATE'] THEN { IF !(..) { THROW 'visit: items need a fee' } }` | `examples/main.roc:397` |
-| Check on an edge table | `.check("since a real year", \|e\| e.since_year >= 1990)` | `since_year ON treats TYPE int ASSERT $value >= 1990` | `examples/main.roc:407` |
-| Assert on a field, with a function the program also calls | `.assert(\|o\| o.email, valid_email)` | `ASSERT string::contains($value, '@') AND (!string::starts_with($value, '@'))` | `examples/main.roc:355` |
-| Assert on a nested path, with a SurrealDB function | `.assert(\|v\| v.contact.email, \|e\| Surreal.Text.is_email(e))` | `DEFINE FIELD contact.email ON vet TYPE string ASSERT string::is_email($value)` | `examples/main.roc:366` |
-| Assert on each element | `.assert_each(\|o\| o.tags, \|t\| t != "")` | `tags ... ASSERT $value.all(\|$item\| $item != '')` | `examples/main.roc:356` |
-| Assert on a field of each record in a list | `.assert_each(\|v\| v.items, Clinic.positive_doses)` | `items[*].doses ON visit ASSERT $value > 0` | `examples/main.roc:395` |
-| Assert on a union | `.assert(\|p\| p.species, possible_species)` | `species ... ASSERT (IF $value.kind = 'Bird' THEN $value.wingspan_cm > 0 ELSE true END)` | `examples/main.roc:382` |
-| Unique, with a nested path | `.unique(\|v\| v.contact.email)` | `DEFINE INDEX ... ON vet FIELDS contact.email UNIQUE` | `examples/main.roc:365` |
-| Unique, over several fields and a link | `.unique(\|p\| { name: p.name, owner: p.owner })` | `DEFINE INDEX ... ON patient FIELDS name, owner UNIQUE` | `examples/main.roc:381` |
-| Unique, over the ends of an edge | `.unique(\|e\| { from: e.from, to: e.to })` | `DEFINE INDEX ... ON treats FIELDS in, out UNIQUE` | `examples/main.roc:408` |
-| Index | `.index(\|o\| o.address.city)` | `DEFINE INDEX ... ON owner FIELDS address.city` | `examples/main.roc:358` |
+| Check over one field | `.check("weight above zero", \|p\| p.weight_kg > 0)` | `weight_kg ... TYPE decimal ASSERT $value > 0.0dec` | `examples/main.roc:417` |
+| Check over several fields | `.check("items need a fee", Clinic.fee_covers_items)` | `fee ... TYPE decimal ASSERT ($this.items.len() = 0 OR $value > 0.0dec) AND ..`: the assert of the first required field that the check reads (`$this` is the row with the new values). A read-only field, a field with a permission, or a read of the record key or an edge end make it `DEFINE EVENT ... ON visit WHEN $event IN ['CREATE', 'UPDATE'] THEN { IF !(..) { THROW 'visit: items need a fee' } }` | `examples/main.roc:430` |
+| Check on an edge table | `.check("since a real year", \|e\| e.since_year >= 1990)` | `since_year ON treats TYPE int ASSERT $value >= 1990` | `examples/main.roc:440` |
+| Assert on a field, with a function the program also calls | `.assert(\|o\| o.email, valid_email)` | `ASSERT string::contains($value, '@') AND (!string::starts_with($value, '@'))` | `examples/main.roc:388` |
+| Assert on a nested path, with a SurrealDB function | `.assert(\|v\| v.contact.email, \|e\| Surreal.Text.is_email(e))` | `DEFINE FIELD contact.email ON vet TYPE string ASSERT string::is_email($value)` | `examples/main.roc:399` |
+| Assert on each element | `.assert_each(\|o\| o.tags, \|t\| t != "")` | `tags ... ASSERT $value.all(\|$item\| $item != '')` | `examples/main.roc:389` |
+| Assert on a field of each record in a list | `.assert_each(\|v\| v.items, Clinic.positive_doses)` | `items[*].doses ON visit ASSERT $value > 0` | `examples/main.roc:428` |
+| Assert on a union | `.assert(\|p\| p.species, possible_species)` | `species ... ASSERT (IF $value.kind = 'Bird' THEN $value.wingspan_cm > 0 ELSE true END)` | `examples/main.roc:415` |
+| Unique, with a nested path | `.unique(\|v\| v.contact.email)` | `DEFINE INDEX ... ON vet FIELDS contact.email UNIQUE` | `examples/main.roc:398` |
+| Unique, over several fields and a link | `.unique(\|p\| { name: p.name, owner: p.owner })` | `DEFINE INDEX ... ON patient FIELDS name, owner UNIQUE` | `examples/main.roc:414` |
+| Unique, over the ends of an edge | `.unique(\|e\| { from: e.from, to: e.to })` | `DEFINE INDEX ... ON treats FIELDS in, out UNIQUE` | `examples/main.roc:441` |
+| Index | `.index(\|o\| o.address.city)` | `DEFINE INDEX ... ON owner FIELDS address.city` | `examples/main.roc:391` |
 | Default value from the type | `tags : List(Str) ?? []` in `Owner := { .. }`, `stock : I32 ?? 0` in `Medication := { .. }` | `tags ... TYPE array<string> DEFAULT []`, `stock ... TYPE int DEFAULT 0` | `examples/main.roc:31`, `examples/main.roc:48` |
 | Default value of an alias row | `.default(\|c\| c.tags, ["new"])` | `tags ... TYPE array<string> DEFAULT ['new']` | `tests/SchemaTest.roc:75` |
-| Computed field | `.computed(\|m\| m.label, \|m\| label_of(m.name, m.form))` | `label ON medication TYPE string VALUE $this.name + ' (' + $this.form + ')'` | `examples/main.roc:375` |
-| Read-only field | `.readonly(\|v\| v.license)` | `license ON vet TYPE string READONLY ASSERT ..` | `examples/main.roc:368` |
+| Computed field | `.computed(\|m\| m.label, \|m\| label_of(m.name, m.form))` | `label ON medication TYPE string VALUE $this.name + ' (' + $this.form + ')'` | `examples/main.roc:408` |
+| Read-only field | `.readonly(\|v\| v.license)` | `license ON vet TYPE string READONLY ASSERT ..` | `examples/main.roc:401` |
 | Range from the Roc type | `Vet : VetRow(U8)`, `stock : I32` | `years ... TYPE int ASSERT $value >= 0 AND $value <= 255` | `examples/main.roc:44` |
 | Link in an optional object | `chip ?: { code : Str, implanted_by : Surreal.Link(Vet) }` | `chip.implanted_by ... TYPE record<vet> ASSERT record::exists($value)`, and an event on `vet` that throws on delete | `examples/main.roc:63` |
 | Link in a list of records | `vaccines : List({ name : Str, given : Str, vet : Surreal.Link(Vet) })` | `vaccines[*].vet ... ASSERT record::exists($value)`, and an event on `vet` | `examples/main.roc:60` |
 | Link in a list of records, second site | `items : List({ medication : Surreal.Link(Medication), doses : I64 })` | `items[*].medication ... ASSERT record::exists($value)`, and an event on `medication` | `examples/main.roc:77` |
 | Link in a union arm | `Referred({ to : Surreal.Link(Vet), reason : Str })` | `IF $value.kind = 'Referred' THEN record::exists($value.to) ELSE true END`, and an event on `vet` | `examples/main.roc:80` |
-| Optional link to a row of the same table | `referred_by ?: Surreal.Link(Owner)` in `Owner := { .. }`, `.on_delete(owners, Unset)` | `referred_by ON owner TYPE option<record<owner>> REFERENCE ON DELETE UNSET ASSERT ($value = NONE OR (record::exists($value)))` | `examples/main.roc:31`, `examples/main.roc:359` |
-| Top-level link, same constraints | `owner : Surreal.Link(Owner)`, `.on_delete(owners, Cascade)` | `owner ... TYPE record<owner> REFERENCE ON DELETE CASCADE ASSERT record::exists($value)` | `examples/main.roc:387` |
-| Top-level list of links, per-path policy | `allergies : List(Surreal.Link(Medication))`, `.on_delete_at(\|p\| p.allergies, Unset)` | `allergies ... TYPE array<record<medication>> ... REFERENCE ON DELETE UNSET` | `examples/main.roc:389` |
-| A write that names a missing target is refused at every depth | `patients.create(ghost_chip_patient)`, and one row for each other shape | `ASSERT record::exists($value)` fails for the field `chip.implanted_by` | `examples/main.roc:942` |
-| A delete of a target in use is refused at every depth | `vets.delete_at(vets.id("tia"))` | the event throws: `is referenced by visit.outcome.to` | `examples/main.roc:946` |
+| Optional link to a row of the same table | `referred_by ?: Surreal.Link(Owner)` in `Owner := { .. }`, `.on_delete(owners, Unset)` | `referred_by ON owner TYPE option<record<owner>> REFERENCE ON DELETE UNSET ASSERT ($value = NONE OR (record::exists($value)))` | `examples/main.roc:31`, `examples/main.roc:392` |
+| Top-level link, same constraints | `owner : Surreal.Link(Owner)`, `.on_delete(owners, Cascade)` | `owner ... TYPE record<owner> REFERENCE ON DELETE CASCADE ASSERT record::exists($value)` | `examples/main.roc:420` |
+| Top-level list of links, per-path policy | `allergies : List(Surreal.Link(Medication))`, `.on_delete_at(\|p\| p.allergies, Unset)` | `allergies ... TYPE array<record<medication>> ... REFERENCE ON DELETE UNSET` | `examples/main.roc:422` |
+| A write that names a missing target is refused at every depth | `patients.create(ghost_chip_patient)`, and one row for each other shape | `ASSERT record::exists($value)` fails for the field `chip.implanted_by` | `examples/main.roc:972` |
+| A delete of a target in use is refused at every depth | `vets.delete_at(vets.id("tia"))` | the event throws: `is referenced by visit.outcome.to` | `examples/main.roc:943` |
 | A tag union is a literal union | `Species : [Dog, Cat, Bird({ wingspan_cm : U8 }), Exotic({ latin : Str })]` | `TYPE { kind: "Bird", wingspan_cm: int } \| "Cat" \| "Dog" \| { kind: "Exotic", latin: string }` | `examples/main.roc:57` |
-| `match` in a projection | `species_label(p.species)` with `match` on `Dog`, `Cat`, `Bird(_)`, `Exotic(other)` | `(IF species.kind = 'Bird' THEN 'bird' ELSE IF species = 'Cat' THEN 'cat' ELSE IF species = 'Dog' THEN 'dog' ELSE species.latin END)` | `examples/main.roc:138` |
-| `match` in a filter | `wide_wings(p)` reads the wingspan of `Bird(wings)` | `WHERE (IF species.kind = 'Bird' THEN species.wingspan_cm >= 20 ELSE false END)` | `examples/main.roc:156` |
-| `match` that reads a link in an arm | `Referred(r) => "referred to ${r.to.get().name}"` | `'referred to ' + outcome.to.name` | `examples/main.roc:149` |
-| An optional object, read with `map_ok` and `??` | `p.?chip.map_ok(\|c\| c.implanted_by.get().name) ?? "nobody"`. A `match` on `p.?chip` does the same, and its SQL is longer | `chip.implanted_by.name ?? 'nobody'` | `examples/main.roc:443` |
-| A union in a write | `certified = \|v\| { years: v.years + 1, specialty: Surgery({ board: "ECVS" }) }`, in `vets.set_at(vets.id("tia"), certified)` | `UPDATE vet:⟨tia⟩ SET specialty = { kind: 'Surgery', board: 'ECVS' }, years = years + 1 RETURN AFTER` | `examples/main.roc:539` |
-| A union in a write that reads the row | `{ ..p, place: Since(p.at) }`. Each `SET` item reads the row before the update, as Roc does (verified) | `UPDATE placement:⟨away⟩ SET place = { kind: 'Since', value: at } RETURN AFTER` | `examples/client.roc:429` |
+| `match` in a projection | `species_label(p.species)` with `match` on `Dog`, `Cat`, `Bird(_)`, `Exotic(other)` | `(IF species.kind = 'Bird' THEN 'bird' ELSE IF species = 'Cat' THEN 'cat' ELSE IF species = 'Dog' THEN 'dog' ELSE species.latin END)` | `examples/main.roc:171` |
+| `match` in a filter | `wide_wings(p)` reads the wingspan of `Bird(wings)` | `WHERE (IF species.kind = 'Bird' THEN species.wingspan_cm >= 20 ELSE false END)` | `examples/main.roc:189` |
+| `match` that reads a link in an arm | `Referred(r) => "referred to ${r.to.get().name}"` | `'referred to ' + outcome.to.name` | `examples/main.roc:182` |
+| An optional object, read with `map_ok` and `??` | `p.?chip.map_ok(\|c\| c.implanted_by.get().name) ?? "nobody"`. A `match` on `p.?chip` does the same, and its SQL is longer | `chip.implanted_by.name ?? 'nobody'` | `examples/main.roc:476` |
+| A union in a write | `certified = \|v\| { years: v.years + 1, specialty: Surgery({ board: "ECVS" }) }`, in `vets.set_at(vets.id("tia"), certified)` | `UPDATE vet:⟨tia⟩ SET specialty = { kind: 'Surgery', board: 'ECVS' }, years = years + 1 RETURN AFTER` | `examples/main.roc:572` |
+| A union in a write that reads the row | `{ ..p, place: Since(p.at) }`. Each `SET` item reads the row before the update, as Roc does (verified) | `UPDATE placement:⟨away⟩ SET place = { kind: 'Since', value: at } RETURN AFTER` | `examples/client.roc:449` |
 | `==` on a union | `.filter(\|o\| o.kind == o.prev)`, against a parameter or against a literal arm. The derived `==` expands into `match`es | `(IF kind.kind = 'Firm' THEN (IF prev.kind = 'Firm' THEN kind.vat = prev.vat ELSE false END) ELSE (IF prev.kind = 'Firm' THEN false ELSE true END) END)`. A run on SurrealDB 3.3.4 keeps the rows that agree in kind and payload | |
-| A parameter record | `filter_by(in_city)`, `.prepare({ city: "Oslo" })` | `LET $city = 'Oslo'; .. WHERE address.city = $city` | `examples/main.roc:748` |
-| Optional field with `??` | `o.?phone ?? "none"` | `phone ?? 'none'` | `examples/main.roc:422` |
-| `.?` on an optional self-link | `o.?referred_by.map_ok(\|r\| r.get().name) ?? "nobody"` | `referred_by.name ?? 'nobody'` | `examples/main.roc:428` |
-| A link read with `get()` | `p.owner.get().name` | `owner.name` | `examples/main.roc:437` |
-| A link compared by id | `v.vet.id() == ruth_id` | `$v1.vet = vet:⟨ruth⟩` | `examples/main.roc:452` |
-| The same, with the field `id` | `v.vet.id == ruth_id` | `$v1.vet = vet:⟨ruth⟩` | `tests/QueriesTest.roc:626` |
-| Fields through links, with no `FETCH` | `contact_line` reads `p.owner.get().address.city` and `p.vaccines.map(\|v\| v.vet.get().name)` | `owner.address.city AS city, .. vaccines.map(\|$v1\| $v1.vet.name) AS vets` | `examples/main.roc:862` |
-| Whole linked rows | `linked_rows`: `{ id: p.id, owner: p.owner.get(), vets: p.vaccines.map(\|v\| v.vet.get()) }` | `owner.{ address, email, id: record::id(id), name, .. } AS owner, vaccines.map(\|$v1\| $v1.vet.{ contact, id: record::id(id), .. }) AS vets` | `examples/main.roc:868` |
-| The whole row of the table | `.between(kennel_a, day_start, day_end).select(\|r\| r)` | `SELECT fevered, record::id(id) AS id, pulse, temp_c FROM vital:[..]..[..]` | `examples/monitoring.roc:367` |
+| A parameter record | `filter_by(in_city)`, `.prepare({ city: "Oslo" })` | `LET $city = 'Oslo'; .. WHERE address.city = $city` | `examples/main.roc:778` |
+| Optional field with `??` | `o.?phone ?? "none"` | `phone ?? 'none'` | `examples/main.roc:455` |
+| `.?` on an optional self-link | `o.?referred_by.map_ok(\|r\| r.get().name) ?? "nobody"` | `referred_by.name ?? 'nobody'` | `examples/main.roc:461` |
+| A link read with `get()` | `p.owner.get().name` | `owner.name` | `examples/main.roc:470` |
+| A link compared by id | `v.vet.id() == ruth_id` | `$v1.vet = vet:⟨ruth⟩` | `examples/main.roc:485` |
+| The same, with the field `id` | `v.vet.id == ruth_id` | `$v1.vet = vet:⟨ruth⟩` | `tests/QueriesTest.roc:629` |
+| Fields through links, with no `FETCH` | `contact_line` reads `p.owner.get().address.city` and `p.vaccines.map(\|v\| v.vet.get().name)` | `owner.address.city AS city, .. vaccines.map(\|$v1\| $v1.vet.name) AS vets` | `examples/main.roc:892` |
+| Whole linked rows | `linked_rows`: `{ id: p.id, owner: p.owner.get(), vets: p.vaccines.map(\|v\| v.vet.get()) }` | `owner.{ address, email, id: record::id(id), name, .. } AS owner, vaccines.map(\|$v1\| $v1.vet.{ contact, id: record::id(id), .. }) AS vets` | `examples/main.roc:898` |
+| The whole row of the table | `.between(kennel_a, day_start, day_end).select(\|r\| r)` | `SELECT fevered, record::id(id) AS id, pulse, temp_c FROM vital:[..]..[..]` | `examples/monitoring.roc:364` |
 | A read row: a link read with no `get()` | `site : Surreal.Linked(Site)`, then `k.site.name` | `site.name` | `examples/monitoring.roc:90` |
-| The edges at a row as a field of a read row | `cares_for : Surreal.In(CareRead)`, then `k.cares_for.list().map(\|e\| e.from)` | `<-cares_for<-?.{ id: record::id(id), name }` | `examples/monitoring.roc:441` |
+| The edges at a row as a field of a read row | `cares_for : Surreal.In(CareRead)`, then `k.cares_for.list().map(\|e\| e.from)` | `<-cares_for<-?.{ id: record::id(id), name }` | `examples/monitoring.roc:438` |
 | A read row agrees with its stored row | `kennel_reads.define_read()` in the schema list | None. A field, a link or an edge table that does not agree is a `BadSchema` | `examples/monitoring.roc:132` |
-| The rows of a table in a clause: a correlated count | `vitals.rows().keep_if(\|v\| v.id.series() == kennels.id(k.id)).len()` | `id.chain(\|$v1\| (SELECT VALUE id FROM vital:[$v1, NONE]..=[$v1, ..])).len()`, a range scan of the keys of the kennel. `kennels.id(k.id)` of the row that the statement reads is `id` | `examples/monitoring.roc:448` |
-| A semi join | `.filter(\|k\| vitals.rows().any(\|v\| .. and v.fevered))` | `WHERE (SELECT VALUE id FROM vital WHERE .. AND fevered LIMIT 1) != []`: the tests of the row go into the `WHERE` of the subquery | `examples/monitoring.roc:453` |
-| A count of related rows | `kennels.rows().count_if(\|k\| k.site.id() == sites.id(s.id))` | `id.chain(\|$v1_0\| (SELECT VALUE id FROM kennel WHERE site = $v1_0)).len()`, which the index of the link serves | `examples/monitoring.roc:532` |
+| The rows of a table in a clause: a correlated count | `vitals.rows().keep_if(\|v\| v.id.series() == kennels.id(k.id)).len()` | `id.chain(\|$v1\| (SELECT VALUE id FROM vital:[$v1, NONE]..=[$v1, ..])).len()`, a range scan of the keys of the kennel. `kennels.id(k.id)` of the row that the statement reads is `id` | `examples/monitoring.roc:445` |
+| A semi join | `.filter(\|k\| vitals.rows().any(\|v\| .. and v.fevered))` | `WHERE (SELECT VALUE id FROM vital WHERE .. AND fevered LIMIT 1) != []`: the tests of the row go into the `WHERE` of the subquery | `examples/monitoring.roc:450` |
+| A count of related rows | `kennels.rows().count_if(\|k\| k.site.id() == sites.id(s.id))` | `id.chain(\|$v1_0\| (SELECT VALUE id FROM kennel WHERE site = $v1_0)).len()`, which the index of the link serves | `examples/monitoring.roc:529` |
 | The id of a row of a table, read in a clause | `ruth_id = vets.id("ruth")` | `vet:⟨ruth⟩` | `examples/main.roc:121` |
-| Graph traversal | `.outgoing(treats)`, `.incoming(treats)` with `edges.keep_if(..).len()` | `->treats.len()`, `<-treats[WHERE primary]<-vet.name` | `examples/main.roc:820`, `examples/main.roc:826` |
-| A graph path of an edge and a link | `owners_of_primary(treats.edges_from(v))`, with `edges.keep_if(\|e\| e.primary).map(\|e\| e.to.get().owner.get().name)` | `->treats[WHERE primary]->patient.owner.name` | `examples/main.roc:1154` |
-| A graph path of two edges | `treats.edges_to(p).keep_if(\|e\| e.primary).join_map(\|e\| treats.edges_from(e.from.get())).map(\|e\| e.to.get().name)` | `<-treats[WHERE primary]<-vet->treats->patient.name` | `examples/main.roc:1162` |
-| A graph path in a filter | `.filter(\|v\| primary_cities(treats.edges_from(v)).contains("Oslo"))` | `WHERE ->treats[WHERE primary]->patient.owner.address.city CONTAINS 'Oslo'` | `examples/main.roc:1169` |
+| Graph traversal | `.outgoing(treats)`, `.incoming(treats)` with `edges.keep_if(..).len()` | `->treats.len()`, `<-treats[WHERE primary]<-vet.name` | `examples/main.roc:850`, `examples/main.roc:856` |
+| A graph path of an edge and a link | `owners_of_primary(treats.edges_from(v))`, with `edges.keep_if(\|e\| e.primary).map(\|e\| e.to.get().owner.get().name)` | `->treats[WHERE primary]->patient.owner.name` | `examples/main.roc:1184` |
+| A graph path of two edges | `treats.edges_to(p).keep_if(\|e\| e.primary).join_map(\|e\| treats.edges_from(e.from.get())).map(\|e\| e.to.get().name)` | `<-treats[WHERE primary]<-vet->treats->patient.name` | `examples/main.roc:1192` |
+| A graph path in a filter | `.filter(\|v\| primary_cities(treats.edges_from(v)).contains("Oslo"))` | `WHERE ->treats[WHERE primary]->patient.owner.address.city CONTAINS 'Oslo'` | `examples/main.roc:1199` |
 | An edge table in the wrong direction is a type error | `Surreal.from(products).outgoing(purchased)` | None: `outgoing` needs a table whose `from` links to `product` | `Query.outgoing` |
-| A count | `edges.len()`, a `U64` in the result row. `Mirror.literal` and a parameter record encode a `U64` too | `->treats.len()` | `examples/main.roc:820`, `examples/main.roc:484` |
-| Group and aggregate | `.group_by(\|v\| v.vet.get().name).aggregate(ledger_line)` | `math::sum(fee) AS revenue, vet.name AS vet, count() AS visits .. GROUP BY vet` | `examples/main.roc:832` |
-| A statistic over a group | `avg_fee: Surreal.Math.mean_dec(rows.map(\|v\| v.fee))` in `ledger_line` | `math::mean(<float>fee) AS avg_fee .. GROUP BY vet` | `examples/main.roc:485` |
-| Totals of all matching rows | `.totals(visit_totals)` with `rows.len()`, `rows.map(\|v\| v.fee).sum()` and `Math.mean_dec(..)`, run with `.ready()` | `SELECT math::mean(<float>fee) AS avg_fee, math::sum(fee) AS revenue, count() AS visits FROM visit GROUP ALL`, read as one `VisitTotals`, not a list (`Totals.prepare`) | `examples/main.roc:1118` |
-| Totals of no rows | `.filter(\|v\| v.fee > 1000).totals(\|rows\| { visits: rows.len() })` | `SELECT count() AS visits FROM visit WHERE fee > 1000.0dec GROUP ALL`: one row, `visits: 0`. With a sum and a mean it is `revenue: 0` and `avg_fee: NaN` (verified on 3.3.4), as `vital_totals([])` computes in `client.roc` | `examples/main.roc:1124` |
-| The database clock in a read | `.filter(\|v\| v.seen < Surreal.Time.now())` | `WHERE seen < time::now()` | `examples/main.roc:808` |
+| A count | `edges.len()`, a `U64` in the result row. `Mirror.literal` and a parameter record encode a `U64` too | `->treats.len()` | `examples/main.roc:850`, `examples/main.roc:517` |
+| Group and aggregate | `.group_by(\|v\| v.vet.get().name).aggregate(ledger_line)` | `math::sum(fee) AS revenue, vet.name AS vet, count() AS visits .. GROUP BY vet` | `examples/main.roc:862` |
+| A statistic over a group | `avg_fee: Surreal.Math.mean_dec(rows.map(\|v\| v.fee))` in `ledger_line` | `math::mean(<float>fee) AS avg_fee .. GROUP BY vet` | `examples/main.roc:518` |
+| Totals of all matching rows | `.totals(visit_totals)` with `rows.len()`, `rows.map(\|v\| v.fee).sum()` and `Math.mean_dec(..)`, run with `.ready()` | `SELECT math::mean(<float>fee) AS avg_fee, math::sum(fee) AS revenue, count() AS visits FROM visit GROUP ALL`, read as one `VisitTotals`, not a list (`Totals.prepare`) | `examples/main.roc:1148` |
+| Totals of no rows | `.filter(\|v\| v.fee > 1000).totals(\|rows\| { visits: rows.len() })` | `SELECT count() AS visits FROM visit WHERE fee > 1000.0dec GROUP ALL`: one row, `visits: 0`. With a sum and a mean it is `revenue: 0` and `avg_fee: NaN` (verified on 3.3.4), as `vital_totals([])` computes in `client.roc` | `examples/main.roc:1154` |
+| The database clock in a read | `.filter(\|v\| v.seen < Surreal.Time.now())` | `WHERE seen < time::now()` | `examples/main.roc:838` |
 | A helper that the program also calls | `Clinic.bill(v)` in `visit_line` | `fee + math::sum(items.map(\|$v1\| <decimal>$v1.doses * $v1.medication.unit_price))` | `examples/clinic/Clinic.roc:15` |
 | A helper over an open row that calls another | `Clinic.seen_since : { since : Surreal.Datetime, ..p }, { seen : Surreal.Datetime, ..r } -> Bool` calls `Clinic.seen_from`, and `filter_by(Clinic.seen_since)` takes it over `Visit` | `WHERE seen >= $since` | `examples/clinic/Clinic.roc:33` |
 | A helper over an open row, at a nominal row | `Clinic.low_stock : { floor : I32, ..p }, { stock : I32, ..r } -> Bool` in `medications.update_by(Clinic.low_stock, refill)`, with `Medication := { .. }` | `WHERE stock < $floor` | `examples/clinic/Clinic.roc:41` |
-| A query fragment over an open row | `Clinic.recent : Surreal.Query({ since : Surreal.Datetime, ..p }, { seen : Surreal.Datetime, ..r }) -> ..`, `Clinic.by_id(Clinic.recent(Surreal.from(visits)).select(visit_line))` | `SELECT .. FROM visit WHERE $since <= seen ORDER BY id` | `examples/clinic/Clinic.roc:49`, `examples/main.roc:802` |
-| A captured run-time value | `cheaper_than(limit)`, with `Surreal.bind_captured(select_where(medications, \|m\| m.unit_price < limit))`, a `Try(Prepared(List(row)), Error)` | `LET $_1 = 0.9dec; SELECT form, record::id(id) AS id, label, .. FROM medication WHERE unit_price < $_1` | `examples/main.roc:495` |
-| A captured record with an optional field | `owners_at(places)`, with `select_where(owners, \|o\| places.contains(o.address))` and an address with no `zip`. Also `owner_at(place)`, with `select_where(owners, \|o\| o.address == place)`, once with a `zip` and once without | `LET $_1 = [{ city: 'Lyon', line: 'Rue Merciere 9' }, { city: 'Oslo', .., zip: '0155' }]; SELECT .. FROM owner WHERE $_1 CONTAINS address`. The absent `zip` is `Code.Value.Absent`, and the object leaves it out. For `owner_at`, the captured address is one input, `$_1`, because the comparison reads it whole, and the script compares `address.city = $_1.city`, `address.line = $_1.line` and `address.zip = $_1.zip`. The compiler describes that as a switch on the presence of each `zip`. SurrealDB reads an absent field as NONE, and `NONE = NONE` is true, so the translator prints the comparison alone, and `!=` as `!=` | `owners_at` and `owner_at` in `main.roc` |
-| Order, start and limit | `.order_by(\|r\| r.id, Asc).start(2).limit(2)`, in the order that SurrealDB runs them. Another order is a type error (see Clauses after `select`) | `ORDER BY id LIMIT 2 START 2` | `examples/main.roc:856` |
-| The whole rows of a query | `Surreal.from(vets).ready()`, or `.prepare(params)` for a query with parameters (`Query.ready`, `Query.prepare`): the fields of the row type, so `id` is the key. No `select(\|r\| r)` is needed | `SELECT contact, record::id(id) AS id, license, .. FROM vet` | `examples/main.roc:850` |
-| A filter of a projection | `.select(vital_line).filter(\|l\| fever_fn.call2(l.temp_c, l.pulse))` | `SELECT .. FROM vital WHERE fn::fever(temp_c, pulse)` | `examples/monitoring.roc:375` |
-| A filter of groups (`HAVING`) | `.aggregate(day_line).filter(\|d\| d.fevers < d.readings)` | `SELECT day, fevers, kennel, readings FROM (SELECT .. GROUP BY day, kennel) WHERE fevers < readings` | `examples/monitoring.roc:382` |
-| A filter after an order and a limit | `.order_by(\|l\| l.pulse, Desc).limit(3).filter(\|l\| l.temp_c < 39)` | `SELECT at, kennel, pulse, temp_c FROM (SELECT .. ORDER BY pulse DESC LIMIT 3) WHERE temp_c < 39.0dec` | `examples/monitoring.roc:388` |
-| Result rows as the rows of a new query | `.select(hot_line).query().filter(\|r\| r.hot).group_by(\|r\| r.kennel)` | `SELECT count() AS fevers, record::id(id)[0] AS kennel FROM vital WHERE fn::fever(temp_c, pulse) GROUP BY kennel` | `examples/monitoring.roc:399` |
-| Update and delete with a parameter | `medications.update_by(Clinic.low_stock, refill)`, `visits.delete_by(Clinic.too_old)` | `UPDATE medication SET stock = stock + $add WHERE stock < $floor RETURN AFTER`, `DELETE visit WHERE seen < $before RETURN BEFORE` | `examples/main.roc:987`, `examples/main.roc:1059` |
-| Read, update and delete by key | `vets.at(ruth_id).select(specialty_line)`, `vets.set_at(vets.id("tia"), certified)`, `owners.delete_at(owners.id("noor"))`. The key is an `Id` of the table, written as an escaped record id. `update_at_by` and `set_at_by` read a parameter record | `SELECT .. FROM vet:⟨ruth⟩`, `UPDATE vet:⟨tia⟩ SET ..`, `DELETE owner:⟨noor⟩`. SurrealDB reads and writes the one record (`EXPLAIN`: `RecordIdScan`, `Iterate Record`) | `examples/main.roc:772`, `examples/main.roc:996`, `examples/main.roc:1038` |
-| A key compared with a value of the statement | `.filter_by(\|p, v\| v.id == p.key)`, `.filter(\|v\| v.id == "ruth")`, or a captured key in `select_where` | `WHERE id = type::record('vet', $key)`, `WHERE id = vet:⟨ruth⟩`: a `SELECT` reads the one record, where `record::id(id) = $key` scans the table (`Translate.key_compare`) | `examples/main.roc:778` |
-| An update of a row with optional fields | `owners.update_at(owners.id("jon"), renamed)`, with `renamed = \|o\| { ..o, name: "Jon B. Berg" }` and `phone ?:`, `referred_by ?:` in `Owner`. The reifier gives `..o` over each optional field as a switch on its presence, with the row in each arm, and each arm keeps the field. A field that the arms set differently is an `IF` on the presence. An optional field that the patch's row leaves out is `NONE`. A record field built with `..` is set field by field | `UPDATE owner:⟨jon⟩ SET name = 'Jon B. Berg'`; `{ ..m, address: { ..m.address, city: "Rome" } }` is `SET address.city = 'Rome'` | `examples/main.roc:1005` |
-| A patch of only the fields it sets | `owners.set_at(owners.id("lena"), moved)`, with `moved = \|o\| { address: { ..o.address, zip: "69002" }, phone: Err(Missing) }`. The annotation of `moved` gives the `Err` its type. `set` takes a condition instead of a key, and `set_by` and `set_at_by` read a parameter record. A `Try` sets an optional field, and `Err` removes it. Each field is checked against the row when the statement is built (see Design limits) | `UPDATE owner:⟨lena⟩ SET address.zip = '69002', phone = NONE` | `examples/main.roc:1014` |
-| A record merged into a row | `tallies.merge_at(tallies.id("t1"), { label: "Merged", meta: { a: 9 } })`, `upsert_merge_at` for a key with no row, `merge(\|t\| t.hits > 10, { tags: ["hot"] })` for a condition. The record is a value of the app, with only the fields to change; an object in it is merged into the stored object, so `meta.b` stays. `set_at` writes the same, each field as a clause, and stays the way to change a union field (a merged union keeps the keys of its old arm) or to remove an optional one. The fields are the server's to check, as Roc has no type for a record of some of the row's fields; `id` is refused | `UPDATE tally:⟨t1⟩ MERGE { label: 'Merged', meta: { a: 9 } } RETURN AFTER`, `UPSERT tally:⟨t4⟩ MERGE { .. }`, `UPDATE tally MERGE { tags: ['hot'] } WHERE hits > 10` | `examples/client.roc:1362` |
-| JSON Patch ops replayed on a row | `tallies.patch_at(tallies.id("t3"), patches)` takes the `Patch`es of `live_diff`, in order, so a client replays what another saw; `patch_ops_at` takes `Op`s that the app made, `[Replace(["label"], Cbor.Value.Text("Patched")), Add(["tags", "-"], ..)]`. A patch of another row, a patch of a delete, an op at `/id` and a `change` op (a text diff, read and not written) are refused when the statement is built. A path that the row does not have is the server's error | `UPDATE tally:⟨t3⟩ PATCH [{ op: 'replace', path: '/label', value: 'Patched' }, { op: 'add', path: '/tags/-', value: 'p' }, { op: 'replace', path: '/meta/b', value: 7 }] RETURN AFTER` | `examples/client.roc:1347`, `examples/client.roc:1365`, `tests/DiffTest.roc:272` |
-| Insert, or update the row that exists | `tallies.insert_or_update(incoming, \|new, old\| { ..old, label: new.label, hits: old.hits + new.hits })`. The patch is translated as the one of `update` is, with the new row at `$input`; the row is the last argument, as in `update_by`. One transaction. A duplicate is the same record key: a row that repeats only the value of a unique index is `Unique`, as for `insert`. A relation table is refused | `BEGIN; INSERT INTO tally [..] ON DUPLICATE KEY UPDATE hits = IF id != NONE { hits + $input.hits }, label = IF id != NONE { $input.label } RETURN AFTER; COMMIT`. SurrealDB 3.3.4 evaluates the clause once with no stored row, where `hits + 1` is an error even for a new key (verified), so each item is guarded with `IF id != NONE` | `examples/client.roc:1360` |
-| Seeds through the derived encoder | `vets.insert(seed_vets)`, `treats.insert(seed_treats)` | `BEGIN; INSERT INTO vet [..] RETURN AFTER; COMMIT`, `BEGIN; INSERT RELATION INTO treats [..] RETURN AFTER; COMMIT` | `examples/main.roc:913`, `examples/main.roc:918` |
+| A query fragment over an open row | `Clinic.recent : Surreal.Query({ since : Surreal.Datetime, ..p }, { seen : Surreal.Datetime, ..r }) -> ..`, `Clinic.by_id(Clinic.recent(Surreal.from(visits)).select(visit_line))` | `SELECT .. FROM visit WHERE $since <= seen ORDER BY id` | `examples/clinic/Clinic.roc:49`, `examples/main.roc:832` |
+| A captured run-time value | `cheaper_than(limit)`, with `Surreal.from(medications).filter(\|m\| m.unit_price < limit).ready()`, a `Prepared(List(row))` | `LET $_1 = 0.9dec; SELECT form, record::id(id) AS id, label, .. FROM medication WHERE unit_price < $_1` | `examples/main.roc:528` |
+| A captured record with an optional field | `owners_at(places)`, with `Surreal.from(owners).filter(\|o\| places.contains(o.address))` and an address with no `zip`. Also `owner_at(place)`, with `Surreal.from(owners).filter(\|o\| o.address == place)`, once with a `zip` and once without | `LET $_1 = [{ city: 'Lyon', line: 'Rue Merciere 9' }, { city: 'Oslo', .., zip: '0155' }]; SELECT .. FROM owner WHERE address IN $_1`. The absent `zip` is `Code.Value.Absent`, and the object leaves it out. For `owner_at`, the captured address is one input, `$_1`, because the comparison reads it whole, and the script compares `address.city = $_1.city`, `address.line = $_1.line` and `address.zip = $_1.zip`. The compiler describes that as a switch on the presence of each `zip`. SurrealDB reads an absent field as NONE, and `NONE = NONE` is true, so the translator prints the comparison alone, and `!=` as `!=` | `owners_at` and `owner_at` in `main.roc` |
+| Order, start and limit | `.order_by(\|r\| r.id, Asc).start(2).limit(2)`, in the order that SurrealDB runs them. Another order is a type error (see Clauses after `select`) | `ORDER BY id LIMIT 2 START 2` | `examples/main.roc:886` |
+| The whole rows of a query | `Surreal.from(vets).ready()`, or `.prepare(params)` for a query with parameters (`Query.ready`, `Query.prepare`): the fields of the row type, so `id` is the key. No `select(\|r\| r)` is needed | `SELECT contact, record::id(id) AS id, license, .. FROM vet` | `examples/main.roc:880` |
+| A filter of a projection | `.select(vital_line).filter(\|l\| fever_fn.call2(l.temp_c, l.pulse))` | `SELECT .. FROM vital WHERE fn::fever(temp_c, pulse)` | `examples/monitoring.roc:372` |
+| A filter of groups (`HAVING`) | `.aggregate(day_line).filter(\|d\| d.fevers < d.readings)` | `SELECT day, fevers, kennel, readings FROM (SELECT .. GROUP BY day, kennel) WHERE fevers < readings` | `examples/monitoring.roc:379` |
+| A filter after an order and a limit | `.order_by(\|l\| l.pulse, Desc).limit(3).filter(\|l\| l.temp_c < 39)` | `SELECT at, kennel, pulse, temp_c FROM (SELECT .. ORDER BY pulse DESC LIMIT 3) WHERE temp_c < 39.0dec` | `examples/monitoring.roc:385` |
+| Result rows as the rows of a new query | `.select(hot_line).query().filter(\|r\| r.hot).group_by(\|r\| r.kennel)` | `SELECT count() AS fevers, record::id(id)[0] AS kennel FROM vital WHERE fn::fever(temp_c, pulse) GROUP BY kennel` | `examples/monitoring.roc:396` |
+| Update and delete with a parameter | `medications.update_by(Clinic.low_stock, refill)`, `visits.delete_by(Clinic.too_old)` | `UPDATE medication SET stock = stock + $add WHERE stock < $floor RETURN AFTER`, `DELETE visit WHERE seen < $before RETURN BEFORE` | `examples/main.roc:1017`, `examples/main.roc:1089` |
+| Read, update and delete by key | `vets.at(ruth_id).select(specialty_line)`, `vets.set_at(vets.id("tia"), certified)`, `owners.delete_at(owners.id("noor"))`. The key is a `Code(Id(row))`: a constant, or a value from around the function, which is a `$_1` slot (`LET $_1 = owner:⟨jon⟩; UPDATE $_1 ..`). The key is an `Id` of the table, written as an escaped record id. `update_at_by` and `set_at_by` read a parameter record | `SELECT .. FROM vet:⟨ruth⟩`, `UPDATE vet:⟨tia⟩ SET ..`, `DELETE owner:⟨noor⟩`. SurrealDB reads and writes the one record (`EXPLAIN`: `RecordIdScan`, `Iterate Record`) | `examples/main.roc:769`, `examples/main.roc:993`, `examples/main.roc:1035` |
+| A key compared with a value of the statement | `.filter_by(\|p, v\| v.id == p.key)`, `.filter(\|v\| v.id == "ruth")`, or a key from around the function | `WHERE id = type::record('vet', $key)`, `WHERE id = vet:⟨ruth⟩`: a `SELECT` reads the one record, where `record::id(id) = $key` scans the table (`Translate.key_compare`) | `examples/main.roc:808` |
+| An update of a row with optional fields | `owners.update_at(owners.id("jon"), renamed)`, with `renamed = \|o\| { ..o, name: "Jon B. Berg" }` and `phone ?:`, `referred_by ?:` in `Owner`. The reifier gives `..o` over each optional field as a switch on its presence, with the row in each arm, and each arm keeps the field. A field that the arms set differently is an `IF` on the presence. An optional field that the patch's row leaves out is `NONE`. A record field built with `..` is set field by field | `UPDATE owner:⟨jon⟩ SET name = 'Jon B. Berg'`; `{ ..m, address: { ..m.address, city: "Rome" } }` is `SET address.city = 'Rome'` | `examples/main.roc:1002` |
+| A patch of only the fields it sets | `owners.set_at(owners.id("lena"), moved)`, with `moved = \|o\| { address: { ..o.address, zip: "69002" }, phone: Err(Missing) }`. The annotation of `moved` gives the `Err` its type. `set` takes a condition instead of a key, and `set_by` and `set_at_by` read a parameter record. A `Try` sets an optional field, and `Err` removes it. Each field is checked against the row when the statement is built (see Design limits) | `UPDATE owner:⟨lena⟩ SET address.zip = '69002', phone = NONE` | `examples/main.roc:1011` |
+| A record merged into a row | `tallies.merge_at(tallies.id("t1"), { label: "Merged", meta: { a: 9 } })`, `upsert_merge_at` for a key with no row, `merge(\|t\| t.hits > 10, { tags: ["hot"] })` for a condition. The record is a value of the app, with only the fields to change; an object in it is merged into the stored object, so `meta.b` stays. `set_at` writes the same, each field as a clause, and stays the way to change a union field (a merged union keeps the keys of its old arm) or to remove an optional one. The fields are the server's to check, as Roc has no type for a record of some of the row's fields; `id` is refused | `UPDATE tally:⟨t1⟩ MERGE { label: 'Merged', meta: { a: 9 } } RETURN AFTER`, `UPSERT tally:⟨t4⟩ MERGE { .. }`, `UPDATE tally MERGE { tags: ['hot'] } WHERE hits > 10` | `examples/client.roc:1387` |
+| JSON Patch ops replayed on a row | `tallies.patch_at(tallies.id("t3"), patches)` takes the `Patch`es of `live_diff`, in order, so a client replays what another saw; `patch_ops_at` takes `Op`s that the app made, `[Replace(["label"], Cbor.Value.Text("Patched")), Add(["tags", "-"], ..)]`. A patch of another row, a patch of a delete, an op at `/id` and a `change` op (a text diff, read and not written) are refused when the statement is built. A path that the row does not have is the server's error | `UPDATE tally:⟨t3⟩ PATCH [{ op: 'replace', path: '/label', value: 'Patched' }, { op: 'add', path: '/tags/-', value: 'p' }, { op: 'replace', path: '/meta/b', value: 7 }] RETURN AFTER` | `examples/client.roc:1372`, `examples/client.roc:1390`, `tests/DiffTest.roc:272` |
+| Insert, or update the row that exists | `tallies.insert_or_update(incoming, \|new, old\| { ..old, label: new.label, hits: old.hits + new.hits })`. The patch is translated as the one of `update` is, with the new row at `$input`; the row is the last argument, as in `update_by`. One transaction. A duplicate is the same record key: a row that repeats only the value of a unique index is `Unique`, as for `insert`. A relation table is refused | `BEGIN; INSERT INTO tally [..] ON DUPLICATE KEY UPDATE hits = IF id != NONE { hits + $input.hits }, label = IF id != NONE { $input.label } RETURN AFTER; COMMIT`. SurrealDB 3.3.4 evaluates the clause once with no stored row, where `hits + 1` is an error even for a new key (verified), so each item is guarded with `IF id != NONE` | `examples/client.roc:1385` |
+| Seeds through the derived encoder | `vets.insert(seed_vets)`, `treats.insert(seed_treats)` | `BEGIN; INSERT INTO vet [..] RETURN AFTER; COMMIT`, `BEGIN; INSERT RELATION INTO treats [..] RETURN AFTER; COMMIT` | `examples/main.roc:943`, `examples/main.roc:948` |
 | A Roc function as a database function | `fever_fn = Surreal.db_fn("fever", fever)`, `Surreal.function(\|_\| fever_fn)` in the schema | `DEFINE FUNCTION OVERWRITE fn::fever($a1: decimal, $a2: int) -> bool { RETURN ($a1 > 39.0dec) OR ($a2 > 120) };` | `examples/monitoring.roc:105` |
-| A database function in a filter | `.filter(\|v\| fever_fn.call2(v.temp_c, v.pulse))` | `WHERE fn::fever(temp_c, pulse)` | `examples/monitoring.roc:355` |
+| A database function in a filter | `.filter(\|v\| fever_fn.call2(v.temp_c, v.pulse))` | `WHERE fn::fever(temp_c, pulse)` | `examples/monitoring.roc:352` |
 | A database function in a computed field | `.computed(\|v\| v.fevered, \|v\| fever_fn.call2(v.temp_c, v.pulse))` | `fevered ON vital TYPE bool VALUE fn::fever($this.temp_c, $this.pulse)` | `examples/monitoring.roc:137` |
 | A time series key | `id : Surreal.TimeKey(Surreal.Id(Kennel))`, `Surreal.time_key(kennels.id("a"), at)` | `DEFINE FIELD OVERWRITE id ON vital TYPE [record<kennel>, datetime]`, `BEGIN; INSERT INTO vital [{ id: [kennel:⟨a⟩, d'..'], .. }] RETURN AFTER; COMMIT` | `examples/monitoring.roc:47`, `examples/monitoring.roc:207` |
-| A range of one series | `.between(kennel_a, day_start, day_end)` | `FROM vital:[kennel:⟨a⟩, d'..']..[kennel:⟨a⟩, d'..']` | `examples/monitoring.roc:361` |
+| A range of one series | `.between(kennel_a, day_start, day_end)` | `FROM vital:[kennel:⟨a⟩, d'..']..[kennel:⟨a⟩, d'..']` | `examples/monitoring.roc:358` |
 | Bucket by day | `.group_by(day_of)` with `Surreal.Time.floor(v.id.time(), Surreal.Time.days(1))` | `time::floor(record::id(id)[1], ..) AS day, record::id(id)[0] AS kennel .. GROUP BY day, kennel` | `examples/monitoring.roc:147` |
 | A view | `daily.define_as(Surreal.from(vitals).group_by(day_of), day_line)` | `DEFINE TABLE OVERWRITE vital_daily TYPE NORMAL AS SELECT .. count(fn::fever(temp_c, pulse)) AS fevers .. GROUP BY day, kennel` | `examples/monitoring.roc:159` |
 | A changefeed | `vitals.define().changefeed(Surreal.Time.days(7))` | `DEFINE TABLE OVERWRITE vital SCHEMAFULL CHANGEFEED 1w` | `examples/monitoring.roc:138` |
-| Retention by time | `vitals.delete_by(\|p, v\| v.id.time() < p.before)` | `DELETE vital WHERE record::id(id)[1] < $before RETURN BEFORE` | `examples/monitoring.roc:423` |
+| Retention by time | `vitals.delete_by(\|p, v\| v.id.time() < p.before)` | `DELETE vital WHERE record::id(id)[1] < $before RETURN BEFORE` | `examples/monitoring.roc:420` |
 | Geometry fields | `location : Surreal.Point`, `area : Surreal.Polygon` | `location ON site TYPE geometry<point> ASSERT geo::is_valid($value)` | `examples/monitoring.roc:43` |
-| The coordinates of a point | `s.location.lat()` | `location.coordinates[1]` | `examples/monitoring.roc:426` |
-| A geometry parameter in a relation | `filter_by(\|p, s\| Surreal.Geo.inside(p.here.to_geometry(), s.area.to_geometry()))`, `.prepare({ here: here })` | `LET $here = { type: 'Point', coordinates: [10.75f, 59.91f] }; .. WHERE $here INSIDE area` | `examples/monitoring.roc:430` |
-| A distance | `filter_by(\|p, s\| Surreal.Geo.distance(s.location, p.here) < 50000)` | `WHERE geo::distance(location, $here) < 50000f` | `examples/monitoring.roc:435` |
-| A point out of range is refused | `sites.create({ .., location: Surreal.point(200, 2), .. })` | `geo::is_valid($value)` fails for the field `location` | `examples/monitoring.roc:457` |
-| A live query | `Surreal.from(vitals).filter(\|v\| fever_fn.call2(v.temp_c, v.pulse)).select(vital_line).ready_live(definitions)` | `LIVE SELECT VALUE { row: { at: record::id(id)[1], .. }, now: fn::fever(temp_c, pulse) } FROM vital WHERE fn::fever(temp_c, pulse) OR ($before IS NOT NONE AND fn::fever($before.temp_c, $before.pulse))` | `examples/monitoring.roc:467` |
-| A live query with a parameter | `.filter_by(\|p, v\| v.temp_c > p.limit).select(vital_line).live({ limit: limit }, definitions)` | `LET $limit = 39.2dec;` then `LIVE SELECT .. WHERE (temp_c > $limit) OR ($before IS NOT NONE AND ($before.temp_c > $limit))` | `examples/monitoring.roc:472` |
-| A live query of a view | `Surreal.from(daily).ready_live(definitions)` | `LIVE SELECT VALUE { row: { day: day, .. }, now: true } FROM vital_daily` | `examples/monitoring.roc:476` |
-| A live query of a row and its edges | `Surreal.from(kennels).incoming(cares_for).filter(no_carer).select(unattended_line).ready_live(definitions)` | A second `LIVE SELECT VALUE { ref: out, node: (SELECT VALUE { row: .., now: .. } FROM ONLY $parent.out) } FROM cares_for` | `examples/monitoring.roc:490` |
-| A live query of a read row with an `In` field | `Surreal.from(kennel_reads).filter(\|k\| k.cares_for.list().len() == 0).select(..).ready_live(definitions)` | The same second `LIVE SELECT .. FROM cares_for` as for `incoming` | `examples/monitoring.roc:495` |
-| A live query with a semi join | `.filter(\|k\| vitals.rows().any(..)).select_value(\|k\| k.label).ready_live(definitions)` | `LIVE SELECT VALUE { row: label, now: true } FROM kennel WHERE id.chain(..).any(..)`, and a `LIVE` on `vital` that sends the kennel of the written key only: `LIVE SELECT VALUE (SELECT VALUE { ref: id, row: label, now: .. } FROM record::id($parent.id)[0]) FROM vital` | `examples/monitoring.roc:501` |
-| A live query that reads a linked table | `Surreal.from(kennels).select(\|k\| { label: k.label, site: k.site.get().name }).ready_live(definitions)` | A `LIVE` on `site` that sends the kennels that link to the written site: `LIVE SELECT VALUE (SELECT VALUE { ref: id, row: .., now: true } FROM kennel WHERE site = $parent.id) FROM site` | `examples/monitoring.roc:523` |
-| A live query of two edge tables | `Surreal.from(kennels).incoming(cares_for).and_incoming(checks).filter(no_one).select(neglected_line).ready_live(definitions)` | A `LIVE` on `cares_for` and one on `checks`, each with the node after the write | `examples/monitoring.roc:515` |
-| The raw events of a live query | `.select(vital_line).live_raw({})` | `LIVE SELECT VALUE { at: record::id(id)[1], .. } FROM vital WHERE fn::fever(temp_c, pulse)` | `examples/monitoring.roc:551` |
-| The patches of the stored rows | `Surreal.from(vitals).live_diff({})` | `LIVE SELECT DIFF FROM vital` | `examples/monitoring.roc:555` |
+| The coordinates of a point | `s.location.lat()` | `location.coordinates[1]` | `examples/monitoring.roc:423` |
+| A geometry parameter in a relation | `filter_by(\|p, s\| Surreal.Geo.inside(p.here.to_geometry(), s.area.to_geometry()))`, `.prepare({ here: here })` | `LET $here = { type: 'Point', coordinates: [10.75f, 59.91f] }; .. WHERE $here INSIDE area` | `examples/monitoring.roc:427` |
+| A distance | `filter_by(\|p, s\| Surreal.Geo.distance(s.location, p.here) < 50000)` | `WHERE geo::distance(location, $here) < 50000f` | `examples/monitoring.roc:432` |
+| A point out of range is refused | `sites.create({ .., location: Surreal.point(200, 2), .. })` | `geo::is_valid($value)` fails for the field `location` | `examples/monitoring.roc:454` |
+| A live query | `Surreal.from(vitals).filter(\|v\| fever_fn.call2(v.temp_c, v.pulse)).select(vital_line).ready_live(definitions)` | `LIVE SELECT VALUE { row: { at: record::id(id)[1], .. }, now: fn::fever(temp_c, pulse) } FROM vital WHERE fn::fever(temp_c, pulse) OR ($before IS NOT NONE AND fn::fever($before.temp_c, $before.pulse))` | `examples/monitoring.roc:464` |
+| A live query with a parameter | `.filter_by(\|p, v\| v.temp_c > p.limit).select(vital_line).live({ limit: limit }, definitions)` | `LET $limit = 39.2dec;` then `LIVE SELECT .. WHERE (temp_c > $limit) OR ($before IS NOT NONE AND ($before.temp_c > $limit))` | `examples/monitoring.roc:469` |
+| A live query of a view | `Surreal.from(daily).ready_live(definitions)` | `LIVE SELECT VALUE { row: { day: day, .. }, now: true } FROM vital_daily` | `examples/monitoring.roc:473` |
+| A live query of a row and its edges | `Surreal.from(kennels).incoming(cares_for).filter(no_carer).select(unattended_line).ready_live(definitions)` | A second `LIVE SELECT VALUE { ref: out, node: (SELECT VALUE { row: .., now: .. } FROM ONLY $parent.out) } FROM cares_for` | `examples/monitoring.roc:487` |
+| A live query of a read row with an `In` field | `Surreal.from(kennel_reads).filter(\|k\| k.cares_for.list().len() == 0).select(..).ready_live(definitions)` | The same second `LIVE SELECT .. FROM cares_for` as for `incoming` | `examples/monitoring.roc:492` |
+| A live query with a semi join | `.filter(\|k\| vitals.rows().any(..)).select_value(\|k\| k.label).ready_live(definitions)` | `LIVE SELECT VALUE { row: label, now: true } FROM kennel WHERE id.chain(..).any(..)`, and a `LIVE` on `vital` that sends the kennel of the written key only: `LIVE SELECT VALUE (SELECT VALUE { ref: id, row: label, now: .. } FROM record::id($parent.id)[0]) FROM vital` | `examples/monitoring.roc:498` |
+| A live query that reads a linked table | `Surreal.from(kennels).select(\|k\| { label: k.label, site: k.site.get().name }).ready_live(definitions)` | A `LIVE` on `site` that sends the kennels that link to the written site: `LIVE SELECT VALUE (SELECT VALUE { ref: id, row: .., now: true } FROM kennel WHERE site = $parent.id) FROM site` | `examples/monitoring.roc:520` |
+| A live query of two edge tables | `Surreal.from(kennels).incoming(cares_for).and_incoming(checks).filter(no_one).select(neglected_line).ready_live(definitions)` | A `LIVE` on `cares_for` and one on `checks`, each with the node after the write | `examples/monitoring.roc:512` |
+| The raw events of a live query | `.select(vital_line).live_raw({})` | `LIVE SELECT VALUE { at: record::id(id)[1], .. } FROM vital WHERE fn::fever(temp_c, pulse)` | `examples/monitoring.roc:548` |
+| The patches of the stored rows | `Surreal.from(vitals).live_diff({})` | `LIVE SELECT DIFF FROM vital` | `examples/monitoring.roc:552` |
 | A live session, on basic-cli | `Surreal.Session.open!(transport, ..)`, then `session.live!(watch)`, writes on the same session, and `next_within!` | `query` with the request of the watch, in CBOR over a WebSocket on `/rpc` | `examples/watch.roc:557` |
-| Requests in flight together | `session.send!(prepared)` for each, then `await!(ticket, prepared)`, the last first | Several `query` requests before the first reply | `examples/client.roc:755-758` |
+| Requests in flight together | `session.send!(prepared)` for each, then `await!(ticket, prepared)`, the last first | Several `query` requests before the first reply | `examples/client.roc:792-795` |
 | A typed row of one key, in a session | `sites.at(sites.id("oslo")).ready_one()` | `SELECT area, record::id(id) AS id, location, name FROM site:⟨oslo⟩`, read as `Try(Site, [NotFound])` | `examples/client.roc:185` |
-| A typed query result, in a session | `session.run!(Surreal.from(vitals).filter(..).select(vital_line).ready())` | `query` with the request of the prepared statement, the reply read as `List(VitalLine)` | `examples/client.roc:163` |
-| A typed write result | `kennels.create(quay)`, `kennels.delete_at(kennels.id("q")).ready()`, `carers.delete(\|c\| ..).ready()` | `CREATE kennel:⟨q⟩ CONTENT { .. } RETURN AFTER`, `DELETE kennel:⟨q⟩ RETURN BEFORE`, `DELETE carer WHERE .. RETURN BEFORE`, each read as the stored rows | `examples/client.roc:863` |
-| Two statements in one request | `write.then(read)` | `LET $key = 'q'; LET $label = ..; UPDATE kennel SET .. RETURN AFTER; SELECT ..`, read as `(Try(List(Kennel), Error), Try(List(KennelLine), Error))`, each with its own error | `examples/client.roc:234` |
-| Statements in one transaction | `create.begin().then(insert)?.then(rows)?.commit()` | `BEGIN; CREATE bin:⟨b3⟩ .. RETURN AFTER; INSERT INTO bin [..] RETURN AFTER; SELECT .. FROM bin; COMMIT`, read as `((List(Bin), List(Bin)), List(Bin))`, or `Aborted({ at, error })` | `examples/client.roc:356` |
-| Writes of one type in one transaction | `Surreal.transaction([bins.create(spare_bin), bins.create(twin_bin)])` | `BEGIN; CREATE bin:⟨b5⟩ ..; CREATE bin:⟨b2⟩ ..; COMMIT`, read as `List(List(Bin))`, or `Aborted({ at, error })` | `examples/client.roc:386` |
-| A plan from one schema to another, in a test | `Surreal.plan(Surreal.schema(place_defs)?, loose_defs, V3)?.prepare(DropData)` for `run!` | `BEGIN; REMOVE INDEX IF EXISTS bin_label_unique ON bin; COMMIT`, read as `{}` | `examples/client.roc:402` |
+| A typed query result, in a session | `session.run!(Surreal.from(vitals).filter(..).select(vital_line).ready())` | `query` with the request of the prepared statement, the reply read as `List(VitalLine)` | `examples/client.roc:186` |
+| A typed write result | `kennels.create(quay)`, `kennels.delete_at(kennels.id("q")).ready()`, `carers.delete(\|c\| ..).ready()` | `CREATE kennel:⟨q⟩ CONTENT { .. } RETURN AFTER`, `DELETE kennel:⟨q⟩ RETURN BEFORE`, `DELETE carer WHERE .. RETURN BEFORE`, each read as the stored rows | `examples/client.roc:888` |
+| Two statements in one request | `write.then(read)` | `LET $key = 'q'; LET $label = ..; UPDATE kennel SET .. RETURN AFTER; SELECT ..`, read as `(Try(List(Kennel), Error), Try(List(KennelLine), Error))`, each with its own error | `examples/client.roc:257` |
+| Statements in one transaction | `create.begin().then(insert).then(rows).commit()` | `BEGIN; CREATE bin:⟨b3⟩ .. RETURN AFTER; INSERT INTO bin [..] RETURN AFTER; SELECT .. FROM bin; COMMIT`, read as `((List(Bin), List(Bin)), List(Bin))`, or `Aborted({ at, error })` | `examples/client.roc:376` |
+| Writes of one type in one transaction | `Surreal.transaction([bins.create(spare_bin), bins.create(twin_bin)])` | `BEGIN; CREATE bin:⟨b5⟩ ..; CREATE bin:⟨b2⟩ ..; COMMIT`, read as `List(List(Bin))`, or `Aborted({ at, error })` | `examples/client.roc:406` |
+| A plan from one schema to another, in a test | `Surreal.plan(Surreal.schema(place_defs)?, loose_defs, V3)?.prepare(DropData)` for `run!` | `BEGIN; REMOVE INDEX IF EXISTS bin_label_unique ON bin; COMMIT`, read as `{}` | `examples/client.roc:422` |
 | Migration files and the runner | `Surreal.plan(snapshot, schema, V4)?.to_file(name, KeepData)`, `Surreal.migration(name, text)`, `session.migrate!(migrations)` | A file with sections, and `_reify_migration` | `examples/migrate.roc` |
 | A typed read of a patch | `patch.field(\|v\| v.temp_c)` | `{ op: 'replace', path: '/temp_c', value: 37.9dec }` is `Set(37.9)` | `examples/watch.roc:609` |
 | The notices of a write, in Roc | `Surreal.Mirror.notices(vitals, Replace(hot, cooled), is_fever, vital_line)` | `[{ action: 'UPDATE', now: false, ref: vital:[..], role: 'node', row: { .. } }]` | `Mirror.notices` |
-| A key that the server makes | `.default_by(\|n\| n.id, \|_\| Surreal.Rand.ulid())`, then `notes.insert_new(new_notes)` with rows that have no `id` | `DEFINE FIELD OVERWRITE id ON note TYPE string DEFAULT rand::ulid()`, `INSERT INTO note [{ text: .., vet: vet:⟨ruth⟩ }] RETURN AFTER`, each row read back as a `Created` with its `Id` | `examples/main.roc:1082`, `examples/main.roc:1067` |
-| A link and an edge to a row with a key from the server | `tasks.insert_new([{ title: "Feed", shift: shifts.link(made.id.key()) }])`, `handovers.create_new({ from: .., to: .., notes: "keys" })` | `INSERT INTO task [{ shift: shift:⟨01M6..⟩, title: 'Feed' }] ..`, `RELATE shift:⟨01M6..⟩->handover->shift:⟨01M6..⟩ CONTENT { notes: 'keys' } RETURN AFTER` | `examples/client.roc:722-723` |
-| A record access method, typed | `accounts.define(users, \|v\| { email: v.email, pass: Surreal.Hash.argon2(v.pass) }, \|v, u\| u.email == v.email and Surreal.Hash.argon2_matches(u.pass, v.pass))` | `DEFINE ACCESS OVERWRITE account ON DATABASE TYPE RECORD SIGNUP (CREATE user CONTENT { email: $email, pass: crypto::argon2::generate($pass) }) SIGNIN (SELECT * FROM user WHERE (email = $email) AND crypto::argon2::compare(pass, $pass)) DURATION FOR TOKEN 1h` | `examples/client.roc:1021` |
-| A table permission over the row and the record user | `.permit([Select], \|m\| m.owner.id() == users.auth() or m.shared)`, `.permit([Create, Update, Delete], ..)` | `DEFINE TABLE OVERWRITE memo SCHEMAFULL PERMISSIONS FOR select WHERE (owner = $auth.id) OR shared, FOR create, update, delete WHERE owner = $auth.id` | `examples/client.roc:1016-1017` |
-| A field permission | `.deny_field(\|u\| u.pass, [Select])`, `.permit_field(\|m\| m.text, [Update], \|m\| !m.shared)` | `pass ON user TYPE string PERMISSIONS FOR select NONE`, `text ON memo TYPE string PERMISSIONS FOR update WHERE !shared` | `examples/client.roc:1014`, `examples/client.roc:1018` |
-| The record user in a query | `.filter(\|m\| m.owner.id() == users.auth())` | `WHERE owner = $auth.id` | `examples/client.roc:1046` |
-| A session of a record user, on both transports | `Session.open!(transport, accounts.sign_up(scope, ann))`, then `Token(session.token()?)` and `session.invalidate!()` | RPC `signup`, `signin`, `authenticate`, `invalidate`; over HTTP each post has `Authorization: Bearer <token>` | `examples/client.roc:1133`, `examples/client.roc:1189` |
+| A key that the server makes | `.default_by(\|n\| n.id, \|_\| Surreal.Rand.ulid())`, then `notes.insert_new(new_notes)` with rows that have no `id` | `DEFINE FIELD OVERWRITE id ON note TYPE string DEFAULT rand::ulid()`, `INSERT INTO note [{ text: .., vet: vet:⟨ruth⟩ }] RETURN AFTER`, each row read back as a `Created` with its `Id` | `examples/main.roc:1112`, `examples/main.roc:1097` |
+| A link and an edge to a row with a key from the server | `tasks.insert_new([{ title: "Feed", shift: shifts.link(made.id.key()) }])`, `handovers.create_new({ from: .., to: .., notes: "keys" })` | `INSERT INTO task [{ shift: shift:⟨01M6..⟩, title: 'Feed' }] ..`, `RELATE shift:⟨01M6..⟩->handover->shift:⟨01M6..⟩ CONTENT { notes: 'keys' } RETURN AFTER` | `examples/client.roc:759-760` |
+| A record access method, typed | `accounts.define(users, \|v\| { email: v.email, pass: Surreal.Hash.argon2(v.pass) }, \|v, u\| u.email == v.email and Surreal.Hash.argon2_matches(u.pass, v.pass))` | `DEFINE ACCESS OVERWRITE account ON DATABASE TYPE RECORD SIGNUP (CREATE user CONTENT { email: $email, pass: crypto::argon2::generate($pass) }) SIGNIN (SELECT * FROM user WHERE (email = $email) AND crypto::argon2::compare(pass, $pass)) DURATION FOR TOKEN 1h` | `examples/client.roc:1046` |
+| A table permission over the row and the record user | `.permit([Select], \|m\| m.owner.id() == users.auth() or m.shared)`, `.permit([Create, Update, Delete], ..)` | `DEFINE TABLE OVERWRITE memo SCHEMAFULL PERMISSIONS FOR select WHERE (owner = $auth.id) OR shared, FOR create, update, delete WHERE owner = $auth.id` | `examples/client.roc:1041-1042` |
+| A field permission | `.deny_field(\|u\| u.pass, [Select])`, `.permit_field(\|m\| m.text, [Update], \|m\| !m.shared)` | `pass ON user TYPE string PERMISSIONS FOR select NONE`, `text ON memo TYPE string PERMISSIONS FOR update WHERE !shared` | `examples/client.roc:1039`, `examples/client.roc:1043` |
+| The record user in a query | `.filter(\|m\| m.owner.id() == users.auth())` | `WHERE owner = $auth.id` | `examples/client.roc:1071` |
+| A session of a record user, on both transports | `Session.open!(transport, accounts.sign_up(scope, ann))`, then `Token(session.token()?)` and `session.invalidate!()` | RPC `signup`, `signin`, `authenticate`, `invalidate`; over HTTP each post has `Authorization: Bearer <token>` | `examples/client.roc:1158`, `examples/client.roc:1214` |
 | An analyzer | `Surreal.analyzer("clinical", [Class], [Lowercase])`, `clinical.define()` in the schema list | `DEFINE ANALYZER OVERWRITE clinical TOKENIZERS class FILTERS lowercase;`, before the tables | `examples/search.roc:33`, `examples/search.roc:120` |
 | A full-text index | `chart_text = charts.text_index(\|c\| c.body, clinical)`, `.text_index(chart_text)` | `DEFINE INDEX OVERWRITE chart_body_fulltext ON chart FIELDS body FULLTEXT ANALYZER clinical BM25 HIGHLIGHTS` | `examples/search.roc:36`, `examples/search.roc:42` |
 | A full-text search, with a Roc meaning | `.search(chart_text, "limping").select(\|(c, _)\| { id: c.id })`, and `clinical.matches(c.body, "limping")` in Roc | `SELECT .. FROM chart WHERE body @1@ 'limping'` | `examples/search.roc:130`, `examples/search.roc:97` |
@@ -602,8 +602,8 @@ Roc tag unions with `match` in a query.
 | A vector index | `charts.vector_index(\|c\| c.embedding, { dimension: 3, distance: Cosine })`, `.vector_index(chart_vectors)` | `DEFINE INDEX OVERWRITE chart_embedding_hnsw ON chart FIELDS embedding HNSW DIMENSION 3 DIST COSINE TYPE F64` | `examples/search.roc:39`, `examples/search.roc:42` |
 | The nearest rows | `.nearest(chart_vectors, limp_probe, Exact(3)).select(\|(c, near)\| { id: c.id, distance: near.distance() })`, `Approx({ k: 3, ef: 40 })` | `vector::distance::knn() AS distance .. WHERE embedding <\|3,COSINE\|> [1f, 0f, 0f]`, `<\|3,40\|>` | `examples/search.roc:192`, `examples/search.roc:198` |
 | Vector functions | `Surreal.Vector.similarity_cosine(c.embedding, probe)` and the distances, the same to the bit in Roc | `vector::similarity::cosine(embedding, [0.5f, 0.25f, 0.125f])` | `examples/search.roc:184`, `examples/search.roc:76` |
-| A search in a session, on both transports | `session.run!(ranked_notes)`, read as `List(Ranked)`, and `close_notes` | The same statements, over RPC | `examples/client.roc:1233-1234`, `examples/client.roc:1277` |
-| Writes the database must refuse | ``rejects("check_as_assert", "field `weight_kg`", patients.create(light_patient))`` | the check reports a failed statement | `examples/main.roc:923` |
+| A search in a session, on both transports | `session.run!(ranked_notes)`, read as `List(Ranked)`, and `close_notes` | The same statements, over RPC | `examples/client.roc:1258-1259`, `examples/client.roc:1302` |
+| Writes the database must refuse | ``rejects("check_as_assert", "field `weight_kg`", patients.create(light_patient))`` | the check reports a failed statement | `examples/main.roc:953` |
 
 `check.py` runs the whole script with the Roc result next to each query. A
 query and its Roc result use the same functions: `owner_card`, `pet_line`,
@@ -719,7 +719,7 @@ A stored `Link(r)` is the record `{ id : Id(r), fetched : [Fetched(r), NotFetche
 | `o.customer.id` | `Linked(Customer)` | `record::id(customer)` | The field `id` of the linked row, as text. A read row has no `id()` on a `Linked` |
 | `c.id` | A row with its own field `id : Str` | `record::id(id)` | The key of the row. The row is not a `Link`, so the translator reads a field. On the row that a statement reads, `c.id == "ada"` and `c.id == p.key` compare the record id instead: `id = customer:⟨ada⟩`, `id = type::record('customer', $key)` |
 
-Use the field when the id is compared or captured, as in `o.customer.id == who`. Use `link.id()` when a method call reads better in a chain. The two forms give the same SurrealQL in filters, `select`, `select_value`, `order_by`, `group_by`, updates, live queries, captured ids and edge ends (`tests/QueriesTest.roc:626`).
+Use the field when the id is compared or captured, as in `o.customer.id == who`. Use `link.id()` when a method call reads better in a chain. The two forms give the same SurrealQL in filters, `select`, `select_value`, `order_by`, `group_by`, updates, live queries, captured ids and edge ends (`tests/QueriesTest.roc:629`).
 
 | Rule | Detail |
 | --- | --- |
@@ -750,8 +750,8 @@ match session.run!(made).result {
 
 | Roc | Type |
 | --- | --- |
-| `Table.create_new` | `Table({ id : Str, ..new }), new -> Try(Prepared(List(Created({ id : Str, ..new }, new))), Error)` |
-| `Table.insert_new` | `Table({ id : Str, ..new }), List(new) -> Try(Prepared(List(Created({ id : Str, ..new }, new))), Error)` |
+| `Table.create_new` | `Table({ id : Str, ..new }), new -> Prepared(List(Created({ id : Str, ..new }, new)))` |
+| `Table.insert_new` | `Table({ id : Str, ..new }), List(new) -> Prepared(List(Created({ id : Str, ..new }, new)))` |
 | `Surreal.Created(row, new)` | `{ id : Id(row), fields : new }`: the key that the server gave, as an `Id` of the table, and the other fields as stored |
 
 | The key | Schema | Key (verified on 3.3.4) |
@@ -890,7 +890,7 @@ The two functions are intrinsics: a row in the program holds no edges. To
 compute the same result in Roc, write the path as a function of the edges,
 `owners_of_primary : List(Treats) -> List(Str)`, give it
 `treats.edges_from(v)` in the clause and the seed edges in Roc
-(`examples/main.roc:1135`). A read row with `Out` and `In` fields holds its
+(`examples/main.roc:1165`). A read row with `Out` and `In` fields holds its
 edges in the program, and the same rules give its paths.
 
 SurrealDB gives the edges of a record in the order of their record ids.
@@ -994,7 +994,7 @@ Facts of SurrealDB 3.3.4 that the design reads, each run on the server:
 | A write to a table that a filter reads with `rows()` | nothing | | the rows of the result's table that the written row is related to, before and after the write, or every row when the clause gives no relation |
 | Two edge tables in one watch | | one notice of the statement of each table that the write is in | |
 
-The live blocks of `monitoring.roc` (`examples/monitoring.roc:992`) check each part:
+The live blocks of `monitoring.roc` (`examples/monitoring.roc:995`) check each part:
 
 | Block | Writes | Shows |
 | --- | --- | --- |
@@ -1369,7 +1369,7 @@ a statement that fails is `Server(error)`, typed by the server's kind (see
 | `Table.insert_new(rows)` | `BEGIN; INSERT .. RETURN AFTER; COMMIT`, rows with no `id` | `List(Created(row, new))`: each row, in the order of `rows` |
 | `Table.edit(Create(r) \| Replace(a, b) \| Delete(r))` | `Create(r)` is `Table.create`. `Replace(a, b)`: `UPDATE t:⟨k⟩ CONTENT .. RETURN AFTER`. `Delete(r)`: `DELETE t:⟨k⟩ RETURN BEFORE` | `List(row)`: one row, or none for a replace or a delete of a row that is not there |
 | `a.then(b)` | The `LET`s of both, each name once, then the statements of `a` and of `b`, each runs on its own | `(Try(x, Error), Try(y, Error))` |
-| `a.begin().then(b)?.commit()` | The `LET`s, `BEGIN`, the statements of `a` and of `b`, `COMMIT` | `(x, y)`, or `Aborted` |
+| `a.begin().then(b).commit()` | The `LET`s, `BEGIN`, the statements of `a` and of `b`, `COMMIT` | `(x, y)`, or `Aborted` |
 
 | Rule | Detail |
 | --- | --- |
@@ -1480,7 +1480,7 @@ conflict with another and fail at its `COMMIT`, and its result is all or
 nothing.
 
 ```roc
-stocked = create.begin().then(insert)?.then(rows)?.commit()
+stocked = create.begin().then(insert).then(rows).commit()
 # BEGIN; CREATE bin:⟨b3⟩ .. RETURN AFTER; INSERT INTO bin [..] RETURN AFTER; SELECT .. FROM bin; COMMIT;
 match session.run!(stocked).result {
 	Ok(((created, inserted), after)) => ..
@@ -2241,7 +2241,7 @@ Surreal.from(sites).select(|s| { id: s.id, lat: s.location.lat() })
 | Field type | `TYPE geometry<kind> ASSERT geo::is_valid($value)` (`src/Types.roc:99`). SurrealDB stores a point out of range, so the assert refuses it (`bad_point`) |
 | A ring | SurrealDB closes a ring that is not closed. `geo_values` reads one back closed, and the `-- roc:` literal goes through the same server, so the two agree |
 | A geometry in a clause | A point is the cast `<point> [lon, lat]`, which takes any number expressions. Another kind is `Unsupported`: "pass a geometry as a parameter with `filter_by` and `prepare`". A tuple takes only number literals, and `<geometry>` of an object fails in 3.3.4 |
-| A captured geometry | Refused in `select_where` with the same advice (`Translate.captured`) |
+| A captured geometry | Bound as its GeoJSON object, `{ type: 'Point', coordinates: [lon, lat] }`, which SurrealDB reads as a geometry (`Translate.geojson`) |
 | `geo_valid` | Each field asserts `geo::is_valid`, so the stored points are valid. The query doubles the coordinates of `at` to reach the range limits: `(180, 90)` is valid, `-180.0000002` and `-90.0000002` are not |
 
 #### Dropped, renamed and left out
@@ -2406,8 +2406,8 @@ temperature_surreal = Surreal.extension(
 	},
 )
 
-fever : Temperature -> Try(Surreal.Prepared(List(Reading)), Ql.Error)
-fever = |limit| Surreal.bind_captured(Surreal.select_where_with(readings, [temperature_surreal], |r| Temperature.from_celsius(r.temp_c) > limit))
+fever : Temperature -> Surreal.Prepared(List(Reading))
+fever = |limit| Surreal.from(readings).filter_with([temperature_surreal], |r| Temperature.from_celsius(r.temp_c) > limit).ready()
 ```
 
 `fever(Temperature.from_celsius(38.5))` is
@@ -2417,13 +2417,13 @@ fever = |limit| Surreal.bind_captured(Surreal.select_where_with(readings, [tempe
 | --- | --- |
 | `render` | Takes the SurrealQL of each argument as an operand, and the evidence of the call, and gives the SurrealQL of the call or why it has none. An operator puts its own parentheses, as `binary` does |
 | The id | `Temperature.is_gt` and `Dec.is_gt` have one name and two ids. A `>` on two temperatures is refused without the extension (`` `Temperature.is_gt` has no SurrealQL form ``), never read as the builtin `>`, and the extension leaves the builtin as it is. An operation the extension does not cover, such as `<`, is refused by name |
-| A captured value | `select_where_with` takes a `Code.Binds(Code(row -> Bool), Encode.Bind)`. A captured value whose type holds an opaque type arrives as the bytes its own `encoder_for` wrote in `Encode.Bind` (`encoder_for : _` in `Temperature.roc`), and `Encode.bound` reads them back as the literal that `Encode.Format` gives the same value. A temperature is its `Dec`. A field path of a captured record, `ward.alarm`, is one input too |
+| A captured value | `filter_with` takes a `Code.Binds(Code(row -> Bool), Encode.Bind)`. A captured value whose type holds an opaque type arrives as the bytes its own `encoder_for` wrote in `Encode.Bind` (`encoder_for : _` in `Temperature.roc`), and `Encode.bound` reads them back as the literal that `Encode.Format` gives the same value. A temperature is its `Dec`. A field path of a captured record, `ward.alarm`, is one input too |
 | The order | `Surreal.library` comes first, then the extensions in the order given. A builtin is looked up before them all |
 
 `Surreal`'s own functions are an extension too, `Surreal.library`. The
 translator cannot import `Surreal`, which imports it, so the ids of the cut
 and of the intrinsics cannot be named in `Translate.roc`. `Surreal` passes `Surreal.library` into
-every call of the translator instead, and `select_where_with` adds the
+every call of the translator instead, and `filter_with` adds the
 caller's after it. One lookup by id (`Translate.form`) serves the builtins,
 `Surreal` and the extensions.
 
@@ -2450,8 +2450,8 @@ Each finding below was reproduced with a `roc` built at commit `f0e659f0a7`. Eac
 Customer : { id : Str, zip ?: Str, tags : Set(Str) }
 Order : { id : Str, customer : Surreal.Link(Customer) }
 
-of_customer : Surreal.Id(Customer) -> Code.Bound(Try({ surql : Str, slots : List(Code.Ty) }, Surreal.Error))
-of_customer = |who| Surreal.select_where(orders, |o| o.customer.id == who)
+of_customer : Surreal.Id(Customer) -> Surreal.Prepared(List(Order))
+of_customer = |who| Surreal.from(orders).filter(|o| o.customer.id == who).ready()
 # before the change: cannot bind this captured value: a captured record with an optional field
 ```
 
@@ -2499,7 +2499,7 @@ old_vet = { ..ruth, id: "bad", years: 300 }
 
 `{ ..base, f: v }` has the type of `base`. A row whose `years` is an `I64`, so
 that the database can refuse 300, is another type. `main.roc` writes `old_vet`
-in full (`examples/main.roc:654`).
+in full (`examples/main.roc:687`).
 
 ### 4 and 5. Syntax
 
@@ -2528,9 +2528,9 @@ A reason that starts with "By design" is a limit of a live query that stays.
 | `created_now` overwrites a value that a create gives | A seed cannot set it. A query must not select it for a `-- roc:` comparison |
 | A condition on the key does not make an `UPDATE` or a `DELETE` read one record | SurrealDB 3.3.4 plans `UPDATE t SET .. WHERE id = t:⟨k⟩` and `DELETE t WHERE id = t:⟨k⟩` as `Iterate Table` (verified with `EXPLAIN`), and only a `SELECT` reads the record. Write by key with `update_at`, `set_at` and `delete_at` |
 | `at`, `update_at`, `set_at` and `delete_at` take a text key | An `Id(row)` holds a text key. A row of a time series is read with `between` and deleted with `Delete(row)` |
-| A captured run-time value works in `select_where` and `select_where_with` only | The other clauses take a parameter record, which types the values by name |
+| A captured run-time value needs a function whose result is a `Prepared` or a `Watch`. A chain in place in an effectful body cannot capture | Move the chain to a function of its own, as `shift_at` in `examples/client.roc:450` |
 | A nominal type is known by its name | `Code.Ty.Named` has no type id, so `Types.nominal` compares names, and an app's or another package's nominal named `Surreal.Link` or `Builtin.Try` would be taken for that one. A call is known by its id, and an opaque type by its `Code.TypeId`, so only the nominals of `Surreal` and `Builtin` have this limit. A type id on `Named`, a change to the reifier, removes it |
-| A captured `Id`, `Datetime` or geometry in `select_where_with` is a type error | Their encoders write rows (`Encode.Format`), and `Code.Binds` needs an encoder in `Encode.Bind` for every captured value. Capture them in `select_where`, which binds them without a format |
+| A captured `Id`, `Datetime` or geometry in `filter_with` is a type error | Their encoders write rows (`Encode.Format`), and `Code.Binds` needs an encoder in `Encode.Bind` for every captured value. Capture them in `filter`, which binds them without a format |
 | An extension renders calls only | A field of an opaque type has no SurrealDB type, so a row cannot hold one (`BadSchema`). An extension gives the SurrealQL of the type's functions, and a captured value is what its encoder writes |
 | `I128` and `U128` are refused as field types | They do not fit `int`, and the derived encoder has no case for them. Use `I64` |
 | The schema is the current type; old types are not kept | The committed snapshot is the old schema as text. A plan finds no rename (a drop and a new field) and does not compare with the live database (see "Migrations") |
@@ -2578,7 +2578,7 @@ A reason that starts with "By design" is a limit of a live query that stays.
 | No median, percentile, or integer sum in a view | SurrealDB refuses the first two, and gives a float for the sum |
 | `SHOW CHANGES` has no Roc API | Its versionstamps cannot be predicted |
 | `Time.floor`, `ceil` and `round` stop the program outside 1677 to 2262 | SurrealDB refuses a time outside the nanoseconds of an `I64` |
-| A geometry other than a point is a parameter, not a clause literal | A tuple takes only number literals, and `<geometry>` of an object fails in 3.3.4. A captured geometry in `select_where` is refused with the same advice |
+| A geometry other than a point is a parameter, not a clause literal | A tuple takes only number literals, and `<geometry>` of an object fails in 3.3.4. A captured geometry is bound as its GeoJSON object |
 | `CONTAINSALL`, `CONTAINSANY`, `ALLINSIDE` and the other list forms have no Roc API | List semantics over geometries. Low use |
 | A clause after a group, a limit or a start reads a subquery | SurrealDB 3.3.4 has no `HAVING` (verified), and a limit comes after `WHERE`. A `LIVE SELECT` refuses a subquery, so a live query can take only the form of one `SELECT` |
 | No live query with `GROUP BY`, `ORDER BY`, `LIMIT`, `START`, `between` or a subquery | SurrealDB refuses them. Watch a view for a group, and order the rows of a `View` |
@@ -2618,6 +2618,32 @@ The cost of a new feature is small and local:
   and its `??`, and each query uses functions that the application also calls.
 
 ## Changes
+
+### 0.0.3 (unreleased)
+
+Compiler pin `0aedb1ae00` (Roc nightly 2026-11-07). roc-websocket 0.0.6; the
+examples use roc-basic-cli-websocket 0.0.4 (basic-cli 0.27.0) and
+roc-basic-webserver-websocket 0.0.3 (basic-webserver 0.21.0).
+
+- Values from around the function (breaking). A chain in a function whose
+  result is a `Prepared` or a `Watch` reads the values of that function as
+  `$_1`, `$_2`, .. slots, in any clause. `Surreal.select_where`,
+  `Surreal.select_where_with` and `Surreal.bind_captured` are removed: write
+  `Surreal.from(t).filter(f).ready()`, and `Query.filter_with(exts, f)` for
+  an extension.
+- The keys of `at`, `set_at`, `update_at`, `update_at_by` and `delete_at`
+  are `Code(Id(row))`, and `limit` and `start` take `Code(U64)`: a constant
+  or a value from around the function. A key of another table is an error
+  in the statement.
+- `Prepared(out)` and `Watch(out)` hold their error (breaking): no `Try`
+  around them. `checked()` gives the error early; `statement()`,
+  `request()` and `Watch.block` give a `Try`. `then`, `Transaction.then`
+  and `Surreal.transaction` keep the first error; `send!` puts it in the
+  ticket, and `await!` and `run!` in the result.
+- Captured values of the types `Duration`, `TimeKey`, the geometries and
+  `U128` are bound. A slot in a schema clause is a compile error.
+- A key written in place in a top-level value is a constant of the
+  statement: `vets.at(vets.id("tia"))` gives `vet:⟨tia⟩`.
 
 ### 0.0.2
 

@@ -1137,11 +1137,12 @@ Surreal :: {}.{
 		## `Selected.prepare_one` reads the result as the row or
 		## `NotFound`. The key is an escaped record id, so any text is one
 		## key, and an id of another table is refused.
-		at : Table(row), Id(row) -> Query(p, row)
+		at : Table(row), Code(Id(row)) -> Query(p, row)
 		at = |this, row_id| {
 			Table.(t) = this
 			Query.(q) = Surreal.from(this)
-			Query.({ ..q, target: Record(record_at(t, row_id)) })
+			key = key_of(t, row_id)
+			Query.({ ..q, target: Record(key.text), slots: key.slots })
 		}
 
 		## A link to a row of this table. It is not fetched.
@@ -1180,7 +1181,7 @@ Surreal :: {}.{
 		## analyzer: `notes.text_index(|n| n.body, clinical)`. Give it to
 		## `Def.text_index` and to `Query.search`.
 		text_index : Table(row), Code(row -> Str), Analyzer -> FullText(row)
-		text_index = |Table.(t), path, an| FullText.({ table: t.name, path: within_clause("`text_index`", one_path(path.graph(), "a full-text index")), analyzer: an })
+		text_index = |Table.(t), path, an| FullText.({ table: t.name, path: within_clause("`text_index`", one_path(stored_graph(path, "an index"), "a full-text index")), analyzer: an })
 
 		## An HNSW index of the vector field at the path, of `dimension`
 		## numbers, by `distance`: `notes.vector_index(|n| n.embedding, {
@@ -1194,7 +1195,7 @@ Surreal :: {}.{
 				ListOf(F32) => Ok("F32")
 				other => Err(BadSchema("a vector index of `${t.name}` is over a `List(F64)` or a `List(F32)`, not a `${other.name()}`"))
 			}
-			VectorIndex.({ table: t.name, path: within_clause("`vector_index`", one_path(path.graph(), "a vector index")), dimension: shape.dimension, distance: shape.distance, element })
+			VectorIndex.({ table: t.name, path: within_clause("`vector_index`", one_path(stored_graph(path, "an index"), "a vector index")), dimension: shape.dimension, distance: shape.distance, element })
 		}
 
 		## The schema builder of this table. The definition holds the type of
@@ -1246,9 +1247,15 @@ Surreal :: {}.{
 				(View, Range(_)) => Err(Unsupported("the view `${t.name}` reads a range; a view reads a whole table"))
 				(View, Record(_)) => Err(Unsupported("the view `${t.name}` reads the record of one key; a view reads a whole table"))
 				(View, Sub(_)) => Err(Unsupported("the view `${t.name}` reads a subquery; a view reads a whole table"))
-				(View, Whole(_)) => Selected.render(aggregated(grouped, per_group, Bool.True), Translate.variable)
+				(View, Whole(_)) => {
+					Selected.(view) = aggregated(grouped, per_group, Bool.True)
+					if !view.slots.is_empty() {
+						crash stored_message("a view")
+					}
+					Selected.render(Selected.(view), Translate.variable)
+				}
 			}
-			Def.({ source: { name: t.name, row_ty: per_group.graph().root_row().result, kind: Types.Kind.View(select) }, rules: [], problems: [] })
+			Def.({ source: { name: t.name, row_ty: stored_graph(per_group, "a view").root_row().result, kind: Types.Kind.View(select) }, rules: [], problems: [] })
 		}
 
 		# ---------------------------------------------------- writes
@@ -1262,25 +1269,19 @@ Surreal :: {}.{
 		## The result is the rows as stored, with the fields that the
 		## database computes: `BEGIN`, the `INSERT`, `COMMIT`, and a
 		## failure is the insert's.
-		insert : Table(row), List(row) -> Try(Prepared(List(row)), Error) where [row.encoder_for : Encode.Format -> (row, Encode.State -> Try(Encode.State, [])), row.Cbor.Readable(errs)]
-		insert = |Table.(t), new_rows| {
-			statement = insert_body(t, new_rows, return_clause(After))?
-			Ok(Prepared.({ statement, count: 1, atomic: Whole, read: read_stored(0, is_edge(t.kind)) }))
-		}
+		insert : Table(row), List(row) -> Prepared(List(row)) where [row.encoder_for : Encode.Format -> (row, Encode.State -> Try(Encode.State, [])), row.Cbor.Readable(errs)]
+		insert = |Table.(t), new_rows| prepared_of(insert_body(t, new_rows, return_clause(After)).map_ok(|statement| { statement, slots: [], count: 1, atomic: Whole, read: read_stored(0, is_edge(t.kind)) }))
 
 		## [Table.insert] of rows whose keys the server makes, as
 		## [Table.create_new] does: each row without its `id`. The result is
 		## the rows as stored, in the order of `rows`.
-		insert_new : Table({ id : Str, ..new }), List(new) -> Try(Prepared(List(Created({ id : Str, ..new }, new))), Error) where [new.encoder_for : Encode.Format -> (new, Encode.State -> Try(Encode.State, [])), new.Cbor.Readable(errs)]
-		insert_new = |Table.(t), new_rows| {
-			statement = insert_body(t, new_rows, return_clause(After))?
-			Ok(Prepared.({ statement, count: 1, atomic: Whole, read: read_created(t) }))
-		}
+		insert_new : Table({ id : Str, ..new }), List(new) -> Prepared(List(Created({ id : Str, ..new }, new))) where [new.encoder_for : Encode.Format -> (new, Encode.State -> Try(Encode.State, [])), new.Cbor.Readable(errs)]
+		insert_new = |Table.(t), new_rows| prepared_of(insert_body(t, new_rows, return_clause(After)).map_ok(|statement| { statement, slots: [], count: 1, atomic: Whole, read: read_created(t) }))
 
 		## A new row at `table:⟨id⟩`, or for an edge table the edge between
 		## the rows of `from` and `to`: `CREATE`, `RELATE`. It fails when
 		## the row exists. The result is the row as stored.
-		create : Table(row), row -> Try(Prepared(List(row)), Error) where [row.encoder_for : Encode.Format -> (row, Encode.State -> Try(Encode.State, [])), row.Cbor.Readable(errs)]
+		create : Table(row), row -> Prepared(List(row)) where [row.encoder_for : Encode.Format -> (row, Encode.State -> Try(Encode.State, [])), row.Cbor.Readable(errs)]
 		create = |this, row| Table.edit(this, Create(row))
 
 		## A new row whose key the server makes: the row without its `id`.
@@ -1289,27 +1290,30 @@ Surreal :: {}.{
 		## (`.default_by(|r| r.id, |_| Surreal.Rand.ulid())`), or else
 		## SurrealDB's random 20 characters. The result is the row as
 		## stored: its `Id`, and its other fields.
-		create_new : Table({ id : Str, ..new }), new -> Try(Prepared(List(Created({ id : Str, ..new }, new))), Error) where [new.encoder_for : Encode.Format -> (new, Encode.State -> Try(Encode.State, [])), new.Cbor.Readable(errs)]
+		create_new : Table({ id : Str, ..new }), new -> Prepared(List(Created({ id : Str, ..new }, new))) where [new.encoder_for : Encode.Format -> (new, Encode.State -> Try(Encode.State, [])), new.Cbor.Readable(errs)]
 		create_new = |Table.(t), row| {
-			fields = keyless(t, row)?
-			statement = match t.kind {
-				Relation(_) => relate_fields(t, Err(Generated), fields)?
-				Normal | View => statement_of("CREATE ${Ql.ident(t.name)} CONTENT ${Ql.literal(Ql.Value.Object(fields))}")
+			built = |{}| {
+				fields = keyless(t, row)?
+				statement = match t.kind {
+					Relation(_) => relate_fields(t, Err(Generated), fields)?
+					Normal | View => statement_of("CREATE ${Ql.ident(t.name)} CONTENT ${Ql.literal(Ql.Value.Object(fields))}")
+				}
+				Statement.(made) = statement
+				Ok({ statement: statement_of("${made.surql}${return_clause(After)}"), slots: [], count: 1, atomic: No, read: read_created(t) })
 			}
-			Statement.(made) = statement
-			Ok(Prepared.({ statement: statement_of("${made.surql}${return_clause(After)}"), count: 1, atomic: No, read: read_created(t) }))
+			prepared_of(built({}))
 		}
 
 		## The row at `table:⟨id⟩`, replaced when it exists and made when
 		## not. The result is the row as stored after the write.
-		upsert : Table(row), row -> Try(Prepared(List(row)), Error) where [row.encoder_for : Encode.Format -> (row, Encode.State -> Try(Encode.State, [])), row.Cbor.Readable(errs)]
-		upsert = |Table.(t), row| stored_write(t, content_write("UPSERT", t, row)?, After)
+		upsert : Table(row), row -> Prepared(List(row)) where [row.encoder_for : Encode.Format -> (row, Encode.State -> Try(Encode.State, [])), row.Cbor.Readable(errs)]
+		upsert = |Table.(t), row| stored_write(t, content_write("UPSERT", t, row), After)
 
 		## The row at `table:⟨id⟩`, replaced by this one when it exists:
 		## `UPDATE .. CONTENT`. The result is the row as stored after the
 		## write, or none when the key has no row.
-		replace : Table(row), row -> Try(Prepared(List(row)), Error) where [row.encoder_for : Encode.Format -> (row, Encode.State -> Try(Encode.State, [])), row.Cbor.Readable(errs)]
-		replace = |Table.(t), row| stored_write(t, content_write("UPDATE", t, row)?, After)
+		replace : Table(row), row -> Prepared(List(row)) where [row.encoder_for : Encode.Format -> (row, Encode.State -> Try(Encode.State, [])), row.Cbor.Readable(errs)]
+		replace = |Table.(t), row| stored_write(t, content_write("UPDATE", t, row), After)
 
 		## Insert rows, and where a row with the same key exists, change the
 		## stored row instead: `INSERT INTO t [..] ON DUPLICATE KEY UPDATE ..`.
@@ -1323,17 +1327,20 @@ Surreal :: {}.{
 		## stored row before it reads one, and then `old.visits + 1` is an
 		## error, so each item is guarded with `IF id != NONE` (verified). A
 		## relation table is refused.
-		insert_or_update : Table(row), List(row), Code((row, row -> row)) -> Try(Prepared(List(row)), Error) where [row.encoder_for : Encode.Format -> (row, Encode.State -> Try(Encode.State, [])), row.Cbor.Readable(errs)]
+		insert_or_update : Table(row), List(row), Code((row, row -> row)) -> Prepared(List(row)) where [row.encoder_for : Encode.Format -> (row, Encode.State -> Try(Encode.State, [])), row.Cbor.Readable(errs)]
 		insert_or_update = |Table.(t), new_rows, patch| {
-			writable(t)?
-			if is_edge(t.kind) {
-				return Err(Unsupported("`insert_or_update` is not defined for the relation table `${t.name}`"))
+			built = |{}| {
+				writable(t)?
+				if is_edge(t.kind) {
+					return Err(Unsupported("`insert_or_update` is not defined for the relation table `${t.name}`"))
+				}
+				new = Translate.Binding.Row({ at: "$input", of: Doc(Of(t.name)), edge: Bool.False })
+				sets = within_clause("the patch of `insert_or_update`", Translate.assignments(own, patch.graph(), [new, Translate.table_row(t.name, Bool.False)], spelled(patch, Translate.variable)))?
+				guarded = sets.map(|s| { ..s, surql: "IF id != NONE { ${s.surql} }" })
+				statement = insert_body(t, new_rows, " ON DUPLICATE KEY UPDATE ${set_list(guarded)}${return_clause(After)}")?
+				Ok({ statement, slots: slots_of(patch), count: 1, atomic: Whole, read: read_stored(0, Bool.False) })
 			}
-			new = Translate.Binding.Row({ at: "$input", of: Doc(Of(t.name)), edge: Bool.False })
-			sets = within_clause("the patch of `insert_or_update`", Translate.assignments(own, patch.graph(), [new, Translate.table_row(t.name, Bool.False)], Translate.variable))?
-			guarded = sets.map(|s| { ..s, surql: "IF id != NONE { ${s.surql} }" })
-			statement = insert_body(t, new_rows, " ON DUPLICATE KEY UPDATE ${set_list(guarded)}${return_clause(After)}")?
-			Ok(Prepared.({ statement, count: 1, atomic: Whole, read: read_stored(0, Bool.False) }))
+			prepared_of(built({}))
 		}
 
 		## Replay patches on the row with this key, in order: `UPDATE
@@ -1347,24 +1354,28 @@ Surreal :: {}.{
 		## row does not have, or a value of another type, is the server's
 		## error. The result is the row as stored, or none for a key with
 		## no row.
-		patch_at : Table(row), Id(row), List(Patch(row)) -> Try(Prepared(List(row)), Error) where [row.Cbor.Readable(errs)]
+		patch_at : Table(row), Id(row), List(Patch(row)) -> Prepared(List(row)) where [row.Cbor.Readable(errs)]
 		patch_at = |this, row_id, patches| {
 			Id.(i) = row_id
 			foreign = patches.keep_if(|Patch.(p)| p.ref.to_str() != Ql.record_ref(i.table, Ql.Value.Str(i.key)))
 			if !foreign.is_empty() {
-				return Err(Unsupported("a patch is of another row than `${Ql.record_id(i.table, i.key)}`"))
+				prepared_of(Err(Unsupported("a patch is of another row than `${Ql.record_id(i.table, i.key)}`")))
+			} else {
+				Table.patch_ops_at(this, row_id, patches.join_map(|Patch.(p)| p.ops))
 			}
-			Table.patch_ops_at(this, row_id, patches.join_map(|Patch.(p)| p.ops))
 		}
 
 		## [Table.patch_at] of ops that the app made, `Replace(["tag"],
 		## Cbor.Value.Text("x"))`.
-		patch_ops_at : Table(row), Id(row), List(Op) -> Try(Prepared(List(row)), Error) where [row.Cbor.Readable(errs)]
+		patch_ops_at : Table(row), Id(row), List(Op) -> Prepared(List(row)) where [row.Cbor.Readable(errs)]
 		patch_ops_at = |Table.(t), row_id, ops| {
-			writable(t)?
-			record = record_at(t, row_id)?
-			items = ops.map_try(patch_item)?
-			stored_write(t, statement_of("UPDATE ${record} PATCH [${Str.join_with(items, ", ")}]"), After)
+			built = |{}| {
+				writable(t)?
+				record = record_at(t, row_id)?
+				items = ops.map_try(patch_item)?
+				Ok(statement_of("UPDATE ${record} PATCH [${Str.join_with(items, ", ")}]"))
+			}
+			stored_write(t, built({}), After)
 		}
 
 		## Merge a record into the row with this key: `UPDATE t:⟨k⟩ MERGE
@@ -1378,22 +1389,25 @@ Surreal :: {}.{
 		## key by key too, so the keys of its old arm stay (verified): change
 		## a union with `set_at`, as `update` does. The result is the row as
 		## stored, or none for a key with no row.
-		merge_at : Table(row), Id(row), partial -> Try(Prepared(List(row)), Error) where [partial.encoder_for : Encode.Format -> (partial, Encode.State -> Try(Encode.State, [])), row.Cbor.Readable(errs)]
-		merge_at = |Table.(t), row_id, partial| stored_write(t, merge_write("UPDATE", t, record_at(t, row_id)?, partial)?, After)
+		merge_at : Table(row), Id(row), partial -> Prepared(List(row)) where [partial.encoder_for : Encode.Format -> (partial, Encode.State -> Try(Encode.State, [])), row.Cbor.Readable(errs)]
+		merge_at = |Table.(t), row_id, partial| stored_write(t, keyed_merge("UPDATE", t, row_id, partial), After)
 
 		## [Table.merge_at] where the row is made when the key has none:
 		## `UPSERT t:⟨k⟩ MERGE { .. }`, so the record must hold every field
 		## that the schema requires.
-		upsert_merge_at : Table(row), Id(row), partial -> Try(Prepared(List(row)), Error) where [partial.encoder_for : Encode.Format -> (partial, Encode.State -> Try(Encode.State, [])), row.Cbor.Readable(errs)]
-		upsert_merge_at = |Table.(t), row_id, partial| stored_write(t, merge_write("UPSERT", t, record_at(t, row_id)?, partial)?, After)
+		upsert_merge_at : Table(row), Id(row), partial -> Prepared(List(row)) where [partial.encoder_for : Encode.Format -> (partial, Encode.State -> Try(Encode.State, [])), row.Cbor.Readable(errs)]
+		upsert_merge_at = |Table.(t), row_id, partial| stored_write(t, keyed_merge("UPSERT", t, row_id, partial), After)
 
 		## [Table.merge_at] in every row that the condition keeps:
 		## `UPDATE t MERGE { .. } WHERE ..`.
-		merge : Table(row), Code(row -> Bool), partial -> Try(Prepared(List(row)), Error) where [partial.encoder_for : Encode.Format -> (partial, Encode.State -> Try(Encode.State, [])), row.Cbor.Readable(errs)]
+		merge : Table(row), Code(row -> Bool), partial -> Prepared(List(row)) where [partial.encoder_for : Encode.Format -> (partial, Encode.State -> Try(Encode.State, [])), row.Cbor.Readable(errs)]
 		merge = |Table.(t), condition, partial| {
-			keep = within_clause("the condition of `merge`", Translate.render(own, condition.graph(), [Translate.table_row(t.name, is_edge(t.kind))], Translate.variable))?
-			Statement.(made) = merge_write("UPDATE", t, Ql.ident(t.name), partial)?
-			stored_write(t, statement_of("${made.surql} WHERE ${keep}"), After)
+			built = |{}| {
+				keep = within_clause("the condition of `merge`", Translate.render(own, condition.graph(), [Translate.table_row(t.name, is_edge(t.kind))], spelled(condition, Translate.variable)))?
+				Statement.(made) = merge_write("UPDATE", t, Ql.ident(t.name), partial)?
+				Ok(statement_of("${made.surql} WHERE ${keep}"))
+			}
+			keyed_write(t, built({}), slots_of(condition), After)
 		}
 
 		## One write of whole rows, as the Mirror describes it (`Edit`):
@@ -1402,18 +1416,15 @@ Surreal :: {}.{
 		## stored: after a create and a replace, before a delete, and none
 		## for a replace or a delete of a row that is not there. A write
 		## that has only the new row or the key is `replace` or `delete_at`.
-		edit : Table(row), Edit(row) -> Try(Prepared(List(row)), Error) where [row.encoder_for : Encode.Format -> (row, Encode.State -> Try(Encode.State, [])), row.Cbor.Readable(errs)]
+		edit : Table(row), Edit(row) -> Prepared(List(row)) where [row.encoder_for : Encode.Format -> (row, Encode.State -> Try(Encode.State, [])), row.Cbor.Readable(errs)]
 		edit = |Table.(t), change| match change {
 			Create(row) =>
 				match t.kind {
-					Relation(_) => stored_write(t, relate_row(t, row)?, After)
-					Normal | View => stored_write(t, content_write("CREATE", t, row)?, After)
+					Relation(_) => stored_write(t, relate_row(t, row), After)
+					Normal | View => stored_write(t, content_write("CREATE", t, row), After)
 				}
-			Replace(_, row) => stored_write(t, content_write("UPDATE", t, row)?, After)
-			Delete(row) => {
-				writable(t)?
-				stored_write(t, statement_of("DELETE ${ref_of(t, row)?.to_str()}"), Before)
-			}
+			Replace(_, row) => stored_write(t, content_write("UPDATE", t, row), After)
+			Delete(row) => stored_write(t, delete_of(t, row), Before)
 		}
 
 		## The record id of a row, as a live query reports it.
@@ -1442,11 +1453,11 @@ Surreal :: {}.{
 			row = Translate.table_row(t.name, is_edge(t.kind))
 			build = |param| {
 				writable(t)?
-				keep = within_clause("the condition of `update`", Translate.render(own, condition.graph(), [row], param))?
-				sets = within_clause("the patch of `update`", Translate.assignments(own, patch.graph(), [row], param))?
+				keep = within_clause("the condition of `update`", Translate.render(own, condition.graph(), [row], spelled(condition, param)))?
+				sets = within_clause("the patch of `update`", Translate.assignments(own, patch.graph(), [row], spelled(patch, param)))?
 				Ok("UPDATE ${Ql.ident(t.name)} SET ${set_list(sets)} WHERE ${keep}")
 			}
-			Write.({ build: build, gives: After, edge: is_edge(t.kind) })
+			Write.({ build: build, gives: After, edge: is_edge(t.kind), slots: slots_of(condition).concat(slots_of(patch)) })
 		}
 
 		## [Table.update] where the condition and the patch read the parameter
@@ -1456,11 +1467,11 @@ Surreal :: {}.{
 			row = Translate.table_row(t.name, is_edge(t.kind))
 			build = |param| {
 				writable(t)?
-				keep = within_clause("the condition of `update_by`", Translate.render(own, condition.graph(), [Translate.Binding.Params, row], param))?
-				sets = within_clause("the patch of `update_by`", Translate.assignments(own, patch.graph(), [Translate.Binding.Params, row], param))?
+				keep = within_clause("the condition of `update_by`", Translate.render(own, condition.graph(), [Translate.Binding.Params, row], spelled(condition, param)))?
+				sets = within_clause("the patch of `update_by`", Translate.assignments(own, patch.graph(), [Translate.Binding.Params, row], spelled(patch, param)))?
 				Ok("UPDATE ${Ql.ident(t.name)} SET ${set_list(sets)} WHERE ${keep}")
 			}
-			Write.({ build: build, gives: After, edge: is_edge(t.kind) })
+			Write.({ build: build, gives: After, edge: is_edge(t.kind), slots: slots_of(condition).concat(slots_of(patch)) })
 		}
 
 		## Set the fields of a patch in every row the condition keeps. The
@@ -1475,11 +1486,11 @@ Surreal :: {}.{
 			row = Translate.table_row(t.name, is_edge(t.kind))
 			build = |param| {
 				writable(t)?
-				keep = within_clause("the condition of `set`", Translate.render(own, condition.graph(), [row], param))?
-				sets = within_clause("the patch of `set`", Translate.patch_assignments(own, patch.graph(), [row], param))?
+				keep = within_clause("the condition of `set`", Translate.render(own, condition.graph(), [row], spelled(condition, param)))?
+				sets = within_clause("the patch of `set`", Translate.patch_assignments(own, patch.graph(), [row], spelled(patch, param)))?
 				Ok("UPDATE ${Ql.ident(t.name)} SET ${set_list(sets)} WHERE ${keep}")
 			}
-			Write.({ build: build, gives: After, edge: is_edge(t.kind) })
+			Write.({ build: build, gives: After, edge: is_edge(t.kind), slots: slots_of(condition).concat(slots_of(patch)) })
 		}
 
 		## [Table.set] where the condition and the patch read the parameter
@@ -1489,41 +1500,42 @@ Surreal :: {}.{
 			row = Translate.table_row(t.name, is_edge(t.kind))
 			build = |param| {
 				writable(t)?
-				keep = within_clause("the condition of `set_by`", Translate.render(own, condition.graph(), [Translate.Binding.Params, row], param))?
-				sets = within_clause("the patch of `set_by`", Translate.patch_assignments(own, patch.graph(), [Translate.Binding.Params, row], param))?
+				keep = within_clause("the condition of `set_by`", Translate.render(own, condition.graph(), [Translate.Binding.Params, row], spelled(condition, param)))?
+				sets = within_clause("the patch of `set_by`", Translate.patch_assignments(own, patch.graph(), [Translate.Binding.Params, row], spelled(patch, param)))?
 				Ok("UPDATE ${Ql.ident(t.name)} SET ${set_list(sets)} WHERE ${keep}")
 			}
-			Write.({ build: build, gives: After, edge: is_edge(t.kind) })
+			Write.({ build: build, gives: After, edge: is_edge(t.kind), slots: slots_of(condition).concat(slots_of(patch)) })
 		}
 
 		## [Table.update] of the row with this key: `UPDATE vet:⟨tia⟩ SET ..`.
 		## SurrealDB writes the one record, where a condition on the key
 		## reads every row of the table (verified with `EXPLAIN`). A key
 		## with no row changes nothing.
-		update_at : Table(row), Id(row), Code(row -> row) -> Write(p, row)
-		update_at = |Table.(t), row_id, patch| update_key(t, row_id, |row, param| within_clause("the patch of `update_at`", Translate.assignments(own, patch.graph(), [row], param)))
+		update_at : Table(row), Code(Id(row)), Code(row -> row) -> Write(p, row)
+		update_at = |Table.(t), row_id, patch| update_key(t, row_id, slots_of(patch), |row, param| within_clause("the patch of `update_at`", Translate.assignments(own, patch.graph(), [row], spelled(patch, param))))
 
 		## [Table.update_at] where the patch reads the parameter record.
-		update_at_by : Table(row), Id(row), Code((p, row -> row)) -> Write(p, row)
-		update_at_by = |Table.(t), row_id, patch| update_key(t, row_id, |row, param| within_clause("the patch of `update_at_by`", Translate.assignments(own, patch.graph(), [Translate.Binding.Params, row], param)))
+		update_at_by : Table(row), Code(Id(row)), Code((p, row -> row)) -> Write(p, row)
+		update_at_by = |Table.(t), row_id, patch| update_key(t, row_id, slots_of(patch), |row, param| within_clause("the patch of `update_at_by`", Translate.assignments(own, patch.graph(), [Translate.Binding.Params, row], spelled(patch, param))))
 
 		## [Table.set] of the row with this key: `UPDATE vet:⟨tia⟩ SET ..`.
-		set_at : Table(row), Id(row), Code(row -> patch) -> Write(p, row)
-		set_at = |Table.(t), row_id, patch| update_key(t, row_id, |row, param| within_clause("the patch of `set_at`", Translate.patch_assignments(own, patch.graph(), [row], param)))
+		set_at : Table(row), Code(Id(row)), Code(row -> patch) -> Write(p, row)
+		set_at = |Table.(t), row_id, patch| update_key(t, row_id, slots_of(patch), |row, param| within_clause("the patch of `set_at`", Translate.patch_assignments(own, patch.graph(), [row], spelled(patch, param))))
 
 		## [Table.set_at] where the patch reads the parameter record.
-		set_at_by : Table(row), Id(row), Code((p, row -> patch)) -> Write(p, row)
-		set_at_by = |Table.(t), row_id, patch| update_key(t, row_id, |row, param| within_clause("the patch of `set_at_by`", Translate.patch_assignments(own, patch.graph(), [Translate.Binding.Params, row], param)))
+		set_at_by : Table(row), Code(Id(row)), Code((p, row -> patch)) -> Write(p, row)
+		set_at_by = |Table.(t), row_id, patch| update_key(t, row_id, slots_of(patch), |row, param| within_clause("the patch of `set_at_by`", Translate.patch_assignments(own, patch.graph(), [Translate.Binding.Params, row], spelled(patch, param))))
 
 		## Delete the row with this key: `DELETE vet:⟨tia⟩`. A key with no
 		## row deletes nothing.
-		delete_at : Table(row), Id(row) -> Write(p, row)
+		delete_at : Table(row), Code(Id(row)) -> Write(p, row)
 		delete_at = |Table.(t), row_id| {
+			key = key_of(t, row_id)
 			build = |_param| {
 				writable(t)?
-				Ok("DELETE ${record_at(t, row_id)?}")
+				Ok("DELETE ${key.text?}")
 			}
-			Write.({ build: build, gives: Before, edge: is_edge(t.kind) })
+			Write.({ build: build, gives: Before, edge: is_edge(t.kind), slots: key.slots })
 		}
 
 		## Delete every row the condition keeps.
@@ -1532,9 +1544,9 @@ Surreal :: {}.{
 			row = Translate.table_row(t.name, is_edge(t.kind))
 			build = |param| {
 				writable(t)?
-				Ok("DELETE ${Ql.ident(t.name)} WHERE ${within_clause("the condition of `delete`", Translate.render(own, condition.graph(), [row], param))?}")
+				Ok("DELETE ${Ql.ident(t.name)} WHERE ${within_clause("the condition of `delete`", Translate.render(own, condition.graph(), [row], spelled(condition, param)))?}")
 			}
-			Write.({ build: build, gives: Before, edge: is_edge(t.kind) })
+			Write.({ build: build, gives: Before, edge: is_edge(t.kind), slots: slots_of(condition) })
 		}
 
 		## [Table.delete] where the condition reads the parameter record.
@@ -1543,9 +1555,9 @@ Surreal :: {}.{
 			row = Translate.table_row(t.name, is_edge(t.kind))
 			build = |param| {
 				writable(t)?
-				Ok("DELETE ${Ql.ident(t.name)} WHERE ${within_clause("the condition of `delete_by`", Translate.render(own, condition.graph(), [Translate.Binding.Params, row], param))?}")
+				Ok("DELETE ${Ql.ident(t.name)} WHERE ${within_clause("the condition of `delete_by`", Translate.render(own, condition.graph(), [Translate.Binding.Params, row], spelled(condition, param)))?}")
 			}
-			Write.({ build: build, gives: Before, edge: is_edge(t.kind) })
+			Write.({ build: build, gives: Before, edge: is_edge(t.kind), slots: slots_of(condition) })
 		}
 	}
 
@@ -1590,42 +1602,42 @@ Surreal :: {}.{
 		## A row predicate, named for its error message. It is the `ASSERT`
 		## of the one field it reads, or an event when it reads several.
 		check : Def(row), Str, Code(row -> Bool) -> Def(row)
-		check = |this, name, predicate| Def.add(this, |src| Schema.check(own, src, name, predicate.graph()))
+		check = |this, name, predicate| Def.add(this, |src| Schema.check(own, src, name, stored_graph(predicate, "a `check`")))
 
 		## A predicate on one field. Through `.?` it sees a `Try`.
 		assert : Def(row), Code(row -> v), Code(v -> Bool) -> Def(row)
-		assert = |this, path, predicate| Def.add(this, |_| Schema.assert(own, path.graph(), predicate.graph()))
+		assert = |this, path, predicate| Def.add(this, |_| Schema.assert(own, stored_graph(path, "an `assert`"), stored_graph(predicate, "an `assert`")))
 
 		## A predicate on each element of a list field.
 		assert_each : Def(row), Code(row -> List(v)), Code(v -> Bool) -> Def(row)
-		assert_each = |this, path, predicate| Def.add(this, |_| Schema.assert_each(own, path.graph(), predicate.graph()))
+		assert_each = |this, path, predicate| Def.add(this, |_| Schema.assert_each(own, stored_graph(path, "an `assert_each`"), stored_graph(predicate, "an `assert_each`")))
 
 		## A unique index on a path, or on a record of paths.
 		unique : Def(row), Code(row -> k) -> Def(row)
-		unique = |this, key| Def.add(this, |src| Schema.index(src, key.graph(), Bool.True))
+		unique = |this, key| Def.add(this, |src| Schema.index(src, stored_graph(key, "a `unique` index"), Bool.True))
 
 		index : Def(row), Code(row -> k) -> Def(row)
-		index = |this, key| Def.add(this, |src| Schema.index(src, key.graph(), Bool.False))
+		index = |this, key| Def.add(this, |src| Schema.index(src, stored_graph(key, "an `index`"), Bool.False))
 
 		## The value a field takes when a write leaves it out: `.default(|c| c.tags, [])`.
 		default : Def(row), Code(row -> v), v -> Def(row) where [v.encoder_for : Encode.Format -> (v, Encode.State -> Try(Encode.State, []))]
-		default = |this, path, value| Def.add(this, |_| Schema.default(path.graph(), Encode.value_of(value)?))
+		default = |this, path, value| Def.add(this, |_| Schema.default(stored_graph(path, "a `default`"), Encode.value_of(value)?))
 
 		## As `default`, with the value an expression of the row, which may call
 		## `Rand`: `.default_by(|o| o.key, |_| Surreal.Rand.ulid())`.
 		default_by : Def(row), Code(row -> v), Code(row -> v) -> Def(row)
-		default_by = |this, path, value| Def.add(this, |src| Schema.default_by(own, src, path.graph(), value.graph()))
+		default_by = |this, path, value| Def.add(this, |src| Schema.default_by(own, src, stored_graph(path, "a `default_by`"), stored_graph(value, "a `default_by`")))
 
 		## A field SurrealDB computes on every write from the row.
 		computed : Def(row), Code(row -> v), Code(row -> v) -> Def(row)
-		computed = |this, path, value| Def.add(this, |src| Schema.computed(own, src, path.graph(), value.graph()))
+		computed = |this, path, value| Def.add(this, |src| Schema.computed(own, src, stored_graph(path, "a `computed` field"), stored_graph(value, "a `computed` field")))
 
 		readonly : Def(row), Code(row -> v) -> Def(row)
-		readonly = |this, path| Def.add(this, |_| Schema.readonly(path.graph()))
+		readonly = |this, path| Def.add(this, |_| Schema.readonly(stored_graph(path, "a `readonly` field")))
 
 		## The time of the row's first write, which later writes keep.
 		created_now : Def(row), Code(row -> Datetime) -> Def(row)
-		created_now = |this, path| Def.add(this, |_| Schema.created_now(path.graph()))
+		created_now = |this, path| Def.add(this, |_| Schema.created_now(stored_graph(path, "a `created_now` field")))
 
 		## What deleting a row of `target` does to every link from this table
 		## to it, at any depth. Without one, the delete is rejected.
@@ -1634,7 +1646,7 @@ Surreal :: {}.{
 
 		## The same for the one link at a path; it wins over `on_delete`.
 		on_delete_at : Def(row), Code(row -> l), [Reject, Unset, Cascade, Ignore] -> Def(row)
-		on_delete_at = |this, path, policy| Def.add(this, |_| Schema.on_delete_at(path.graph(), policy))
+		on_delete_at = |this, path, policy| Def.add(this, |_| Schema.on_delete_at(stored_graph(path, "an `on_delete_at`"), policy))
 
 		## A change history of this length: `CHANGEFEED <n>ns` on the table line.
 		## SurrealDB keeps it, and `SHOW CHANGES FOR TABLE` reads it.
@@ -1667,7 +1679,7 @@ Surreal :: {}.{
 		)
 
 		comment : Def(row), Code(row -> v), Str -> Def(row)
-		comment = |this, path, text| Def.add(this, |_| Schema.comment(path.graph(), text))
+		comment = |this, path, text| Def.add(this, |_| Schema.comment(stored_graph(path, "a `comment`"), text))
 
 		## A permission of the table for a record user: the rows that the
 		## condition keeps, for each of `actions`, which may read the
@@ -1677,7 +1689,7 @@ Surreal :: {}.{
 		## default, and a table with one names each action: an action that
 		## no permission names is `NONE`. A system user is not checked.
 		permit : Def(row), List(Action), Code(row -> Bool) -> Def(row)
-		permit = |this, actions, condition| Def.add(this, |src| Schema.permit(own, src, actions, Where(condition.graph())))
+		permit = |this, actions, condition| Def.add(this, |src| Schema.permit(own, src, actions, Where(stored_graph(condition, "a permission"))))
 
 		## [Def.permit] of every row: `FOR .. FULL`.
 		permit_full : Def(row), List(Action) -> Def(row)
@@ -1689,12 +1701,12 @@ Surreal :: {}.{
 		## that a select may not read is not in its row: give it a type
 		## that reads with it left out (`?:`), or select the other fields.
 		permit_field : Def(row), Code(row -> v), List(Action), Code(row -> Bool) -> Def(row)
-		permit_field = |this, path, actions, condition| Def.add(this, |src| Schema.permit_field(own, src, path.graph(), actions, Where(condition.graph())))
+		permit_field = |this, path, actions, condition| Def.add(this, |src| Schema.permit_field(own, src, stored_graph(path, "a field permission"), actions, Where(stored_graph(condition, "a field permission"))))
 
 		## [Def.permit_field] of no row: `FOR .. NONE`, such as the hash of a
 		## password that no record user reads.
 		deny_field : Def(row), Code(row -> v), List(Action) -> Def(row)
-		deny_field = |this, path, actions| Def.add(this, |src| Schema.permit_field(own, src, path.graph(), actions, No))
+		deny_field = |this, path, actions| Def.add(this, |src| Schema.permit_field(own, src, stored_graph(path, "a field permission"), actions, No))
 
 		## The definition, ready for `schema`.
 		done : Def(row) -> Defined
@@ -1742,8 +1754,8 @@ Surreal :: {}.{
 			{
 				name: a.name,
 				table: t.name,
-				content: within_clause("the signup of `${a.name}`", Translate.row_value(own, signup.graph(), [Translate.Binding.Params], Translate.variable)),
-				cond: within_clause("the signin of `${a.name}`", Translate.render(own, signin.graph(), [Translate.Binding.Params, Translate.table_row(t.name, is_edge(t.kind))], Translate.variable)),
+				content: within_clause("the signup of `${a.name}`", Translate.row_value(own, stored_graph(signup, "an access method"), [Translate.Binding.Params], Translate.variable)),
+				cond: within_clause("the signin of `${a.name}`", Translate.render(own, stored_graph(signin, "an access method"), [Translate.Binding.Params, Translate.table_row(t.name, is_edge(t.kind))], Translate.variable)),
 				token: Err(Unset),
 				session: Err(Unset),
 			},
@@ -1891,7 +1903,7 @@ Surreal :: {}.{
 			if parts.any(|part| part.any(|i| i.edit.is_ok())) {
 				return Err(Migration({ name: "", problem: Edit }))
 			}
-			Ok(parts.map(|part| Prepared.({ statement: statement_of(Str.join_with(part.map(|i| i.line), ";\n")), count: part.len(), atomic: Whole, read: |_| Ok({}) })))
+			Ok(parts.map(|part| prepared_of(Ok({ statement: statement_of(Str.join_with(part.map(|i| i.line), ";\n")), slots: [], count: part.len(), atomic: Whole, read: |_| Ok({}) }))))
 		}
 	}
 
@@ -1963,6 +1975,7 @@ Surreal :: {}.{
 		source : Rows,
 		filters : List(Filter),
 		watched : List(Watched),
+		slots : List(Slot),
 	}.{
 
 		## The cut of filters, projections and keys (see `Surreal.code_primitives`).
@@ -1972,8 +1985,22 @@ Surreal :: {}.{
 		filter : Query(p, row), Code(row -> Bool) -> Query(p, row)
 		filter = |Query.(q), predicate| {
 			base = q.source
-			clause = |at, param| within_clause("`filter`", Translate.evaluate(own, predicate.graph(), [pick(base, at)?], param))
-			Query.({ ..q, filters: q.filters.append(clause), watched: reached_watches(q.watched, predicate.graph(), [base.reach], narrowed(predicate.graph(), base.now.map_ok(|row| [row]))) })
+			clause = |at, param| within_clause("`filter`", Translate.evaluate(own, predicate.graph(), [pick(base, at)?], spelled(predicate, param)))
+			Query.({ ..q, filters: q.filters.append(clause), slots: q.slots.concat(slots_of(predicate)), watched: reached_watches(q.watched, predicate.graph(), [base.reach], narrowed(predicate.graph(), base.now.map_ok(|row| [row]))) })
+		}
+
+		## `filter`, where the predicate may call the functions of another
+		## package's types and read values of them from around itself. Each
+		## extension gives the SurrealQL of some of those functions, by
+		## their ids (`Surreal.extension`), and a captured value is bound as
+		## its own `encoder_for` writes it in `Encode.Bind`: a value of an
+		## opaque type is the value its encoder writes. A captured `Id` or
+		## `Datetime` needs no encoder.
+		filter_with : Query(p, row), List(Extension), Code.Binds(Code(row -> Bool), Encode.Bind) -> Query(p, row)
+		filter_with = |Query.(q), extensions, predicate| {
+			base = q.source
+			clause = |at, param| within_clause("`filter_with`", Translate.evaluate(own.concat(extensions), predicate.graph(), [pick(base, at)?], spelled(predicate, param)))
+			Query.({ ..q, filters: q.filters.append(clause), slots: q.slots.concat(keyed_slots(predicate, Any, Bool.True)), watched: reached_watches(q.watched, predicate.graph(), [base.reach], narrowed(predicate.graph(), base.now.map_ok(|row| [row]))) })
 		}
 
 		## A filter that reads the parameter record, its first argument. Each
@@ -1981,8 +2008,8 @@ Surreal :: {}.{
 		filter_by : Query(p, row), Code((p, row -> Bool)) -> Query(p, row)
 		filter_by = |Query.(q), predicate| {
 			base = q.source
-			clause = |at, param| within_clause("`filter_by`", Translate.evaluate(own, predicate.graph(), [Translate.Binding.Params, pick(base, at)?], param))
-			Query.({ ..q, filters: q.filters.append(clause), watched: reached_watches(q.watched, predicate.graph(), [Translate.Reach.Nothing, base.reach], narrowed(predicate.graph(), base.now.map_ok(|row| [Translate.Binding.Params, row]))) })
+			clause = |at, param| within_clause("`filter_by`", Translate.evaluate(own, predicate.graph(), [Translate.Binding.Params, pick(base, at)?], spelled(predicate, param)))
+			Query.({ ..q, filters: q.filters.append(clause), slots: q.slots.concat(slots_of(predicate)), watched: reached_watches(q.watched, predicate.graph(), [Translate.Reach.Nothing, base.reach], narrowed(predicate.graph(), base.now.map_ok(|row| [Translate.Binding.Params, row]))) })
 		}
 
 		## The row and its edges in `edges`, `->edges`. The row becomes the pair
@@ -2090,9 +2117,9 @@ Surreal :: {}.{
 		select = |Query.(q), projection| {
 			base = q.source
 			ty = projection.graph().root_row().result
-			columns = |param| within_clause("`select`", column_list(within_clause("`select`", Translate.evaluate(own, projection.graph(), [base.now?], param))?, ty))
-			value = |param| within_clause("`select`", row_value(within_clause("`select`", Translate.evaluate(own, projection.graph(), [base.now?], param))?, ty))
-			selected_of({ ..q, watched: reached_watches(q.watched, projection.graph(), [base.reach], narrowed(projection.graph(), base.now.map_ok(|row| [row]))) }, { columns, value, intrinsic: intrinsic_columns(projection.graph()) }, by_name, [], { ty, over: Projected(projected_rows(base, projection.graph())), nested: nested_row(ty) })
+			columns = |param| within_clause("`select`", column_list(within_clause("`select`", Translate.evaluate(own, projection.graph(), [base.now?], spelled(projection, param)))?, ty))
+			value = |param| within_clause("`select`", row_value(within_clause("`select`", Translate.evaluate(own, projection.graph(), [base.now?], spelled(projection, param)))?, ty))
+			selected_of({ ..q, slots: q.slots.concat(slots_of(projection)), watched: reached_watches(q.watched, projection.graph(), [base.reach], narrowed(projection.graph(), base.now.map_ok(|row| [row]))) }, { columns, value, intrinsic: intrinsic_columns(projection.graph()) }, by_name, [], { ty, over: Projected(projected_rows(base, projection.graph())), nested: nested_row(ty) })
 		}
 
 		## One value per row: `SELECT VALUE e`. A whole row of a table, as
@@ -2104,7 +2131,7 @@ Surreal :: {}.{
 		select_value = |Query.(q), projection| {
 			base = q.source
 			ty = projection.graph().root_row().result
-			value = |param| match within_clause("`select_value`", Translate.evaluate(own, projection.graph(), [base.now?], param))? {
+			value = |param| match within_clause("`select_value`", Translate.evaluate(own, projection.graph(), [base.now?], spelled(projection, param)))? {
 				Row({ of: Doc(named), at, edge }) => row_value(Translate.Binding.Row({ at, of: Doc(named), edge }), ty)
 				other => Translate.text(other)
 			}
@@ -2115,12 +2142,12 @@ Surreal :: {}.{
 				if !path or whole {
 					return Err(value_order)
 				}
-				match Translate.evaluate(own, projection.graph(), [base.now?], param)? {
+				match Translate.evaluate(own, projection.graph(), [base.now?], spelled(projection, param))? {
 					Row(r) => Ok(Translate.Binding.Row({ ..r, of: Obj }))
 					other => Ok(other)
 				}
 			}
-			selected_of({ ..q, watched: reached_watches(q.watched, projection.graph(), [base.reach], narrowed(projection.graph(), base.now.map_ok(|row| [row]))) }, { columns, value, intrinsic: intrinsic_columns(projection.graph()) }, results, [], { ty, over: Projected(projected_rows(base, projection.graph())), nested: nested_row(ty) })
+			selected_of({ ..q, slots: q.slots.concat(slots_of(projection)), watched: reached_watches(q.watched, projection.graph(), [base.reach], narrowed(projection.graph(), base.now.map_ok(|row| [row]))) }, { columns, value, intrinsic: intrinsic_columns(projection.graph()) }, results, [], { ty, over: Projected(projected_rows(base, projection.graph())), nested: nested_row(ty) })
 		}
 
 		## Group the rows by what the function returns: a value, or a record of
@@ -2142,29 +2169,29 @@ Surreal :: {}.{
 
 		## The whole rows of the query: the `prepare` of `select(|r| r)`
 		## (see `Selected.prepare`).
-		prepare : Query(p, row), p -> Try(Prepared(List(row)), Error) where [p.encoder_for : Encode.Format -> (p, Encode.State -> Try(Encode.State, [])), row.Cbor.Readable(errs)]
+		prepare : Query(p, row), p -> Prepared(List(row)) where [p.encoder_for : Encode.Format -> (p, Encode.State -> Try(Encode.State, [])), row.Cbor.Readable(errs)]
 		prepare = |query, params| whole_of(query).prepare(params)
 
 		## The whole rows of a query that has no parameter: `prepare({})`.
-		ready : Query({}, row) -> Try(Prepared(List(row)), Error) where [row.Cbor.Readable(errs)]
+		ready : Query({}, row) -> Prepared(List(row)) where [row.Cbor.Readable(errs)]
 		ready = |query| whole_of(query).prepare({})
 
 		## The whole row of a query of one key: `select(|r| r)` and
 		## `Selected.prepare_one`.
-		prepare_one : Query(p, row), p -> Try(Prepared(Try(row, [NotFound])), Error) where [p.encoder_for : Encode.Format -> (p, Encode.State -> Try(Encode.State, [])), row.Cbor.Readable(errs)]
+		prepare_one : Query(p, row), p -> Prepared(Try(row, [NotFound])) where [p.encoder_for : Encode.Format -> (p, Encode.State -> Try(Encode.State, [])), row.Cbor.Readable(errs)]
 		prepare_one = |query, params| whole_of(query).prepare_one(params)
 
 		## `prepare_one` of a query that has no parameter.
-		ready_one : Query({}, row) -> Try(Prepared(Try(row, [NotFound])), Error) where [row.Cbor.Readable(errs)]
+		ready_one : Query({}, row) -> Prepared(Try(row, [NotFound])) where [row.Cbor.Readable(errs)]
 		ready_one = |query| whole_of(query).prepare_one({})
 
 		## The whole rows of the query, kept current: `select(|r| r)` and
 		## `Selected.live`.
-		live : Query(p, row), p, List(Defined) -> Try(Watch(row), Error) where [p.encoder_for : Encode.Format -> (p, Encode.State -> Try(Encode.State, []))]
+		live : Query(p, row), p, List(Defined) -> Watch(row) where [p.encoder_for : Encode.Format -> (p, Encode.State -> Try(Encode.State, []))]
 		live = |query, params, tables| whole_of(query).live(params, tables)
 
 		## `live` of a query that has no parameter.
-		ready_live : Query({}, row), List(Defined) -> Try(Watch(row), Error)
+		ready_live : Query({}, row), List(Defined) -> Watch(row)
 		ready_live = |query, tables| whole_of(query).live({}, tables)
 
 		## Escape hatch: the patches of each write to the stored rows that the
@@ -2213,19 +2240,19 @@ Surreal :: {}.{
 
 		## As `Selected.prepare`, and the result is the row itself: the
 		## database always gives one.
-		prepare : Totals(p, out), p -> Try(Prepared(out), Error) where [p.encoder_for : Encode.Format -> (p, Encode.State -> Try(Encode.State, [])), out.Cbor.Readable(errs)]
+		prepare : Totals(p, out), p -> Prepared(out) where [p.encoder_for : Encode.Format -> (p, Encode.State -> Try(Encode.State, [])), out.Cbor.Readable(errs)]
 		prepare = |Totals.(selected), params| {
-			statement = with_intrinsic(bound_statement(|param| Selected.render(selected, param).map_ok(group_all), params)?, selected)
+			Selected.(s) = selected
 			rows = result_rows(0)
 			read = |results| match rows(results)? {
 				[one] => Ok(one)
 				more => Err(Wire("`GROUP ALL` returned ${more.len().to_str()} rows instead of one"))
 			}
-			Ok(Prepared.({ statement, count: 1, atomic: No, read }))
+			prepared_of(bound_statement(|param| Selected.render(selected, param).map_ok(group_all), params).map_ok(|statement| { statement: with_intrinsic(statement, selected), slots: s.slots, count: 1, atomic: No, read }))
 		}
 
 		## `prepare` of a query that has no parameter.
-		ready : Totals({}, out) -> Try(Prepared(out), Error) where [out.Cbor.Readable(errs)]
+		ready : Totals({}, out) -> Prepared(out) where [out.Cbor.Readable(errs)]
 		ready = |totals| totals.prepare({})
 	}
 
@@ -2256,8 +2283,9 @@ Surreal :: {}.{
 		results : ResultOrder,
 		rows : ResultRow,
 		order : List(Clause),
-		limit : [Unlimited, Limit(U64)],
-		start : [FromFirst, Start(U64)],
+		limit : [Unlimited, Limit(Try(Str, Error))],
+		start : [FromFirst, Start(Try(Str, Error))],
+		slots : List(Slot),
 	}.{
 
 		## The cut of a filter of the result rows (see `Surreal.code_primitives`).
@@ -2271,14 +2299,14 @@ Surreal :: {}.{
 		order_by = |Selected.(s), key, direction| {
 			clause = |param| {
 				result = (s.results)(key.graph(), param)?
-				parts = parts_of(within_clause("`order_by`", Translate.evaluate(own, key.graph(), [result], param))?)?
+				parts = parts_of(within_clause("`order_by`", Translate.evaluate(own, key.graph(), [result], spelled(key, param)))?)?
 				suffix = match direction {
 					Asc => ""
 					Desc => " DESC"
 				}
 				Ok(Str.join_with(parts.map(|part| "${part}${suffix}"), ", "))
 			}
-			Selected.({ ..s, order: s.order.append(clause) })
+			Selected.({ ..s, order: s.order.append(clause), slots: s.slots.concat(slots_of(key)) })
 		}
 
 		## Keep the result rows the function is true for. Before a group, a
@@ -2292,8 +2320,8 @@ Surreal :: {}.{
 			Selected.(s) = selected
 			match (s.rows.over, s.limit, s.start) {
 				(Projected(fields), Unlimited, FromFirst) => {
-					clause = |at, param| within_clause("`filter`", Translate.evaluate(own, predicate.graph(), [pick(fields, at)?], param))
-					Selected.({ ..s, filters: s.filters.append(clause), watched: reached_watches(s.watched, predicate.graph(), [fields.reach], narrowed(predicate.graph(), fields.now.map_ok(|row| [row]))) })
+					clause = |at, param| within_clause("`filter`", Translate.evaluate(own, predicate.graph(), [pick(fields, at)?], spelled(predicate, param)))
+					Selected.({ ..s, filters: s.filters.append(clause), slots: s.slots.concat(slots_of(predicate)), watched: reached_watches(s.watched, predicate.graph(), [fields.reach], narrowed(predicate.graph(), fields.now.map_ok(|row| [row]))) })
 				}
 				_ => whole_rows(Selected.query(selected).filter(predicate), s.rows.ty)
 			}
@@ -2313,21 +2341,21 @@ Surreal :: {}.{
 		query = |selected| {
 			Selected.(s) = selected
 			match (s.rows.over, s.order, s.limit, s.start, s.fetches) {
-				(Projected(fields), [], Unlimited, FromFirst, []) => Query.({ target: s.target, source: fields, filters: s.filters, watched: s.watched })
-				_ => Query.({ target: Sub(|param| Selected.render(selected, param).map_ok(|inner| "(${inner})")), source: { now: Ok(s.rows.nested), before: Err(Unsupported("a row of a subquery has no `$before`")), reach: Translate.Reach.Nothing }, filters: [], watched: [] })
+				(Projected(fields), [], Unlimited, FromFirst, []) => Query.({ target: s.target, source: fields, filters: s.filters, watched: s.watched, slots: s.slots })
+				_ => Query.({ target: Sub(|param| Selected.render(selected, param).map_ok(|inner| "(${inner})")), source: { now: Ok(s.rows.nested), before: Err(Unsupported("a row of a subquery has no `$before`")), reach: Translate.Reach.Nothing }, filters: [], watched: [], slots: s.slots })
 			}
 		}
 
 		## At most this many rows: `LIMIT n`. The rows after it are a
 		## `Limited`, which has no `order_by`, `limit` or `start` (see
 		## `Started`).
-		limit : Selected(p, out), U64 -> Limited(p, out)
-		limit = |Selected.(s), count| Limited.(Selected.({ ..s, limit: Limit(count) }))
+		limit : Selected(p, out), Code(U64) -> Limited(p, out)
+		limit = |Selected.(s), count| Limited.(Selected.({ ..s, limit: Limit(count_text(count)), slots: s.slots.concat(slots_of(count)) }))
 
 		## Skip this many rows first: `START n`. The rows after it are a
 		## `Started`, which takes a `limit` and no `order_by` or `start`.
-		start : Selected(p, out), U64 -> Started(p, out)
-		start = |Selected.(s), count| Started.(Selected.({ ..s, start: Start(count) }))
+		start : Selected(p, out), Code(U64) -> Started(p, out)
+		start = |Selected.(s), count| Started.(Selected.({ ..s, start: Start(count_text(count)), slots: s.slots.concat(slots_of(count)) }))
 
 		## The statement with a `$name` for each parameter it reads.
 		to_surql : Selected(p, out) -> Try(Str, Error)
@@ -2338,38 +2366,37 @@ Surreal :: {}.{
 		## as `out`. The record is the type the filters read, so a
 		## parameter a filter reads is a field the record has.
 		## `Session.run!` runs it, and `Prepared.statement` is its text.
-		prepare : Selected(p, out), p -> Try(Prepared(List(out)), Error) where [p.encoder_for : Encode.Format -> (p, Encode.State -> Try(Encode.State, [])), out.Cbor.Readable(errs)]
+		prepare : Selected(p, out), p -> Prepared(List(out)) where [p.encoder_for : Encode.Format -> (p, Encode.State -> Try(Encode.State, [])), out.Cbor.Readable(errs)]
 		prepare = |selected, params| {
-			statement = with_intrinsic(bound_statement(|param| Selected.render(selected, param), params)?, selected)
-			Ok(Prepared.({ statement, count: 1, atomic: No, read: result_rows(0) }))
+			Selected.(s) = selected
+			prepared_of(bound_statement(|param| Selected.render(selected, param), params).map_ok(|statement| { statement: with_intrinsic(statement, selected), slots: s.slots, count: 1, atomic: No, read: result_rows(0) }))
 		}
 
 		## `prepare` of a query that has no parameter: `prepare({})`.
-		ready : Selected({}, out) -> Try(Prepared(List(out)), Error) where [out.Cbor.Readable(errs)]
+		ready : Selected({}, out) -> Prepared(List(out)) where [out.Cbor.Readable(errs)]
 		ready = |selected| selected.prepare({})
 
 		## `prepare` of a query of one key (`Table.at`): the row, or
 		## `NotFound` when the table has no row with the key. Any other
 		## query can return several rows, so it is refused.
-		prepare_one : Selected(p, out), p -> Try(Prepared(Try(out, [NotFound])), Error) where [p.encoder_for : Encode.Format -> (p, Encode.State -> Try(Encode.State, [])), out.Cbor.Readable(errs)]
+		prepare_one : Selected(p, out), p -> Prepared(Try(out, [NotFound])) where [p.encoder_for : Encode.Format -> (p, Encode.State -> Try(Encode.State, [])), out.Cbor.Readable(errs)]
 		prepare_one = |selected, params| {
 			Selected.(s) = selected
-			match s.target {
-				Record(_) => {}
-				Whole(_) | Range(_) | Sub(_) => return Err(Unsupported("`prepare_one` reads the row of one key, a query from `Table.at`; this query can return several rows: take `prepare`"))
-			}
-			statement = with_intrinsic(bound_statement(|param| Selected.render(selected, param), params)?, selected)
 			rows = result_rows(0)
 			read = |results| match rows(results)? {
 				[] => Ok(Err(NotFound))
 				[one] => Ok(Ok(one))
 				more => Err(Wire("the record of one key returned ${more.len().to_str()} rows"))
 			}
-			Ok(Prepared.({ statement, count: 1, atomic: No, read }))
+			built = match s.target {
+				Record(_) => bound_statement(|param| Selected.render(selected, param), params)
+				Whole(_) | Range(_) | Sub(_) => Err(Unsupported("`prepare_one` reads the row of one key, a query from `Table.at`; this query can return several rows: take `prepare`"))
+			}
+			prepared_of(built.map_ok(|statement| { statement: with_intrinsic(statement, selected), slots: s.slots, count: 1, atomic: No, read }))
 		}
 
 		## `prepare_one` of a query that has no parameter.
-		ready_one : Selected({}, out) -> Try(Prepared(Try(out, [NotFound])), Error) where [out.Cbor.Readable(errs)]
+		ready_one : Selected({}, out) -> Prepared(Try(out, [NotFound])) where [out.Cbor.Readable(errs)]
 		ready_one = |selected| selected.prepare_one({})
 
 		## The rows of the query, kept current: the twin of `prepare`. A
@@ -2390,8 +2417,16 @@ Surreal :: {}.{
 		## `LIVE SELECT VALUE { row: <row>, now: true } FROM t WHERE <p>`
 		## `tables` are the definitions that `Surreal.schema` takes: a link
 		## of the row finds its table there, as in the schema.
-		live : Selected(p, out), p, List(Defined) -> Try(Watch(out), Error) where [p.encoder_for : Encode.Format -> (p, Encode.State -> Try(Encode.State, []))]
-		live = |selected, params, tables| {
+		live : Selected(p, out), p, List(Defined) -> Watch(out) where [p.encoder_for : Encode.Format -> (p, Encode.State -> Try(Encode.State, []))]
+		live = |selected, params, tables| Watch.(Code.Bound.of(watching(selected, params, tables)))
+
+		## `live` of a query that has no parameter: `live({}, tables)`.
+		ready_live : Selected({}, out), List(Defined) -> Watch(out)
+		ready_live = |selected, tables| selected.live({}, tables)
+
+		## What `live` builds.
+		watching : Selected(p, out), p, List(Defined) -> Try({ lets : List({ name : Str, value : Ql.Value }), slots : List(Bind), lives : List({ role : Role, surql : Str }), snapshot : Str }, Error) where [p.encoder_for : Encode.Format -> (p, Encode.State -> Try(Encode.State, []))]
+		watching = |selected, params, tables| {
 			Selected.(s) = selected
 			name = Ql.ident(live_table(selected)?)
 			lets = lets_of(params)?
@@ -2418,12 +2453,8 @@ Surreal :: {}.{
 			)
 			reads = read_lives(s.watched, Schema.tables(tables), "SELECT VALUE { ref: id, row: ${row}, now: ${now_text} }", name)?
 			snapshot = "SELECT VALUE { ref: id, row: ${row} } FROM ${name}${where_text(now)?}"
-			Ok(Watch.({ lets, lives: [node].concat(edges).concat(reads), snapshot }))
+			Ok({ lets, slots: binds_of(s.slots)?, lives: [node].concat(edges).concat(reads), snapshot })
 		}
-
-		## `live` of a query that has no parameter: `live({}, tables)`.
-		ready_live : Selected({}, out), List(Defined) -> Try(Watch(out), Error)
-		ready_live = |selected, tables| selected.live({}, tables)
 
 		## Escape hatch: the server's own events for the rows of the query.
 		## There is no snapshot and no `$before`, so a row that no longer
@@ -2455,13 +2486,13 @@ Surreal :: {}.{
 				.concat(
 					match s.limit {
 						Unlimited => []
-						Limit(n) => ["LIMIT ${n.to_str()}"]
+						Limit(n) => ["LIMIT ${n?}"]
 					},
 				)
 				.concat(
 					match s.start {
 						FromFirst => []
-						Start(n) => ["START ${n.to_str()}"]
+						Start(n) => ["START ${n?}"]
 					},
 				)
 				.concat(keyword("FETCH", s.fetches, ", "))
@@ -2483,8 +2514,8 @@ Surreal :: {}.{
 	Started(p, out) :: Selected(p, out).{
 
 		## At most this many of the rows: `START s LIMIT n`.
-		limit : Started(p, out), U64 -> Limited(p, out)
-		limit = |Started.(Selected.(s)), count| Limited.(Selected.({ ..s, limit: Limit(count) }))
+		limit : Started(p, out), Code(U64) -> Limited(p, out)
+		limit = |Started.(Selected.(s)), count| Limited.(Selected.({ ..s, limit: Limit(count_text(count)), slots: s.slots.concat(slots_of(count)) }))
 
 		## As `Selected.filter`: the `WHERE` of a query over the rows.
 		filter : Started(p, out), Code(out -> Bool) -> Selected(p, out)
@@ -2497,11 +2528,11 @@ Surreal :: {}.{
 		to_surql : Started(p, out) -> Try(Str, Error)
 		to_surql = |Started.(selected)| selected.to_surql()
 
-		prepare : Started(p, out), p -> Try(Prepared(List(out)), Error) where [p.encoder_for : Encode.Format -> (p, Encode.State -> Try(Encode.State, [])), out.Cbor.Readable(errs)]
+		prepare : Started(p, out), p -> Prepared(List(out)) where [p.encoder_for : Encode.Format -> (p, Encode.State -> Try(Encode.State, [])), out.Cbor.Readable(errs)]
 		prepare = |Started.(selected), params| selected.prepare(params)
 
 		## `prepare` of a query that has no parameter.
-		ready : Started({}, out) -> Try(Prepared(List(out)), Error) where [out.Cbor.Readable(errs)]
+		ready : Started({}, out) -> Prepared(List(out)) where [out.Cbor.Readable(errs)]
 		ready = |Started.(selected)| selected.prepare({})
 	}
 
@@ -2520,18 +2551,18 @@ Surreal :: {}.{
 		to_surql : Limited(p, out) -> Try(Str, Error)
 		to_surql = |Limited.(selected)| selected.to_surql()
 
-		prepare : Limited(p, out), p -> Try(Prepared(List(out)), Error) where [p.encoder_for : Encode.Format -> (p, Encode.State -> Try(Encode.State, [])), out.Cbor.Readable(errs)]
+		prepare : Limited(p, out), p -> Prepared(List(out)) where [p.encoder_for : Encode.Format -> (p, Encode.State -> Try(Encode.State, [])), out.Cbor.Readable(errs)]
 		prepare = |Limited.(selected), params| selected.prepare(params)
 
 		## `prepare` of a query that has no parameter.
-		ready : Limited({}, out) -> Try(Prepared(List(out)), Error) where [out.Cbor.Readable(errs)]
+		ready : Limited({}, out) -> Prepared(List(out)) where [out.Cbor.Readable(errs)]
 		ready = |Limited.(selected)| selected.prepare({})
 	}
 
 	## A write that reads a clause: an update or a delete. `gives` is the
 	## row that `prepare` returns: the row after an update, the row before
 	## a delete. `edge` is true for a relation table.
-	Write(p, row) :: { build : (Str -> Str) -> Try(Str, Error), gives : [After, Before], edge : Bool }.{
+	Write(p, row) :: { build : (Str -> Str) -> Try(Str, Error), gives : [After, Before], edge : Bool, slots : List(Slot) }.{
 
 		## The statement with a `$name` for each parameter it reads.
 		to_surql : Write(p, row) -> Try(Str, Error)
@@ -2541,15 +2572,14 @@ Surreal :: {}.{
 		## record, and the type of its result: the rows that the write
 		## changed, as stored. An update returns each row after the write, and a delete
 		## each row before it: `RETURN AFTER`, `RETURN BEFORE`.
-		prepare : Write(p, row), p -> Try(Prepared(List(row)), Error) where [p.encoder_for : Encode.Format -> (p, Encode.State -> Try(Encode.State, [])), row.Cbor.Readable(errs)]
+		prepare : Write(p, row), p -> Prepared(List(row)) where [p.encoder_for : Encode.Format -> (p, Encode.State -> Try(Encode.State, [])), row.Cbor.Readable(errs)]
 		prepare = |Write.(w), params| {
 			back = return_clause(w.gives)
-			statement = bound_statement(|param| (w.build)(param).map_ok(|text| "${text}${back}"), params)?
-			Ok(Prepared.({ statement, count: 1, atomic: No, read: read_stored(0, w.edge) }))
+			prepared_of(bound_statement(|param| (w.build)(param).map_ok(|text| "${text}${back}"), params).map_ok(|statement| { statement, slots: w.slots, count: 1, atomic: No, read: read_stored(0, w.edge) }))
 		}
 
 		## `prepare` of a write that has no parameter.
-		ready : Write({}, row) -> Try(Prepared(List(row)), Error) where [row.Cbor.Readable(errs)]
+		ready : Write({}, row) -> Prepared(List(row)) where [row.Cbor.Readable(errs)]
 		ready = |write| write.prepare({})
 	}
 
@@ -2557,7 +2587,8 @@ Surreal :: {}.{
 	## the value each name is bound to, and the same text with the values
 	## written in. `surql` has no final `;`. `intrinsic` names the columns of
 	## its result that read an intrinsic (`intrinsic_columns`): SurrealDB
-	## computes them, and Roc has no value for them.
+	## computes them, and Roc has no value for them. A captured value is
+	## `$_1`, `$_2`, .., numbered across the statements of a request.
 	Statement := { surql : Str, lets : List({ name : Str, value : Ql.Value }), inlined : Str, intrinsic : List(Str) }.{
 
 		## What a script holds: a `LET` line per parameter, then the statement.
@@ -2579,14 +2610,33 @@ Surreal :: {}.{
 		}
 	}
 
-	## A statement with the type of its result: what every query and
-	## write gives, and what a session runs (`Session.run!`). `statement` and `count` are the
-	## statements after the `LET`s, without a `BEGIN` and a `COMMIT`, and
-	## `read` reads their results, in order, as `out`. `atomic` says how
-	## they run: on their own (`No`), or in a transaction, whose failure is
-	## the error of the statement that failed it (`Whole`, an insert) or
-	## `Aborted` with its place (`Parts`, the count of the statements of
-	## each part of `Transaction.commit`).
+	## The type of a captured value of a clause, by its place among the
+	## slots of the chain (`Code.first_slot` and its own index). `table` is
+	## the table that a captured key must name (`Table.at`, `set_at`, ..).
+	Slot : { at : U64, ty : Code.Ty, table : [Any, Of(Str)] }
+
+	## A slot of a statement: its type, the table a key must name, and its
+	## value once the chain's call gives it.
+	Bind : { ty : Code.Ty, table : [Any, Of(Str)], value : [Pending, Given(Code.Value)] }
+
+	## What a terminal call builds. `statement` has a `Translate.slot_mark`
+	## for each captured value, and `slots` the type and the value of each,
+	## in order. `count` is the statements after the `LET`s, without a
+	## `BEGIN` and a `COMMIT`, and `read` reads their results, in order, as
+	## `out`. `atomic` says how they run: on their own (`No`), or in a
+	## transaction, whose failure is the error of the statement that failed
+	## it (`Whole`, an insert) or `Aborted` with its place (`Parts`, the
+	## count of the statements of each part of `Transaction.commit`).
+	Ready(out) : { statement : Statement, slots : List(Bind), count : U64, atomic : [No, Whole, Parts(List(U64))], read : List(Outcome) -> Try(out, Error) }
+
+	## A statement with the type of its result: what every query and write
+	## gives, and what a session runs (`Session.run!`). A query in a
+	## function, as `|limit| Surreal.from(meds).filter(|m| m.price < limit).ready()`,
+	## is translated once, when the program is built, with a `$_1` for
+	## `limit`. Each call gives the statement and the value of `limit`, and
+	## the session binds it with a `LET`. A statement that cannot be built
+	## holds its error: `run!` and `send!` give it, and `checked` gives it
+	## before a session.
 	##
 	## | Made by | `out` | The result |
 	## | --- | --- | --- |
@@ -2597,25 +2647,32 @@ Surreal :: {}.{
 	## | `Table.upsert`, `Table.insert` | `List(row)` | The rows that the write wrote |
 	## | `Table.replace` | `List(row)` | The row after the write, or none for a key with no row |
 	## | `Table.create_new`, `Table.insert_new` | `List(Created(row, new))` | The rows that the write made, each with the key that the server gave it |
-	## | `Surreal.bind_captured` | `List(row)` | The rows of `select_where` |
 	## | `Prepared.then` | `(Try(a, Error), Try(b, Error))` | The result of each of two prepared statements, which run on their own |
 	## | `Transaction.commit` | `(a, b)`, `((a, b), c)`, .. | The results of the statements of one transaction, or one `Aborted` error |
 	## | `Surreal.transaction` | `List(out)` | The result of each statement of one transaction, or one `Aborted` error |
 	## | `Plan.prepare` | `{}` | Nothing, or the `Server` error of the statement that failed the section |
-	Prepared(out) :: { statement : Statement, count : U64, atomic : [No, Whole, Parts(List(U64))], read : List(Outcome) -> Try(out, Error) }.{
+	Prepared(out) :: Code.Bound(Try(Ready(out), Error)).{
+
+		## The prepared statement, or why it cannot be built: a clause
+		## with no SurrealQL form, or a captured value with no SurrealQL
+		## value. `session.run!(q)` gives the same error as its result; this
+		## gives it before a session, for `?` or `match`.
+		checked : Prepared(out) -> Try(Prepared(out), Error)
+		checked = |prepared| {
+			_ = resolved(ready_of(prepared)?)?
+			Ok(prepared)
+		}
 
 		## The statement, for a script or a `check.py` block: in a
-		## transaction, between `BEGIN` and `COMMIT`.
-		statement : Prepared(out) -> Statement
-		statement = |Prepared.(p)| match p.atomic {
-			No => p.statement
-			Whole | Parts(_) => in_transaction(p.statement)
-		}
+		## transaction, between `BEGIN` and `COMMIT`, with a `LET` for each
+		## parameter and each captured value.
+		statement : Prepared(out) -> Try(Statement, Error)
+		statement = |prepared| ready_statement(ready_of(prepared)?)
 
 		## The text of the `query` request: a `LET` line for each
 		## parameter, then the statements.
-		request : Prepared(out) -> Str
-		request = |prepared| prepared.statement().to_script()
+		request : Prepared(out) -> Try(Str, Error)
+		request = |prepared| prepared.statement().map_ok(Statement.to_script)
 
 		## The reply to `request`, read as `out`. The result of a `LET` is
 		## not read. A request that the server refused, or a statement that
@@ -2628,30 +2685,29 @@ Surreal :: {}.{
 		## `result`, with the unique indexes of a schema (`Schema.unique_indexes`).
 		result_in : Prepared(out), List(U8), List(Schema.Known) -> Try(out, Error)
 		result_in = |prepared, bytes, indexes| {
-			Statement.(s) = prepared.statement()
-			outcomes = query_outcomes(bytes, s.lets.len() + prepared_size(prepared), indexes)?
-			read_all(prepared, outcomes.drop_first(s.lets.len()))
+			ready = ready_of(prepared)?
+			Statement.(s) = ready_statement(ready)?
+			outcomes = query_outcomes(bytes, s.lets.len() + ready_size(ready), indexes)?
+			read_all(ready, outcomes.drop_first(s.lets.len()))
 		}
 
 		## This statement, then the other, in one request: the `LET`s of
 		## both, which must give a name one value, then the statements of
-		## each, a transaction with its `BEGIN` and `COMMIT`. Each runs on its own:
-		## the server runs every statement of a request, also after one
-		## failed (verified), so the result is the pair of their results,
-		## each with its own error. A request that the server refused is
-		## the error of the whole. `Transaction` runs them all or none.
-		then : Prepared(a), Prepared(b) -> Try(Prepared((Try(a, Error), Try(b, Error))), Error)
-		then = |first, second| {
-			joined = then_statement(first.statement(), second.statement())?
-			split = prepared_size(first)
-			read = |outcomes| Ok((read_all(first, outcomes.take_first(split)), read_all(second, outcomes.drop_first(split))))
-			Ok(Prepared.({ statement: joined, count: split + prepared_size(second), atomic: No, read }))
-		}
+		## each, a transaction with its `BEGIN` and `COMMIT`. The captured
+		## values of the second are numbered after those of the first. Each
+		## runs on its own: the server runs every statement of a request,
+		## also after one failed (verified), so the result is the pair of
+		## their results, each with its own error. A request that the server
+		## refused is the error of the whole. `Transaction` runs them all or
+		## none. A statement that cannot be built makes the whole hold its
+		## error, the first one's first.
+		then : Prepared(a), Prepared(b) -> Prepared((Try(a, Error), Try(b, Error)))
+		then = |first, second| Prepared.(Code.Bound.of(then_ready(ready_of(first), ready_of(second))))
 
 		## The prepared statement as the first of a transaction, which
 		## `Transaction.then` adds to.
 		begin : Prepared(out) -> Transaction(out)
-		begin = |Prepared.(p)| Transaction.({ statement: p.statement, count: p.count, parts: [p.count], read: p.read })
+		begin = |prepared| Transaction.(ready_of(prepared).map_ok(|r| { statement: r.statement, slots: r.slots, count: r.count, parts: [r.count], read: r.read }))
 	}
 
 	## Prepared statements that run as one transaction: `BEGIN`, the
@@ -2662,39 +2718,65 @@ Surreal :: {}.{
 	## index that fails the second write rolls back the first). Made by
 	## `Prepared.begin`; `commit` gives the `Prepared`. A part that is a
 	## transaction of its own, such as an insert, is a part of this one.
-	Transaction(out) :: { statement : Statement, count : U64, parts : List(U64), read : List(Outcome) -> Try(out, Error) }.{
+	## A part that cannot be built makes the transaction hold its error.
+	Transaction(out) :: Try(Parts(out), Error).{
 
 		## The transaction, then a statement in it: the result is the pair
 		## of their results, so each `then` nests the pair once more. A
 		## name bound in both must have one value (`Prepared.then`).
-		then : Transaction(a), Prepared(b) -> Try(Transaction((a, b)), Error)
-		then = |Transaction.(t), Prepared.(p)| {
-			read = |outcomes| Ok(((t.read)(outcomes.take_first(t.count))?, (p.read)(outcomes.drop_first(t.count))?))
-			Ok(Transaction.({ statement: then_statement(t.statement, p.statement)?, count: t.count + p.count, parts: t.parts.append(p.count), read }))
+		then : Transaction(a), Prepared(b) -> Transaction((a, b))
+		then = |Transaction.(built), prepared| {
+			joined = |t, p| {
+				read = |outcomes| Ok(((t.read)(outcomes.take_first(t.count))?, (p.read)(outcomes.drop_first(t.count))?))
+				both = join_statements({ statement: t.statement, slots: t.slots }, { statement: p.statement, slots: p.slots })?
+				Ok({ statement: both.statement, slots: both.slots, count: t.count + p.count, parts: t.parts.append(p.count), read })
+			}
+			Transaction.(
+				match (built, ready_of(prepared)) {
+					(Ok(t), Ok(p)) => joined(t, p)
+					(Err(e), _) | (_, Err(e)) => Err(e)
+				},
+			)
 		}
 
 		## The transaction as one prepared statement, for `Session.run!`.
 		commit : Transaction(out) -> Prepared(out)
-		commit = |Transaction.(t)| Prepared.({ statement: t.statement, count: t.count, atomic: Parts(t.parts), read: t.read })
+		commit = |Transaction.(built)| Prepared.(Code.Bound.of(built.map_ok(|t| { statement: t.statement, slots: t.slots, count: t.count, atomic: Parts(t.parts), read: t.read })))
 	}
 
 	## Prepared statements with one type of result, as one transaction
 	## (`Transaction`): the result is the result of each, in order, or
 	## `Aborted` with the place of the one that failed it. A list with no
 	## statement is an `Unsupported` error.
-	transaction : List(Prepared(out)) -> Try(Prepared(List(out)), Error)
+	transaction : List(Prepared(out)) -> Prepared(List(out))
 	transaction = |all| {
-		Prepared.(first) = all.first() ? |_| Unsupported("a transaction needs a statement")
-		start = Transaction.({ statement: first.statement, count: first.count, parts: [first.count], read: |outcomes| (first.read)(outcomes).map_ok(|x| [x]) })
-		Transaction.(whole) = all.drop_first(1).fold_try(
+		start : Transaction(List(out))
+		start = match all.first() {
+			Ok(first) => Transaction.(ready_of(first).map_ok(|r| { statement: r.statement, slots: r.slots, count: r.count, parts: [r.count], read: |outcomes| (r.read)(outcomes).map_ok(|x| [x]) }))
+			Err(_) => Transaction.(Err(Unsupported("a transaction needs a statement")))
+		}
+		whole = all.drop_first(1).fold(
 			start,
-			|Transaction.(t), Prepared.(p)| {
-				read = |outcomes| Ok((t.read)(outcomes.take_first(t.count))?.append((p.read)(outcomes.drop_first(t.count))?))
-				Ok(Transaction.({ statement: then_statement(t.statement, p.statement)?, count: t.count + p.count, parts: t.parts.append(p.count), read }))
+			|Transaction.(built), prepared| {
+				joined = |t, p| {
+					read = |outcomes| Ok((t.read)(outcomes.take_first(t.count))?.append((p.read)(outcomes.drop_first(t.count))?))
+					both = join_statements({ statement: t.statement, slots: t.slots }, { statement: p.statement, slots: p.slots })?
+					Ok({ statement: both.statement, slots: both.slots, count: t.count + p.count, parts: t.parts.append(p.count), read })
+				}
+				Transaction.(
+					match (built, ready_of(prepared)) {
+						(Ok(t), Ok(p)) => joined(t, p)
+						(Err(e), _) | (_, Err(e)) => Err(e)
+					},
+				)
 			},
-		)?
-		Ok(Transaction.(whole).commit())
+		)
+		whole.commit()
 	}
+
+	## The statements of a transaction: `count` of them, and `parts` the
+	## count of each part, for the place of an `Aborted` error.
+	Parts(out) : { statement : Statement, slots : List(Bind), count : U64, parts : List(U64), read : List(Outcome) -> Try(out, Error) }
 
 	## The result of one statement of a reply: its value, or its error, by
 	## its kind. An error `follows` when it is a statement of a transaction
@@ -2755,32 +2837,6 @@ Surreal :: {}.{
 		result = |Session.(s), prepared, bytes| prepared.result_in(bytes, s.known)
 	}
 
-	## The rows of `table` that the filter keeps, with the columns of
-	## `select(|r| r)`, where the filter reads values from around the function
-	## it is written in, such as a parameter. The translator runs while the
-	## compiler runs, so it writes a `$_1`, `$_2`, ... for each captured value,
-	## and the program receives the values in the result's `inputs`.
-	## `bind_captured` binds them.
-	select_where : Table(row), Code(row -> Bool) -> Code.Bound(Try(Captured(row), Error))
-	select_where = |Table.(t), predicate| {
-		graph = predicate.graph()
-		Code.bound(predicate, where_query(own, t, graph))
-	}
-
-	## [Surreal.select_where], where the filter may call the functions of
-	## another package's types and read values of them from around itself.
-	## Each extension gives the SurrealQL of some of those functions, by
-	## their ids, and a captured value is bound as its own `encoder_for`
-	## writes it in `Encode.Bind`: a value of an opaque type is the value its
-	## encoder writes. Every captured value needs that encoder, so a
-	## captured `Id` or `Datetime`, whose encoders write rows, is a compile
-	## error here: capture its text, or use `select_where`.
-	select_where_with : Table(row), List(Extension), Code.Binds(Code(row -> Bool), Encode.Bind) -> Code.Bound(Try(Captured(row), Error))
-	select_where_with = |Table.(t), extensions, predicate| {
-		graph = predicate.graph()
-		Code.bound(predicate, where_query(own.concat(extensions), t, graph))
-	}
-
 	## What a package adds to the translator: the SurrealQL of functions it
 	## does not know, each named by the id the compiler gives it
 	## (`Code.prim(f)`), so two packages' functions of the same name never
@@ -2797,34 +2853,11 @@ Surreal :: {}.{
 	library : Extension
 	library = surreal_library
 
-	## The statement of `select_where` with `$_1`, `$_2`, .. for the
-	## captured values, and the types of those values (`slots`). The type
-	## parameter is the row of the table.
-	Captured(row) := { surql : Str, slots : List(Code.Ty) }
-
-	## The statement that [Surreal.select_where] built, with a `LET` for
-	## each captured value, and the type of its result: the rows, each
-	## read as the row of the table.
-	bind_captured : Code.Bound(Try(Captured(row), Error)) -> Try(Prepared(List(row)), Error) where [row.Cbor.Readable(errs)]
-	bind_captured = |bound| {
-		Captured.(built) = bound.value()?
-		inputs = bound.inputs()
-		if inputs.len() != built.slots.len() {
-			return Err(Unsupported("the clause captured ${inputs.len().to_str()} value(s) but has ${built.slots.len().to_str()} slot(s)"))
-		}
-		lets = List.map2(built.slots, inputs, |ty, value| { ty, value })
-			.map_with_index(|pair, k| (k, pair))
-			.map_try(|(k, pair)| Ok({ name: Translate.input_name(k), value: Translate.captured(pair.ty, pair.value)? }))?
-		# The last name first, so `$_1` never matches the start of `$_10`.
-		inlined = lets.fold_rev(built.surql, |l, text| text.replace_each("$${l.name}", Ql.literal(l.value)))
-		Ok(Prepared.({ statement: Statement.({ surql: built.surql, lets, inlined, intrinsic: [] }), count: 1, atomic: No, read: result_rows(0) }))
-	}
-
 	## The table's rows, to start a query from.
 	from : Table(row) -> Query(p, row)
 	from = |Table.(t)| {
 		edge = is_edge(t.kind)
-		Query.({ target: Whole(t.name), source: { now: Ok(Translate.table_row(t.name, edge)), before: Ok(Translate.document("$before", edge)), reach: Translate.row_reach(edge) }, filters: [], watched: [] })
+		Query.({ target: Whole(t.name), source: { now: Ok(Translate.table_row(t.name, edge)), before: Ok(Translate.document("$before", edge)), reach: Translate.row_reach(edge) }, filters: [], watched: [], slots: [] })
 	}
 
 	# ======================================================= live queries
@@ -2929,22 +2962,35 @@ Surreal :: {}.{
 	## `LIVE SELECT` on the table and one on each other table that the rows
 	## read (see `Watched`), and the `SELECT` of the rows in the result now.
 	## The rows of the snapshot are `{ ref, row }`.
-	Watch(out) :: { lets : List({ name : Str, value : Ql.Value }), lives : List({ role : Role, surql : Str }), snapshot : Str }.{
+	Watch(out) :: Code.Bound(Try({ lets : List({ name : Str, value : Ql.Value }), slots : List(Bind), lives : List({ role : Role, surql : Str }), snapshot : Str }, Error)).{
+
+		## The watch, or why it cannot be built, as `Prepared.checked`.
+		checked : Watch(out) -> Try(Watch(out), Error)
+		checked = |watch| {
+			_ = watch.request()?
+			Ok(watch)
+		}
 
 		## One `query` request: the `LET`s, the `LIVE`s, then the snapshot.
 		## The `LIVE`s come first, so no write between them and the
 		## snapshot is lost: the snapshot holds it, and a notice reports it
-		## again (`step` gives `Updated`).
-		request : Watch(out) -> Str
-		request = |Watch.(w)| Str.join_with(let_lines(w.lets).concat(w.lives.map(|l| "${l.surql};")).append("${w.snapshot};"), "\n")
+		## again (`step` gives `Updated`). A captured value is a `LET` too,
+		## and the server fixes its value when the `LIVE` starts.
+		request : Watch(out) -> Try(Str, Error)
+		request = |watch| {
+			w = watch_of(watch)?
+			lines = w.lives.map(|l| "${l.surql};").append("${w.snapshot};")
+			statement = resolved({ statement: Statement.({ surql: Str.join_with(lines, "\n"), lets: w.lets, inlined: "", intrinsic: [] }), slots: w.slots, count: 0, atomic: No, read: |_| Ok({}) })?
+			Ok(statement.to_script().drop_suffix(";"))
+		}
 
 		## A `-- live:` block for `check.py`. `directives` hold the
 		## `-- snapshot:` and the `-- roc:` literals.
-		block : Watch(out), Str, List(Str), List(Statement) -> Str
+		block : Watch(out), Str, List(Str), List(Statement) -> Try(Str, Error)
 		block = |watch, header, directives, writes| {
-			Watch.(w) = watch
+			w = watch_of(watch)?
 			roles = w.lives.map(|l| role_name(l.role))
-			live_block(header, roles, directives, [watch.request()], writes)
+			Ok(live_block(header, roles, directives, [watch.request()?], writes))
 		}
 
 		## Sort one notice into the changes of the result, by whether its
@@ -2986,15 +3032,17 @@ Surreal :: {}.{
 		## statement that failed is a `Server` error with its message.
 		## `Session.live!` reads it.
 		start : Watch(out), List(U8) -> Try({ live : Live(out), view : View(out) }, Error) where [out.Cbor.Readable(errs)]
-		start = |Watch.(w), bytes| {
-			results = query_results(bytes, w.lets.len() + w.lives.len() + 1, [])?
-			ids = results.drop_first(w.lets.len()).take_first(w.lives.len()).map_try(uuid_of)?
+		start = |watch, bytes| {
+			w = watch_of(watch)?
+			let_count = w.lets.len() + w.slots.len()
+			results = query_results(bytes, let_count + w.lives.len() + 1, [])?
+			ids = results.drop_first(let_count).take_first(w.lives.len()).map_try(uuid_of)?
 			lives = List.map2(w.lives, ids, |l, id| { id, role: l.role })
 			entries : List({ ref : Ref, row : Cbor.Value })
 			entries = read_cbor(Cbor.encode(results.last() ?? Cbor.Value.Null))?
 			snapshot = entries.map_try(|entry| row_of(entry.row).map_ok(|row| { ref: entry.ref, row }))?
 			start_view = View.of_rows(snapshot)
-			Ok({ live: Live.({ watch: Watch.(w), lives, members: start_view.members() }), view: start_view })
+			Ok({ live: Live.({ watch, lives, members: start_view.members() }), view: start_view })
 		}
 
 		## One message of the session, read. A message of one of `lives`
@@ -3035,13 +3083,13 @@ Surreal :: {}.{
 	## A raw live query (`Selected.live_raw`): the `LET` of each parameter
 	## and one `LIVE SELECT`. It has no snapshot.
 	RawWatch(out) :: { lets : List({ name : Str, value : Ql.Value }), live : Str }.{
-		request : RawWatch(out) -> Str
-		request = |RawWatch.(w)| Str.join_with(let_lines(w.lets).append("${w.live};"), "\n")
+		request : RawWatch(out) -> Try(Str, Error)
+		request = |RawWatch.(w)| Ok(Str.join_with(let_lines(w.lets).append("${w.live};"), "\n"))
 
 		## A `-- live:` block for `check.py`, with the `-- roc:` literal of
 		## `Mirror.events_literal` in `directives`.
 		block : RawWatch(out), Str, List(Str), List(Statement) -> Str
-		block = |watch, header, directives, writes| live_block(header, ["raw"], directives, [watch.request()], writes)
+		block = |watch, header, directives, writes| live_block(header, ["raw"], directives, [watch.request() ?? ""], writes)
 
 		## The reply to `request`, read: the watch that runs, with the uuid
 		## of the `LIVE`. There is no snapshot, so the view is `{}`.
@@ -3081,11 +3129,11 @@ Surreal :: {}.{
 	## A live query of patches of the stored rows (`Query.live_diff`): the
 	## `LET` of each parameter and one `LIVE SELECT DIFF`.
 	DiffWatch(row) :: { lets : List({ name : Str, value : Ql.Value }), live : Str }.{
-		request : DiffWatch(row) -> Str
-		request = |DiffWatch.(w)| Str.join_with(let_lines(w.lets).append("${w.live};"), "\n")
+		request : DiffWatch(row) -> Try(Str, Error)
+		request = |DiffWatch.(w)| Ok(Str.join_with(let_lines(w.lets).append("${w.live};"), "\n"))
 
 		block : DiffWatch(row), Str, List(Str), List(Statement) -> Str
-		block = |watch, header, directives, writes| live_block(header, ["diff"], directives, [watch.request()], writes)
+		block = |watch, header, directives, writes| live_block(header, ["diff"], directives, [watch.request() ?? ""], writes)
 
 		## The reply to `request`, read: the watch that runs, with the uuid
 		## of the `LIVE`, and an empty view that its patches fill
@@ -3483,7 +3531,7 @@ Surreal :: {}.{
 
 	## A request in flight (`Session.send!`): its id, and the type of its
 	## result, which `Session.await!` reads.
-	Ticket(out) :: { id : U64 }
+	Ticket(out) :: { id : Try(U64, Error) }
 
 	## A session of SurrealDB's RPC on `/rpc`, over a `Transport`: a
 	## WebSocket with the subprotocol `cbor` (`Transport.websocket`), or
@@ -3577,9 +3625,9 @@ Surreal :: {}.{
 		## the view it starts from: the snapshot of a `Watch`, an empty
 		## `DiffView`, `{}` of a raw watch. A notice that comes before the
 		## reply stays in the inbox. `next!` reads what the watch gives.
-		live! : Session, watch => Try({ session : Session, live : live, view : view }, Error) where [watch.request : watch -> Str, watch.start : watch, List(U8) -> Try({ live : live, view : view }, Error), live.lives : live -> Lives]
+		live! : Session, watch => Try({ session : Session, live : live, view : view }, Error) where [watch.request : watch -> Try(Str, Error), watch.start : watch, List(U8) -> Try({ live : live, view : view }, Error), live.lives : live -> Lives]
 		live! = |session, watch| {
-			got = start!(session, watch.request())?
+			got = start!(session, watch.request()?)?
 			started = watch.start(got.reply)?
 			Ok({ session: watching(got.session, started.live.lives()), live: started.live, view: started.view })
 		}
@@ -3639,17 +3687,24 @@ Surreal :: {}.{
 		## stream, and the stream goes on; a read that fails ends it after
 		## its error. It ends when the watch ends.
 		stream : Session, live -> Stream(Try({ item : item, session : Session, live : live }, Error)) where [live.lives : live -> Lives, live.receive : live, List(U8) -> Try([Got({ item : item, live : live }), Skip(live), Ended], Error)]
-		stream = |session, live| Stream.custom({ session, live, open: Bool.True }, Unknown, stream_step!)
+		stream = |session, live| Stream.custom({ session, live, open: Bool.True }, Err(Unknown), stream_step!)
 
 		## Sends a prepared statement, and does not wait for its reply: the
 		## ticket names it for `await!`. Requests in flight run with no
 		## order between them on the server (verified), so a step that
-		## needs another goes in one request (`Prepared.then`).
+		## needs another goes in one request (`Prepared.then`). A statement
+		## that cannot be built (`Prepared.checked`) is not sent: its ticket
+		## holds the error, and `await!` gives it.
 		send! : Session, Prepared(out) => Try({ session : Session, ticket : Ticket(out) }, Error)
 		send! = |session, prepared| {
 			Session.(s) = session
-			sent = post_request!(session, Cbor.encode(Rpc.query(s.next_id, prepared.request())))?
-			Ok({ session: sent, ticket: Ticket.({ id: s.next_id }) })
+			match prepared.request() {
+				Ok(text) => {
+					sent = post_request!(session, Cbor.encode(Rpc.query(s.next_id, text)))?
+					Ok({ session: sent, ticket: Ticket.({ id: Ok(s.next_id) }) })
+				}
+				Err(e) => Ok({ session, ticket: Ticket.({ id: Err(e) }) })
+			}
 		}
 
 		## The reply to a ticket, read as the result of `prepared`: from the
@@ -3660,8 +3715,12 @@ Surreal :: {}.{
 		await! : Session, Ticket(out), Prepared(out) => { session : Session, result : Try(out, Error) }
 		await! = |session, Ticket.(t), prepared| {
 			Session.(s) = session
-			match reply_for!(session, t.id) {
-				Ok(got) => { session: got.session, result: prepared.result_in(got.reply, s.known) }
+			match t.id {
+				Ok(id) =>
+					match reply_for!(session, id) {
+						Ok(got) => { session: got.session, result: prepared.result_in(got.reply, s.known) }
+						Err(e) => { session, result: Err(e) }
+					}
 				Err(e) => { session, result: Err(e) }
 			}
 		}
@@ -4012,7 +4071,7 @@ intrinsic_ids = intrinsic_forms.map(|entry| entry.prim)
 ## The forms of the functions of `Surreal` that a clause may call, by their
 ## ids: the intrinsics, the cut, and the tables a clause names. The translator
 ## cannot import this module, so every call into it carries this extension
-## (`own`), and `select_where_with` adds the caller's after it.
+## (`own`), and `Query.filter_with` adds the caller's after it.
 surreal_library : Translate.Extension
 surreal_library = Translate.forms(
 	intrinsic_forms.concat(
@@ -4202,7 +4261,7 @@ aggregated = |Grouped.(g), per_group, in_view| {
 	base = q.source.now
 	key = g.key
 	groups = |param| {
-		parts = parts_of(within_clause("`group_by`", Translate.evaluate(own, key.graph(), [base?], param))?)?
+		parts = parts_of(within_clause("`group_by`", Translate.evaluate(own, key.graph(), [base?], spelled(key, param)))?)?
 		columns = within_clause("`aggregate`", group_columns(key, per_group, base?, param, in_view))?
 		if parts.is_empty() {
 			return Err(Unsupported("`group_by(|_| {})` groups by a key of no parts, and SurrealDB has no `GROUP BY` of nothing. `GROUP ALL` is not the same: it gives one row for no rows. Take `totals`"))
@@ -4217,16 +4276,16 @@ aggregated = |Grouped.(g), per_group, in_view| {
 	}
 	columns = |param| Ok(aliased(within_clause("`aggregate`", group_columns(key, per_group, base?, param, in_view))?))
 	ty = per_group.graph().root_row().result
-	selected_of(q, { columns, value: |_| Err(live_group), intrinsic: intrinsic_columns(per_group.graph()) }, by_name, [groups], { ty, over: PerGroup, nested: nested_row(ty) })
+	selected_of({ ..q, slots: q.slots.concat(slots_of(key)).concat(slots_of(per_group)) }, { columns, value: |_| Err(live_group), intrinsic: intrinsic_columns(per_group.graph()) }, by_name, [groups], { ty, over: PerGroup, nested: nested_row(ty) })
 }
 
 ## The query of `Query.totals`: the columns of the one function of the rows.
 totalled : Query(p, row), Code(List(row) -> out) -> Totals(p, out)
 totalled = |Query.(q), per_total| {
 	base = q.source.now
-	columns = |param| Ok(aliased(within_clause("`totals`", Translate.total_columns(own, per_total.graph(), [Translate.Binding.Group(base?)], param))?))
+	columns = |param| Ok(aliased(within_clause("`totals`", Translate.total_columns(own, per_total.graph(), [Translate.Binding.Group(base?)], spelled(per_total, param)))?))
 	ty = per_total.graph().root_row().result
-	Totals.(selected_of(q, { columns, value: |_| Err(live_group), intrinsic: intrinsic_columns(per_total.graph()) }, by_name, [], { ty, over: PerGroup, nested: nested_row(ty) }))
+	Totals.(selected_of({ ..q, slots: q.slots.concat(slots_of(per_total)) }, { columns, value: |_| Err(live_group), intrinsic: intrinsic_columns(per_total.graph()) }, by_name, [], { ty, over: PerGroup, nested: nested_row(ty) }))
 }
 
 group_all : Str -> Str
@@ -4235,23 +4294,9 @@ group_all = |text| "${text} GROUP ALL"
 ## The result columns of one group: the key and the group's rows bound.
 group_columns : Code(row -> k), Code((k, List(row) -> out)), Translate.Binding, (Str -> Str), Bool -> Try(List({ name : Str, surql : Str }), Error)
 group_columns = |key, per_group, base, param, in_view| {
-	group_key = Translate.evaluate(own, key.graph(), [base], param)?
+	group_key = Translate.evaluate(own, key.graph(), [base], spelled(key, param))?
 	bindings = [group_key, Translate.Binding.Group(base)]
-	if (in_view) Translate.view_columns(own, per_group.graph(), bindings, param) else Translate.columns(own, per_group.graph(), bindings, param)
-}
-
-## The statement of `select_where`: the row's columns and the filter.
-## The row type is the type of the filter's parameter.
-where_query : List(Translate.Extension), { name : Str, kind : TableKind }, Code.Graph -> Try(Captured(row), Error)
-where_query = |extensions, t, graph| {
-	edge = is_edge(t.kind)
-	condition = within_clause("the filter of `select_where`", Translate.render(extensions, graph, [Translate.table_row(t.name, edge)], Translate.variable))?
-	row_ty = match graph.root_row().params {
-		[only] => only
-		_ => return Err(Unsupported("a filter of `select_where` takes the row"))
-	}
-	columns = row_list(row_ty, { at: "", of: Doc(Unnamed), edge })?
-	Ok(Captured.({ surql: "SELECT ${columns} FROM ${Ql.ident(t.name)} WHERE ${condition}", slots: graph.slots() }))
+	if (in_view) Translate.view_columns(own, per_group.graph(), bindings, spelled(per_group, param)) else Translate.columns(own, per_group.graph(), bindings, spelled(per_group, param))
 }
 
 ## The id of a row by its table's name. `Table.id` is the same with the
@@ -4652,16 +4697,69 @@ record_at = |t, Id.(i)|
 
 ## The `UPDATE` of the record of `id` with the `SET` items of `sets`
 ## over its row (`Table.update_at`, `set_at`).
-update_key : { name : Str, kind : TableKind }, Id(row), (Translate.Binding, (Str -> Str) -> Try(List({ name : Str, surql : Str }), Error)) -> Write(p, row)
-update_key = |t, id, sets| {
+update_key : { name : Str, kind : TableKind }, Code(Id(row)), List(Slot), (Translate.Binding, (Str -> Str) -> Try(List({ name : Str, surql : Str }), Error)) -> Write(p, row)
+update_key = |t, id, patch_slots, sets| {
 	row = Translate.table_row(t.name, is_edge(t.kind))
+	key = key_of(t, id)
 	build = |param| {
 		writable(t)?
-		record = record_at(t, id)?
+		record = key.text?
 		Ok("UPDATE ${record} SET ${set_list(sets(row, param)?)}")
 	}
-	Write.({ build: build, gives: After, edge: is_edge(t.kind) })
+	Write.({ build: build, gives: After, edge: is_edge(t.kind), slots: key.slots.concat(patch_slots) })
 }
+
+## The record id of a key of `Table.at` or a keyed write: the literal id
+## of a key that the program fixes, and the slot of one it only knows when
+## it runs, whose table is checked when it is bound. An id of another
+## table is refused.
+key_of : { name : Str, kind : TableKind }, Code(Id(row)) -> { text : Try(Str, Error), slots : List(Slot) }
+key_of = |t, key| {
+	slots = keyed_slots(key, Of(t.name), Bool.False)
+	text = within_clause("the key", Translate.render(own, key.graph(), [], spelled(key, Translate.variable)))
+	checked = match text {
+		Ok(spelled_key) if !slots.is_empty() or spelled_key.starts_with("${Ql.ident(t.name)}:") => Ok(spelled_key)
+		Ok(spelled_key) => Err(Unsupported("the id `${spelled_key}` is not of the table `${t.name}`"))
+		Err(e) => Err(e)
+	}
+	{ text: checked, slots }
+}
+
+## The `MERGE` of `partial` into the record of a key.
+keyed_merge : Str, { name : Str, kind : TableKind }, Id(row), a -> Try(Statement, Error) where [a.encoder_for : Encode.Format -> (a, Encode.State -> Try(Encode.State, []))]
+keyed_merge = |verb, t, row_id, partial| {
+	record = record_at(t, row_id)?
+	merge_write(verb, t, record, partial)
+}
+
+## The `DELETE` of the record of a row.
+delete_of : { name : Str, kind : TableKind }, a -> Try(Statement, Error) where [a.encoder_for : Encode.Format -> (a, Encode.State -> Try(Encode.State, []))]
+delete_of = |t, row| {
+	writable(t)?
+	Ok(statement_of("DELETE ${ref_of(t, row)?.to_str()}"))
+}
+
+## The graph of a clause that the database stores: a schema rule, an
+## index, a permission, a view, an access method. SurrealDB stores its
+## text and runs it with no parameters, so a captured value, which
+## exists only when the program runs, is refused at the place the clause
+## reads it. Only a chain that the compiler runs has captured values, so
+## this is a compile error.
+stored_graph : Code(f), Str -> Code.Graph
+stored_graph = |code, context| {
+	graph = code.graph()
+	if !graph.slots().is_empty() {
+		match input_node(graph, 0) {
+			Ok(at) => code.refuse_at(at, stored_message(context))
+			Err(_) => crash stored_message(context)
+		}
+	} else {
+		graph
+	}
+}
+
+stored_message : Str -> Str
+stored_message = |context| "${context} is stored in the database and runs with no parameters, so it cannot read a value that exists only when the program runs. Use a top-level constant"
 
 ## A view is filled by SurrealDB from its query, so a write to it is refused.
 writable : { name : Str, kind : TableKind } -> Try({}, Error)
@@ -4671,7 +4769,7 @@ writable = |t| match t.kind {
 }
 
 ## A `Selected` of a query. `shape` is its columns, and its result row as one value.
-selected_of : { target : Target, filters : List(Filter), source : Rows, watched : List(Watched) }, { columns : Clause, value : Clause, intrinsic : List(Str) }, ResultOrder, List(Clause), ResultRow -> Selected(p, out)
+selected_of : { target : Target, filters : List(Filter), source : Rows, watched : List(Watched), slots : List(Slot) }, { columns : Clause, value : Clause, intrinsic : List(Str) }, ResultOrder, List(Clause), ResultRow -> Selected(p, out)
 selected_of = |q, shape, results, groups, rows| Selected.(
 	{
 		target: q.target,
@@ -4687,8 +4785,25 @@ selected_of = |q, shape, results, groups, rows| Selected.(
 		order: [],
 		limit: Unlimited,
 		start: FromFirst,
+		slots: q.slots,
 	},
 )
+
+## The count of `limit` or `start`: its literal, or the mark of its slot.
+count_text : Code(U64) -> Try(Str, Error)
+count_text = |count| within_clause("the count", Translate.render(own, count.graph(), [], spelled(count, Translate.variable)))
+
+is_unlimited : [Unlimited, Limit(Try(Str, Error))] -> Bool
+is_unlimited = |limit| match limit {
+	Unlimited => Bool.True
+	Limit(_) => Bool.False
+}
+
+from_first : [FromFirst, Start(Try(Str, Error))] -> Bool
+from_first = |start| match start {
+	FromFirst => Bool.True
+	Start(_) => Bool.False
+}
 
 row_of_pair : Error
 row_of_pair = Unsupported("a pair of a row and its edges is not a record; select its columns with `select(|(row, edges)| { .. })`")
@@ -4962,22 +5077,231 @@ keyless = |t, row| {
 
 ## A write of one row with a typed result: the row as stored, after
 ## the write or before it (`RETURN AFTER`, `RETURN BEFORE`).
-stored_write : { name : Str, kind : TableKind }, Statement, [After, Before] -> Try(Prepared(List(row)), Error) where [row.Cbor.Readable(errs)]
-stored_write = |t, Statement.(s), gives| Ok(Prepared.({ statement: statement_of("${s.surql}${return_clause(gives)}"), count: 1, atomic: No, read: read_stored(0, is_edge(t.kind)) }))
+stored_write : { name : Str, kind : TableKind }, Try(Statement, Error), [After, Before] -> Prepared(List(row)) where [row.Cbor.Readable(errs)]
+stored_write = |t, built, gives| keyed_write(t, built, [], gives)
+
+## `stored_write` of a statement over the slots of its clauses.
+keyed_write : { name : Str, kind : TableKind }, Try(Statement, Error), List(Slot), [After, Before] -> Prepared(List(row)) where [row.Cbor.Readable(errs)]
+keyed_write = |t, built, slots, gives| prepared_of(built.map_ok(|Statement.(s)| { statement: Statement.({ ..s, surql: "${s.surql}${return_clause(gives)}", inlined: "${s.inlined}${return_clause(gives)}" }), slots, count: 1, atomic: No, read: read_stored(0, is_edge(t.kind)) }))
+
+## The spelling of a parameter for a clause of `code`: a captured value
+## is a mark of its slot in the chain (`Translate.slotted`).
+spelled : Code(f), (Str -> Str) -> (Str -> Str)
+spelled = |code, param| Translate.slotted(code.first_slot(), param)
 
 ## The count of the results of the statements: with the `BEGIN`
 ## and the `COMMIT` of a transaction.
-prepared_size : Prepared(out) -> U64
-prepared_size = |Prepared.(p)| match p.atomic {
-	No => p.count
-	Whole | Parts(_) => p.count + 2
+ready_size : Ready(out) -> U64
+ready_size = |r| match r.atomic {
+	No => r.count
+	Whole | Parts(_) => r.count + 2
 }
 
-## The results of the statements, `prepared_size` of them, read as `out`. In
+## What a terminal call built, with the values of the captured values
+## that the chain's call gave: one per slot that has none yet. A statement
+## that a combination made at run time has every value, and the call gives
+## none.
+ready_of : Prepared(out) -> Try(Ready(out), Error)
+ready_of = |Prepared.(bound)| {
+	ready = bound.value()?
+	Ok({ ..ready, slots: given_binds(ready.slots, bound.inputs())? })
+}
+
+## The slots with the values that a chain's call gave: one per slot that
+## has none yet, in order.
+given_binds : List(Bind), List(Code.Value) -> Try(List(Bind), Error)
+given_binds = |slots, given| {
+	pending = slots.count_if(|b| is_pending(b.value))
+	if given.len() != pending {
+		return Err(Unsupported("the chain captured ${given.len().to_str()} value(s), and its statement has ${pending.to_str()} slot(s) for them"))
+	}
+	filled = slots.fold(
+		{ next: 0, binds: [] },
+		|acc, b| match b.value {
+			Pending =>
+				match given.get(acc.next) {
+					Ok(v) => { next: acc.next + 1, binds: acc.binds.append({ ..b, value: Given(v) }) }
+					Err(_) => { ..acc, binds: acc.binds.append(b) }
+				}
+			Given(_) => { ..acc, binds: acc.binds.append(b) }
+		},
+	)
+	Ok(filled.binds)
+}
+
+is_pending : [Pending, Given(Code.Value)] -> Bool
+is_pending = |value| match value {
+	Pending => Bool.True
+	Given(_) => Bool.False
+}
+
+## The slots of a statement from the slots its clauses read, in the order
+## of the chain. Two clauses that read one slot give it once. A slot that
+## no clause typed is an error: a builder did not keep its slots.
+binds_of : List(Slot) -> Try(List(Bind), Error)
+binds_of = |slots| {
+	sorted = slots.sort_with(|a, b| a.at.order_relative_to(b.at))
+	unique = sorted.fold([], |acc, s| if acc.any(|t| t.at == s.at) acc else acc.append(s))
+	unique.map_with_index(|s, k| { s, k }).map_try(
+		|p|
+			if p.s.at == p.k {
+				Ok({ ty: p.s.ty, table: p.s.table, value: Pending })
+			} else {
+				Err(Unsupported("the captured value ${(p.k + 1).to_str()} of the chain has no type: a clause did not keep it"))
+			},
+	)
+}
+
+## The slots of a clause's `Code`, numbered in its chain. A value that has
+## no SurrealQL form is refused at the place the clause reads it: a
+## captured value only exists in a chain that the compiler runs, so this
+## is a compile error.
+slots_of : Code(f) -> List(Slot)
+slots_of = |code| keyed_slots(code, Any, Bool.False)
+
+## `slots_of`, where each slot is a key of the table `table`, and where
+## `encoded` says that the clause binds a value of an opaque type with its
+## encoder (`Code.Binds`).
+keyed_slots : Code(f), [Any, Of(Str)], Bool -> List(Slot)
+keyed_slots = |code, table, encoded| {
+	graph = code.graph()
+	graph.slots().map_with_index(
+		|ty, k| {
+			match Translate.bindable(ty, encoded) {
+				Ok({}) => {}
+				Err(reason) =>
+					match input_node(graph, k.to_u32_wrap()) {
+						Ok(at) => code.refuse_at(at, reason)
+						Err(_) => {}
+					}
+			}
+			{ at: code.first_slot() + k, ty, table }
+		},
+	)
+}
+
+## The first node of the graph that reads the captured value `k`.
+input_node : Code.Graph, U32 -> Try({ row : U32, node : U32 }, [NotFound])
+input_node = |graph, k| {
+	found = graph.rows().join_map(
+		|row| row.nodes.map_with_index(|node, i| { row: row.id, node: i.to_u32_wrap(), reads: node.args.contains(Input(k)) }),
+	)
+	match found.find_first(|f| f.reads) {
+		Ok(f) => Ok({ row: f.row, node: f.node })
+		Err(_) => Err(NotFound)
+	}
+}
+
+## The statement with the name and the `LET` of each captured value, in
+## a transaction between `BEGIN` and `COMMIT`.
+ready_statement : Ready(out) -> Try(Statement, Error)
+ready_statement = |ready| {
+	s = resolved(ready)?
+	match ready.atomic {
+		No => Ok(s)
+		Whole | Parts(_) => Ok(in_transaction(s))
+	}
+}
+
+## The statement with each `Translate.slot_mark` replaced: by `$_k` in
+## the text, by the value in the text with the values written in, and a
+## `LET $_k` for each. A key of another table is refused.
+resolved : Ready(out) -> Try(Statement, Error)
+resolved = |ready| {
+	Statement.(s) = ready.statement
+	values = ready.slots.map_try(
+		|b| match b.value {
+			Given(v) => {
+				value = Translate.captured(b.ty, v)?
+				match (b.table, value) {
+					(Any, _) => Ok(value)
+					(Of(name), Record(r)) =>
+						if r.table == name {
+							Ok(value)
+						} else {
+							Err(Unsupported("the id `${Ql.record_id(r.table, r.key)}` is of the table `${r.table}`, not of `${name}`"))
+						}
+					(Of(name), _) => Err(Unsupported("a key of `${name}` that is not an id"))
+				}
+			}
+			Pending => Err(Unsupported("a captured value that the chain did not give"))
+		},
+	)?
+	lets = values.map_with_index(|value, k| { name: Translate.input_name(k), value })
+	surql = unmark(s.surql, |k| "$${Translate.input_name(k)}")?
+	inlined = unmark(
+		s.inlined,
+		|k| match values.get(k) {
+			Ok(v) => Ql.literal(v)
+			Err(_) => "NONE"
+		},
+	)?
+	Ok(Statement.({ ..s, surql, lets: s.lets.concat(lets), inlined }))
+}
+
+## The text with each `Translate.slot_mark` replaced by `spell(k)`.
+unmark : Str, (U64 -> Str) -> Try(Str, Error)
+unmark = |text, spell| {
+	var $done = ""
+	var $i = 0
+	for part in text.split_on(Translate.mark_byte) {
+		if $i % 2 == 0 {
+			$done = Str.concat($done, part)
+		} else {
+			k = U64.from_str(part) ? |_| Unsupported("a slot mark without its number")
+			$done = Str.concat($done.drop_suffix("$"), spell(k))
+		}
+		$i = $i + 1
+	}
+	Ok($done)
+}
+
+## The text with each mark numbered `offset` higher.
+shifted : Str, U64 -> Try(Str, Error)
+shifted = |text, offset| if offset == 0 Ok(text) else unmark(text, |k| Translate.slot_mark(k + offset))
+
+## Two statements as one, the first first: the marks of the second are
+## numbered after the slots of the first.
+join_statements : { statement : Statement, slots : List(Bind) }, { statement : Statement, slots : List(Bind) } -> Try({ statement : Statement, slots : List(Bind) }, Error)
+join_statements = |a, b| {
+	Statement.(second) = b.statement
+	offset = a.slots.len()
+	moved = Statement.({ ..second, surql: shifted(second.surql, offset)?, inlined: shifted(second.inlined, offset)? })
+	Ok({ statement: then_statement(a.statement, moved)?, slots: a.slots.concat(b.slots) })
+}
+
+## `Prepared.then` of what two terminal calls built.
+then_ready : Try(Ready(a), Error), Try(Ready(b), Error) -> Try(Ready((Try(a, Error), Try(b, Error))), Error)
+then_ready = |built_first, built_second| {
+	first = built_first?
+	second = built_second?
+	in_text = |r| match r.atomic {
+		No => r.statement
+		Whole | Parts(_) => in_transaction(r.statement)
+	}
+	both = join_statements({ statement: in_text(first), slots: first.slots }, { statement: in_text(second), slots: second.slots })?
+	split = ready_size(first)
+	read = |outcomes| Ok((read_all(first, outcomes.take_first(split)), read_all(second, outcomes.drop_first(split))))
+	Ok({ statement: both.statement, slots: both.slots, count: split + ready_size(second), atomic: No, read })
+}
+
+## A terminal call's result: the statement over the slots of its clauses.
+prepared_of : Try({ statement : Statement, slots : List(Slot), count : U64, atomic : [No, Whole, Parts(List(U64))], read : List(Outcome) -> Try(out, Error) }, Error) -> Prepared(out)
+prepared_of = |built| Prepared.(
+	Code.Bound.of(
+		match built {
+			Ok(b) => binds_of(b.slots).map_ok(|binds| { statement: b.statement, slots: binds, count: b.count, atomic: b.atomic, read: b.read })
+			Err(e) => Err(e)
+		},
+	),
+)
+
+## The results of the statements, `ready_size` of them, read as `out`. In
 ## a transaction that failed, the error is the first that is not
 ## `follows`: the statement that failed it.
-read_all : Prepared(out), List(Outcome) -> Try(out, Error)
-read_all = |Prepared.(p), outcomes| {
+read_all : Ready(out), List(Outcome) -> Try(out, Error)
+read_all = |p, outcomes| {
+
 	match p.atomic {
 		No => return (p.read)(outcomes)
 		Whole | Parts(_) => {}
@@ -5072,6 +5396,13 @@ lets_of = |params| {
 	}
 }
 
+## What a watch built, with the values of its captured values (`ready_of`).
+watch_of : Watch(out) -> Try({ lets : List({ name : Str, value : Ql.Value }), slots : List(Bind), lives : List({ role : Role, surql : Str }), snapshot : Str }, Error)
+watch_of = |Watch.(bound)| {
+	w = bound.value()?
+	Ok({ ..w, slots: given_binds(w.slots, bound.inputs())? })
+}
+
 ## The `LET` lines of the parameters, before the statements of a live query.
 let_lines : List({ name : Str, value : Ql.Value }) -> List(Str)
 let_lines = |lets| lets.map(|l| "LET $${l.name} = ${Ql.literal(l.value)};")
@@ -5084,7 +5415,7 @@ live_table = |Selected.(s)| {
 	name = whole_table(s.target)?
 	if !s.groups.is_empty() {
 		Err(live_group)
-	} else if !s.order.is_empty() or s.limit != Unlimited or s.start != FromFirst {
+	} else if !s.order.is_empty() or !(is_unlimited(s.limit)) or !(from_first(s.start)) {
 		Err(Unsupported("SurrealDB refuses ORDER BY, LIMIT and START in a live query; order the rows of a `View`"))
 	} else {
 		Ok(name)

@@ -118,7 +118,7 @@ The builtins below have a SurrealQL form. `s` is a `Str`, `n` and `m` are intege
 | Conversion | `to_dec`, `to_f64`, `to_f32`, `to_str` on integers | `<decimal>n`, `<float>n`, `<string>n` | |
 | Widening | `to_i64`, `to_i128`, `to_u32` and other conversions with no check | `n` | An integer is an `int` already |
 | Checked conversion | `to_u8_try` and the other `to_<int>_try`, `d.to_i64_try()` | `IF n >= 0 AND n <= 255 THEN n ELSE NONE END` | The result is an optional value. `to_i64_try` on `Dec` cuts the fraction, then tests the range |
-| List test | `list.len()`, `is_empty()`, `contains(x)` | `list.len()`, `list.len() = 0`, `list CONTAINS x` | |
+| List test | `list.len()`, `is_empty()`, `contains(x)` | `list.len()`, `list.len() = 0`, `list CONTAINS x` | A captured list is `x IN $_1` |
 | List walk | `any`, `all`, `map`, `join_map`, `keep_if`, `drop_if`, `count_if`, `find_first` | `list.any(\|$v1\| ..)`, `.all`, `.map`, `array::flatten(list.map(..))`, `.filter`, `.find` | `drop_if` is `.filter(\|$v1\| !(..))`. `count_if` is `.filter(..).len()`. `xs.any(\|x\| x.f == v)` over a list of records, where `v` does not read `x`, is `v IN xs[*].f`. Over the edges of a graph path, `keep_if`, `map` and `join_map` extend the path (see [Graph paths](links-and-graphs.md#graph-paths)) |
 | List sum | `list.map(f).sum()` | `math::sum(list.map(\|$v1\| ..))` | Over the rows of a group it is an aggregate (see [Group rows](queries.md#group-rows)) |
 | List pick | `first`, `last`, `get(i)`, `min`, `max` | `array::first(list)`, `array::last`, `array::at(list, i)`, `array::min`, `array::max` | The result is an optional value: `NONE` stands for `Err` |

@@ -201,7 +201,7 @@ SELECT form, record::id(id) AS id, label, name, stock, unit_price FROM medicatio
 -- query: owners_at
 -- roc: [{ address: { city: 'Oslo', line: 'Storgata 4', zip: '0155' }, email: 'jon@example.org', id: 'jon', name: 'Jon Berg', tags: ['new'] }, { address: { city: 'Lyon', line: 'Rue Merciere 9' }, email: 'lena@example.org', id: 'lena', name: 'Lena Roux', phone: '555-0188', tags: [] }]
 LET $_1 = [{ city: 'Lyon', line: 'Rue Merciere 9' }, { city: 'Oslo', line: 'Storgata 4', zip: '0155' }];
-SELECT address, email, record::id(id) AS id, name, phone, referred_by, tags FROM owner WHERE $_1 CONTAINS address;
+SELECT address, email, record::id(id) AS id, name, phone, referred_by, tags FROM owner WHERE address IN $_1;
 
 -- query: owner_at, with a zip
 -- roc: [{ address: { city: 'Oslo', line: 'Storgata 4', zip: '0155' }, email: 'jon@example.org', id: 'jon', name: 'Jon Berg', tags: ['new'] }]

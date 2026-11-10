@@ -48,20 +48,20 @@ mux_b : Surreal.Table(Row)
 mux_b = Surreal.table("mux_b")
 
 watch_a : Surreal.Watch(Row)
-watch_a = match Surreal.from(mux_a).select(|r| r).live({}, []) {
+watch_a = match Surreal.from(mux_a).select(|r| r).live({}, []).checked() {
 	Ok(w) => w
 	Err(_) => crash "a watch of a whole row translates"
 }
 
 watch_b : Surreal.Watch(Row)
-watch_b = match Surreal.from(mux_b).select(|r| r).live({}, []) {
+watch_b = match Surreal.from(mux_b).select(|r| r).live({}, []).checked() {
 	Ok(w) => w
 	Err(_) => crash "a watch of a whole row translates"
 }
 
 # The recorder sends these texts (`MUX_WATCH` in `check.py`).
-expect watch_a.request() == "LIVE SELECT VALUE { row: { id: record::id(id), v: v }, now: true } FROM mux_a;\nSELECT VALUE { ref: id, row: { id: record::id(id), v: v } } FROM mux_a;"
-expect watch_b.request() == "LIVE SELECT VALUE { row: { id: record::id(id), v: v }, now: true } FROM mux_b;\nSELECT VALUE { ref: id, row: { id: record::id(id), v: v } } FROM mux_b;"
+expect watch_a.request() == Ok("LIVE SELECT VALUE { row: { id: record::id(id), v: v }, now: true } FROM mux_a;\nSELECT VALUE { ref: id, row: { id: record::id(id), v: v } } FROM mux_a;")
+expect watch_b.request() == Ok("LIVE SELECT VALUE { row: { id: record::id(id), v: v }, now: true } FROM mux_b;\nSELECT VALUE { ref: id, row: { id: record::id(id), v: v } } FROM mux_b;")
 
 live_a : Surreal.Live(Row)
 live_a = match watch_a.start(start_a) {

@@ -125,10 +125,10 @@ A query that has no `select` at all reads the whole rows too. `Query` has the ca
 
 | Call | Same as | Gives |
 | --- | --- | --- |
-| `Surreal.from(owners).prepare(params)` | `.select(\|r\| r).prepare(params)` | `Try(Prepared(List(Owner)), Error)` |
+| `Surreal.from(owners).prepare(params)` | `.select(\|r\| r).prepare(params)` | `Prepared(List(Owner))` |
 | `Surreal.from(owners).ready()` | `.prepare({})` | The same, for a query with no parameter |
-| `owners.at(id).prepare_one(params)`, `.ready_one()` | `.select(\|r\| r).prepare_one(params)` | `Try(Prepared(Try(Owner, [NotFound])), Error)` |
-| `query.live(params, definitions)`, `.ready_live(definitions)` | `.select(\|r\| r).live(params, definitions)` | `Try(Watch(Owner), Error)` |
+| `owners.at(id).prepare_one(params)`, `.ready_one()` | `.select(\|r\| r).prepare_one(params)` | `Prepared(Try(Owner, [NotFound]))` |
+| `query.live(params, definitions)`, `.ready_live(definitions)` | `.select(\|r\| r).live(params, definitions)` | `Watch(Owner)` |
 
 The text is the same as the text of `select(|r| r)`. Write `select(|r| r)` only when a later clause needs a `Selected`, such as `order_by`.
 

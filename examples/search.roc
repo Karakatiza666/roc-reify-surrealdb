@@ -104,15 +104,15 @@ expect ids(nearest(seed_charts, 3)) == [{ id: "c1" }, { id: "c2" }, { id: "c4" }
 
 # ------------------------------------------------------------------ blocks
 
-block : Str, List(Str), Try(Surreal.Prepared(out), Surreal.Error), Try(Str, Surreal.Error) -> Str
-block = |header, flags, prepared, reference| match (prepared, reference) {
-	(Ok(p), Ok(literal)) => p.statement().block(header, flags.append("-- roc: ${literal}"))
+block : Str, List(Str), Surreal.Prepared(out), Try(Str, Surreal.Error) -> Str
+block = |header, flags, prepared, reference| match (prepared.statement(), reference) {
+	(Ok(st), Ok(literal)) => st.block(header, flags.append("-- roc: ${literal}"))
 	(Err(e), _) | (_, Err(e)) => "-- unsupported ${header}: ${Str.inspect(e)}"
 }
 
-plain : Str, List(Str), Try(Surreal.Prepared(out), Surreal.Error) -> Str
-plain = |header, flags, prepared| match prepared {
-	Ok(p) => p.statement().block(header, flags)
+plain : Str, List(Str), Surreal.Prepared(out) -> Str
+plain = |header, flags, prepared| match prepared.statement() {
+	Ok(st) => st.block(header, flags)
 	Err(e) => "-- unsupported ${header}: ${Str.inspect(e)}"
 }
 

@@ -16,7 +16,7 @@ The terms "clause", "Mirror" and "read row" are in the [glossary](getting-starte
 
 ## Start a watch
 
-Call `live(params, definitions)` where you would call `prepare(params)`. It takes the same clauses and gives the same refusals. It gives `Try(Watch(out), Error)` in place of a `Prepared`. A query with no parameter takes `ready_live(definitions)`, which is `live({}, definitions)`. A `Query` has both too, and its watch holds the whole rows (see [The whole row](selecting-fields.md#the-whole-row)).
+Call `live(params, definitions)` where you would call `prepare(params)`. It takes the same clauses and gives the same refusals. It gives `Watch(out)` in place of a `Prepared`. A query with no parameter takes `ready_live(definitions)`, which is `live({}, definitions)`. A `Query` has both too, and its watch holds the whole rows (see [The whole row](selecting-fields.md#the-whole-row)).
 
 | Argument | Meaning |
 | --- | --- |
@@ -25,7 +25,7 @@ Call `live(params, definitions)` where you would call `prepare(params)`. It take
 
 ```roc
 # Fragment: uses `vitals`, `VitalLine`, `vital_line` and `definitions` from examples/watch.roc.
-fevered : Try(Surreal.Watch(VitalLine), Surreal.Error)
+fevered : Surreal.Watch(VitalLine)
 fevered = Surreal.from(vitals).filter(|v| v.temp_c > 39.0).select(vital_line).ready_live(definitions)
 ```
 
@@ -43,7 +43,7 @@ Start the watch on a session:
 ```roc
 # Fragment: uses `transport` and `login` from examples/watch.roc, and `fevered` from above.
 session = Surreal.Session.open!(transport, login).map_err(Str.inspect)?
-started = session.live!(fevered.map_err(Str.inspect)?).map_err(Str.inspect)?
+started = session.live!(fevered).map_err(Str.inspect)?
 ```
 
 `live!` gives `{ session, live, view }`.

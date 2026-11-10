@@ -1045,18 +1045,15 @@ hashes_expected = [
 # --------------------------------------------------------------- the script
 
 ## One block: the statement, then the Roc result for the same question.
-block : Str, Try(Surreal.Prepared(out), Surreal.Error), Try(Str, Surreal.Error) -> Str
-block = |header, prepared, reference| match (prepared, reference) {
-	(Ok(p), Ok(literal)) => p.statement().block(header, ["-- roc: ${literal}"])
+block : Str, Surreal.Prepared(out), Try(Str, Surreal.Error) -> Str
+block = |header, prepared, reference| match (prepared.statement(), reference) {
+	(Ok(st), Ok(literal)) => st.block(header, ["-- roc: ${literal}"])
 	(Err(e), _) | (_, Err(e)) => "-- unsupported ${header}: ${Str.inspect(e)}"
 }
 
 ## A write, then the rows it changed.
-then_read : Try(Surreal.Prepared(a), Surreal.Error), Try(Surreal.Prepared(b), Surreal.Error) -> Try(Surreal.Prepared((Try(a, Surreal.Error), Try(b, Surreal.Error))), Surreal.Error)
-then_read = |first, second| match (first, second) {
-	(Ok(a), Ok(b)) => a.then(b)
-	(Err(e), _) | (_, Err(e)) => Err(e)
-}
+then_read : Surreal.Prepared(a), Surreal.Prepared(b) -> Surreal.Prepared((Try(a, Surreal.Error), Try(b, Surreal.Error)))
+then_read = |first, second| first.then(second)
 
 package_queries : List(Str)
 package_queries = [
@@ -1117,9 +1114,9 @@ schema_block = match Surreal.schema([sample_def, phrase_def, stamp_def, pair_def
 }
 
 ## One seed block for a table, in the block format of `check.py`.
-seed : Str, Try(Surreal.Prepared(List(row)), Surreal.Error) -> Str
-seed = |name, prepared| match prepared {
-	Ok(p) => p.statement().block("-- seed: ${name}", [])
+seed : Str, Surreal.Prepared(List(row)) -> Str
+seed = |name, prepared| match prepared.statement() {
+	Ok(st) => st.block("-- seed: ${name}", [])
 	Err(e) => "-- unsupported -- seed: ${name}: ${Str.inspect(e)}"
 }
 

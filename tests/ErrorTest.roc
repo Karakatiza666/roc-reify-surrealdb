@@ -61,8 +61,8 @@ defs = [
 # The schema that `check.py` defines is the one the library writes.
 expect Surreal.schema(defs) == Ok(schema_text.trim_end())
 
-ready : Try(Surreal.Prepared(out), Surreal.Error) -> Surreal.Prepared(out)
-ready = |prepared| match prepared {
+ready : Surreal.Prepared(out) -> Surreal.Prepared(out)
+ready = |prepared| match prepared.checked() {
 	Ok(p) => p
 	Err(_) => crash "the test statement prepares"
 }
@@ -98,7 +98,7 @@ expect plain(transaction_reply) == Err(Server(Assert({ table: "owner", field: "a
 ## The two writes of a transaction, as `Transaction.commit` reads the
 ## reply: the place of the statement that failed it, and its error.
 in_transaction : List(U8) -> Try({}, Surreal.Error)
-in_transaction = |bytes| create_bob.begin().then(create_bob).map_ok(|t| t.commit().result(bytes).map_ok(|_| {})) ?? Err(Unsupported("the transaction joins"))
+in_transaction = |bytes| create_bob.begin().then(create_bob).commit().result(bytes).map_ok(|_| {})
 
 # The second create fails the transaction; a conflict fails its `COMMIT`,
 # the place after the last part.

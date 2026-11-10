@@ -108,6 +108,7 @@ Ql :: {}.{
 		Decimal(Dec),
 		Str(Str),
 		Datetime(Str),
+		Duration(U64),
 		Record({ table : Str, key : Str }),
 		Ref({ table : Str, key : Value }),
 		Array(List(Value)),
@@ -124,6 +125,7 @@ Ql :: {}.{
 		Decimal(d) => "${d.to_str()}dec"
 		Str(s) => Ql.quote(s)
 		Datetime(iso) => "d${Ql.quote(iso)}"
+		Duration(nanos) => Ql.duration(nanos)
 		Record(r) => Ql.record_id(r.table, r.key)
 		Ref(r) => Ql.record_ref(r.table, r.key)
 		Array(items) => "[${Str.join_with(items.map(Ql.literal), ", ")}]"

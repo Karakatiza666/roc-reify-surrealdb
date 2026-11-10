@@ -477,7 +477,7 @@ expect {
 }
 expect {
 	bound = of_owners([Surreal.Id.({ table: "member", key: "ada" }), Surreal.Id.({ table: "member", key: "bob" })])
-	bound.value() == Ok("$_1 CONTAINS owner") and bound.inputs().len() == 1
+	bound.value() == Ok("owner IN $_1") and bound.inputs().len() == 1
 }
 expect {
 	bound = of_customer(ada_id)
@@ -490,31 +490,31 @@ at_places = |places| TranslateTest.describe_bound(customers, |c| places.contains
 
 expect {
 	bound = at_places([{ city: "Paris" }, { city: "Rome", zip: "00100" }])
-	bound.value() == Ok("$_1 CONTAINS address") and bound.inputs() == [List([Record([Str("Paris"), Absent]), Record([Str("Rome"), Str("00100")])])]
+	bound.value() == Ok("address IN $_1") and bound.inputs() == [List([Record([Str("Paris"), Absent]), Record([Str("Rome"), Str("00100")])])]
 }
 customer_table : Surreal.Table(Customer)
 customer_table = Surreal.table("customer")
 
-customers_at : List(Address) -> Try(Surreal.Prepared(List(Customer)), Surreal.Error)
-customers_at = |places| Surreal.bind_captured(Surreal.select_where(customer_table, |c| places.contains(c.address)))
+customers_at : List(Address) -> Surreal.Prepared(List(Customer))
+customers_at = |places| Surreal.from(customer_table).filter(|c| places.contains(c.address)).ready()
 
-expect customers_at([{ city: "Paris" }, { city: "Rome", zip: "00100" }]).map_ok(|s| s.statement().to_script()) == Ok("LET $_1 = [{ city: 'Paris' }, { city: 'Rome', zip: '00100' }];\nSELECT address, born, record::id(id) AS id, name, tags FROM customer WHERE $_1 CONTAINS address;")
+expect customers_at([{ city: "Paris" }, { city: "Rome", zip: "00100" }]).request() == Ok("LET $_1 = [{ city: 'Paris' }, { city: 'Rome', zip: '00100' }];\nSELECT address, born, record::id(id) AS id, name, tags FROM customer WHERE address IN $_1;")
 
 # A direct `==` over a captured address compares the optional `zip` by
 # presence, then by value. The compiler gives that as a switch on each
 # presence. SurrealDB reads an absent field as NONE and `NONE = NONE` is
 # true, so the translator prints the comparison alone. `!=` is the same.
 # The captured address is one input, and its fields are `$_1.city` and `$_1.zip`.
-customer_at : Address -> Try(Surreal.Prepared(List(Customer)), Surreal.Error)
-customer_at = |place| Surreal.bind_captured(Surreal.select_where(customer_table, |c| c.address == place))
+customer_at : Address -> Surreal.Prepared(List(Customer))
+customer_at = |place| Surreal.from(customer_table).filter(|c| c.address == place).ready()
 
-expect customer_at({ city: "Rome", zip: "00100" }).map_ok(|s| s.statement().to_script()) == Ok("LET $_1 = { city: 'Rome', zip: '00100' };\nSELECT address, born, record::id(id) AS id, name, tags FROM customer WHERE (address.city = $_1.city) AND (address.zip = $_1.zip);")
-expect customer_at({ city: "Paris" }).map_ok(|s| s.statement().to_script()) == Ok("LET $_1 = { city: 'Paris' };\nSELECT address, born, record::id(id) AS id, name, tags FROM customer WHERE (address.city = $_1.city) AND (address.zip = $_1.zip);")
+expect customer_at({ city: "Rome", zip: "00100" }).request() == Ok("LET $_1 = { city: 'Rome', zip: '00100' };\nSELECT address, born, record::id(id) AS id, name, tags FROM customer WHERE (address.city = $_1.city) AND (address.zip = $_1.zip);")
+expect customer_at({ city: "Paris" }).request() == Ok("LET $_1 = { city: 'Paris' };\nSELECT address, born, record::id(id) AS id, name, tags FROM customer WHERE (address.city = $_1.city) AND (address.zip = $_1.zip);")
 
-customer_not_at : Address -> Try(Surreal.Prepared(List(Customer)), Surreal.Error)
-customer_not_at = |place| Surreal.bind_captured(Surreal.select_where(customer_table, |c| c.address != place))
+customer_not_at : Address -> Surreal.Prepared(List(Customer))
+customer_not_at = |place| Surreal.from(customer_table).filter(|c| c.address != place).ready()
 
-expect customer_not_at({ city: "Paris" }).map_ok(|s| s.statement().to_script()) == Ok("LET $_1 = { city: 'Paris' };\nSELECT address, born, record::id(id) AS id, name, tags FROM customer WHERE (address.city != $_1.city) OR (address.zip != $_1.zip);")
+expect customer_not_at({ city: "Paris" }).request() == Ok("LET $_1 = { city: 'Paris' };\nSELECT address, born, record::id(id) AS id, name, tags FROM customer WHERE (address.city != $_1.city) OR (address.zip != $_1.zip);")
 expect where_(TranslateTest.describe1(customers, |c| c.born > new_year)) == Ok("born > d'2020-01-01T00:00:00Z'")
 # A constant read twice is a kept definition, so it stays where the normal
 # form puts it, on the left.
@@ -826,14 +826,23 @@ expect where_(TranslateTest.describe1(samples, |s| s.times.any(|t| t != s.at))) 
 expect where_(TranslateTest.describe1(samples, |s| iso_of(s.at) == s.text)) == Err(Unsupported("the text of a datetime is compared with a datetime or a literal; SurrealDB prints a fraction with 3, 6 or 9 digits, so other texts differ"))
 expect where_(TranslateTest.describe1(samples, |s| s.text == iso_of(s.at))) == Err(Unsupported("the text of a datetime is compared with a datetime or a literal; SurrealDB prints a fraction with 3, 6 or 9 digits, so other texts differ"))
 
-# A `Duration` cannot be a captured value. A table with one has no column for it (see `TypesTest.roc`).
+# A captured `Duration` is its duration literal. A table with one has no column for it (see `TypesTest.roc`).
 sample_table : Surreal.Table(Sample)
 sample_table = Surreal.table("sample")
 
-floor_by : Surreal.Duration -> Try(Surreal.Prepared(List(Sample)), Ql.Error)
-floor_by = |span| Surreal.bind_captured(Surreal.select_where(sample_table, |s| Surreal.Time.floor(s.at, span) < s.at))
+floor_by : Surreal.Duration -> Surreal.Prepared(List(Sample))
+floor_by = |span| Surreal.from(sample_table).filter(|s| Surreal.Time.floor(s.at, span) < s.at).ready()
 
-expect floor_by(Surreal.Time.hours(1)).map_ok(|_| "bound") == Err(Unsupported("a captured `Duration` has no SurrealQL value; build it in the clause, as `Time.hours(1)`"))
+expect floor_by(Surreal.Time.hours(1)).request() == Ok("LET $_1 = 1h;\nSELECT at, d, decs, email, f, grid, record::id(id) AS id, m, n, nums, opt, other, ranks, scores, text, times, words FROM sample WHERE time::floor(at, $_1) < at;")
+
+# A captured time key is the array of its series and its time, as its
+# record id writes it, and a captured `U128` is an int when it fits.
+time_key_ty : Code.Ty
+time_key_ty = Named("Surreal.TimeKey", [Str], Record([{ name: "series", ty: Str, presence: Required }, { name: "time", ty: Named("Surreal.Datetime", [], Record([{ name: "iso", ty: Str, presence: Required }])), presence: Required }]))
+
+expect Translate.captured(time_key_ty, Wrap(Record([Str("a"), Wrap(Record([Str("2026-03-01T12:00:00Z")]))]))).map_ok(Ql.literal) == Ok("['a', d'2026-03-01T12:00:00Z']")
+expect Translate.captured(U128, U128(7)).map_ok(Ql.literal) == Ok("7")
+expect Translate.captured(U128, U128(340282366920938463463374607431768211455)).map_ok(Ql.literal) == Err(Unsupported("a captured integer outside the range of a SurrealDB int"))
 
 # The mirrors run in Roc. Each value below is what SurrealDB 3.3.4 gives for the same input.
 moment : Str -> Surreal.Datetime
@@ -1045,14 +1054,19 @@ square = Surreal.Polygon.({ exterior: [Surreal.point(0, 0), Surreal.point(1, 0),
 expect where_(TranslateTest.describe1(sites, |s| Surreal.Geo.inside(s.location.to_geometry(), square.to_geometry()))) == Err(Unsupported("a `Polygon` in a clause has no SurrealQL form; pass a geometry as a parameter with `filter_by` and `prepare`"))
 expect where_(TranslateTest.describe1(sites, |s| Surreal.Geo.intersects(s.area.to_geometry(), Surreal.Line.([s.location, oslo]).to_geometry()))) == Err(Unsupported("a `Line` in a clause has no SurrealQL form; pass a geometry as a parameter with `filter_by` and `prepare`"))
 
-# A captured geometry is refused with the same advice.
+# A captured geometry is its GeoJSON object, which SurrealDB reads as a
+# geometry (verified on 3.3.4: `geo::distance` and `INSIDE` with a `LET`).
 site_table : Surreal.Table(Site)
 site_table = Surreal.table("site")
 
-near_to : Surreal.Point -> Try(Surreal.Prepared(List(Site)), Ql.Error)
-near_to = |here| Surreal.bind_captured(Surreal.select_where(site_table, |s| Surreal.Geo.distance(s.location, here) < 10))
+near_to : Surreal.Point -> Surreal.Prepared(List(Site))
+near_to = |here| Surreal.from(site_table).filter(|s| Surreal.Geo.distance(s.location, here) < 10).ready()
 
-expect near_to(oslo).map_ok(|_| "bound") == Err(Unsupported("a `Point` in a clause has no SurrealQL form; pass a geometry as a parameter with `filter_by` and `prepare`"))
+expect near_to(oslo).request() == Ok("LET $_1 = { type: 'Point', coordinates: [10.75f, 59.91f] };\nSELECT area, record::id(id) AS id, location, near, path FROM site WHERE geo::distance(location, $_1) < 10f;")
+expect inside_of(square).request() == Ok("LET $_1 = { type: 'Polygon', coordinates: [[[0f, 0f], [1f, 0f], [1f, 1f], [0f, 0f]]] };\nSELECT area, record::id(id) AS id, location, near, path FROM site WHERE location INSIDE $_1;")
+
+inside_of : Surreal.Polygon -> Surreal.Prepared(List(Site))
+inside_of = |area| Surreal.from(site_table).filter(|s| Surreal.Geo.inside(s.location.to_geometry(), area.to_geometry())).ready()
 
 # ------------------------------------------------------------------ vectors
 
@@ -1071,10 +1085,10 @@ expect where_(TranslateTest.describe1(embeddeds, |e| Surreal.Vector.distance_euc
 expect with_params(TranslateTest.describe2([{ probe: [1.0, 2.0] }], embeddeds, |p, e| Surreal.Vector.distance_chebyshev(e.vec, p.probe) + Surreal.Vector.dot(e.vec, p.probe) < Surreal.Vector.magnitude(e.other))) == Ok("(vector::distance::chebyshev(vec, $probe) + vector::dot(vec, $probe)) < vector::magnitude(other)")
 
 ## A probe that the program reads at run time, captured.
-similar_to : List(F64) -> Try(Surreal.Prepared(List(Embedded)), Ql.Error)
-similar_to = |probe| Surreal.bind_captured(Surreal.select_where(embedded_table, |e| Surreal.Vector.similarity_cosine(e.vec, probe) > 0.9))
+similar_to : List(F64) -> Surreal.Prepared(List(Embedded))
+similar_to = |probe| Surreal.from(embedded_table).filter(|e| Surreal.Vector.similarity_cosine(e.vec, probe) > 0.9).ready()
 
-expect similar_to([0.5, 0.5]).map_ok(|p| p.request()) == Ok("LET $_1 = [0.5f, 0.5f];\nSELECT record::id(id) AS id, other, vec FROM embedded WHERE vector::similarity::cosine(vec, $_1) > 0.9f;")
+expect similar_to([0.5, 0.5]).request() == Ok("LET $_1 = [0.5f, 0.5f];\nSELECT record::id(id) AS id, other, vec FROM embedded WHERE vector::similarity::cosine(vec, $_1) > 0.9f;")
 
 # The Roc meanings: the sums run from the first element, as SurrealDB's
 # do, so the results are the server's to the bit (`search.roc`,

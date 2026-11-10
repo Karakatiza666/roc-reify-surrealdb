@@ -117,7 +117,7 @@ Encode :: {}.{
 	}
 
 	## The format a captured value is bound in where its type may hold an
-	## opaque type of another package (`Code.Binds`, `Surreal.select_where_with`).
+	## opaque type of another package (`Code.Binds`, `Query.filter_with`).
 	## The compiler runs the value's own `encoder_for` against it while the
 	## program runs and hands the bytes to the translator, which reads them
 	## back as the `Ql.Value` that `Encode.Format` gives for the same calls

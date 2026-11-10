@@ -37,10 +37,10 @@ The type variable `p` stays open until a `filter_by` reads a field of it, or unt
 
 | Call | On | Gives |
 | --- | --- | --- |
-| `prepare(params)` | `Selected`, `Started`, `Limited`, `Totals`, `Write` and `Query` (whole rows) | `Try(Prepared(List(out)), Error)`. `Totals` gives `Prepared(out)` |
+| `prepare(params)` | `Selected`, `Started`, `Limited`, `Totals`, `Write` and `Query` (whole rows) | `Prepared(List(out))`. `Totals` gives `Prepared(out)` |
 | `ready()` | The same, when `p` is `{}` | The same as `prepare({})` |
-| `prepare_one(params)`, `ready_one()` | `Selected` and `Query` of `table.at(id)` | `Try(Prepared(Try(out, [NotFound])), Error)` |
-| `live(params, definitions)`, `ready_live(definitions)` | `Selected` and `Query` | `Try(Watch(out), Error)` (see [Live queries](live-queries.md#start-a-watch)) |
+| `prepare_one(params)`, `ready_one()` | `Selected` and `Query` of `table.at(id)` | `Prepared(Try(out, [NotFound]))` |
+| `live(params, definitions)`, `ready_live(definitions)` | `Selected` and `Query` | `Watch(out)` (see [Live queries](live-queries.md#start-a-watch)) |
 
 `ready()` is a compile error for a query that reads a parameter: its `p` is not `{}`. A `Query` also has `prepare`, `ready` and the other calls, for the whole rows (see [The whole row](selecting-fields.md#the-whole-row)).
 
@@ -97,39 +97,59 @@ Use a parameter for each value that changes between runs. A prepared statement k
 
 ## Use values from around the function
 
-A clause cannot read a local value from around itself. This is a compile error:
-
-```roc
-# Fragment: uses `medications` from examples/main.roc. Does not compile.
-cheap = |limit| Surreal.from(medications).filter(|m| m.unit_price < limit)
-```
-
-`roc check` reports `reified function captures a value` and `It reads, from around itself: limit`. Pass the value as a parameter with `filter_by`, or use `Surreal.select_where`.
-
-`Surreal.select_where(table, f)` takes a filter that captures values. The compiler gives the translator a `$_1`, `$_2`, .. slot for each captured value. `Surreal.bind_captured` fills the slots with the values at run time:
+A chain in a function whose result is a `Prepared` or a `Watch` can read the values of that function. The compiler gives each value a `$_1`, `$_2`, .. slot. The statement fills the slots with `LET` lines when it runs:
 
 ```roc
 # Fragment: uses `Medication` and `medications` from examples/main.roc.
-cheaper_than : Dec -> Try(Surreal.Prepared(List(Medication)), Surreal.Error)
-cheaper_than = |limit| Surreal.bind_captured(Surreal.select_where(medications, |m| m.unit_price < limit))
+cheaper_than : Dec -> Surreal.Prepared(List(Medication))
+cheaper_than = |limit| Surreal.from(medications).filter(|m| m.unit_price < limit).ready()
 ```
 
-From `examples/main.roc`, `cheaper_than`. With `limit = 0.9`:
+From `examples/main.roc:528`. With `limit = 0.9`:
 
 ```surql
 LET $_1 = 0.9dec;
 SELECT form, record::id(id) AS id, label, name, stock, unit_price FROM medication WHERE unit_price < $_1;
 ```
 
-| | Parameter (`filter_by`) | Captured value (`select_where`) |
+The text is the same for each value. Only the `LET` values change.
+
+| Where a value can go | Example | Text |
 | --- | --- | --- |
-| Where the value comes from | The record you give to `prepare` | A local value around the function |
+| A clause of any step: `filter`, `select`, `order_by`, `group_by` and the others | `.filter(\|m\| m.unit_price >= least).select(\|m\| { over: m.unit_price - base })` | `WHERE unit_price >= $_1`, `unit_price - $_2 AS over` |
+| The key of `at`, `set_at`, `update_at`, `update_at_by` and `delete_at` | `owners.set_at(key, \|_\| { name: name })` with `key : Surreal.Id(Owner)` | `LET $_1 = owner:⟨jon⟩; UPDATE $_1 SET name = $_2` |
+| `limit` and `start` | `.start(skip).limit(size)` | `LIMIT $_2 START $_1` |
+
+`tests/CapturedTest.roc` has each of these.
+
+| | Parameter (`filter_by`, `prepare`) | Value from around the function |
+| --- | --- | --- |
+| Where the value comes from | The record you give to `prepare` | A value of the function around the chain |
 | Name in the text | `$` and the field name | `$_1`, `$_2`, .. |
-| What comes after | Every query step: `select`, groups, order, limit, totals, `live` | Nothing. The result is the whole rows of the table, `List(row)` |
 | Records with optional fields | Yes | Yes. An absent field is left out of the object |
 | A `Link` | Yes | Refused: ``a captured `Link` has no SurrealQL value; capture its `id()` `` |
+| A schema clause (`define`, `field`, an index, an event) | Not applicable | A compile error. A schema has no `LET` |
 
-Use `filter_by` for most queries. Use `select_where` when a value is in a closure and you want the whole rows. `Surreal.select_where_with` also takes values of another package's types (see [Escape hatches](advanced.md#extend-the-translator)).
+A chain written in place in the body of an effectful function, as an argument of a call, cannot read a value of that body. `roc check` reports `reified function captures a value`. Move the chain to a function of its own, as `shift_at` in `examples/client.roc:450`, and call it with the value.
+
+A key from around the function must be of the table. A key of another table is an error in the statement: ``the id `vet:⟨jon⟩` is of the table `vet`, not of `owner` ``.
+
+A key that the program fixes, as `owners.id("jon")` in a top-level value, is a constant of the statement: `owners.delete_at(owners.id("noor"))` gives `DELETE owner:⟨noor⟩`.
+
+`Query.filter_with(query, [ext], f)` also takes values of another package's types (see [Escape hatches](advanced.md#extend-the-translator)).
+
+### A statement that cannot be built
+
+A `Prepared` holds its statement, or the error that stops it: a clause with no SurrealQL form, or a value with no SurrealQL value. `session.run!` gives that error as its result. `checked` gives it before a session:
+
+| Call | Result |
+| --- | --- |
+| `prepared.checked()` | `Try(Prepared(out), Error)` |
+| `prepared.statement()` | `Try(Statement, Error)` |
+| `prepared.request()` | `Try(Str, Error)` |
+| `first.then(second)`, `Surreal.transaction([..])` | A `Prepared` that keeps the first error |
+| `session.send!(prepared)` | A ticket that holds the error. `await!` gives it |
+| `watch.checked()`, `watch.request()` | The same for a `Watch` |
 
 ## Match on unions and optional fields
 
@@ -413,7 +433,7 @@ What each step adds to the statement:
 | 6 | `top_three(..)` | `ORDER BY revenue DESC LIMIT 3` |
 | 7 | `prepare({ since: .., least: 1 })` | `LET $least = 1;` and `LET $since = ..;` |
 
-The parameter record is `{ least : I64, since : Surreal.Datetime }`. Its two fields come from two fragments, and the compiler joins them. `prepared` is a `Try(Surreal.Prepared(List(FollowUps)), Surreal.Error)`. Its script, from a real run:
+The parameter record is `{ least : I64, since : Surreal.Datetime }`. Its two fields come from two fragments, and the compiler joins them. `prepared` is a `Surreal.Prepared(List(FollowUps))`. Its script, from a real run:
 
 ```surql
 LET $least = 1;
@@ -432,17 +452,16 @@ For the totals of the same rows, end the chain with `totals` in place of the gro
 | Call | Gives | Parameters in the text |
 | --- | --- | --- |
 | `query.to_surql()` on a `Selected`, `Started`, `Limited` or `Totals` | `Try(Str, Error)` | `$name`, with no `LET` |
-| `prepared.statement().to_script()` | `Str` | One `LET $name = value;` line for each parameter, then the statement with a final `;` |
-| `prepared.request()` | `Str` | The same text as `statement().to_script()`. This is the text that a session sends |
+| `prepared.statement()` and then `to_script()` | `Try(Str, Error)` | One `LET $name = value;` line for each parameter and each value from around the function, then the statement with a final `;` |
+| `prepared.request()` | `Try(Str, Error)` | The same text as `statement().map_ok(Statement.to_script)`. This is the text that a session sends |
 
-`to_surql`, `prepare` and `ready` give `Err(Unsupported(why))` when a clause has no SurrealQL form. Put one `expect report.to_surql().is_ok()` for each query in your module, so that `roc test` finds a refusal. [Getting started](getting-started.md#print-the-surrealql) shows a script app that prints a query.
+`to_surql`, `statement`, `request` and `checked` give `Err(Unsupported(why))` when a clause has no SurrealQL form. Put one `expect prepared.checked().is_ok()` for each query in your module, so that `roc test` finds a refusal. [Getting started](getting-started.md#print-the-surrealql) shows a script app that prints a query.
 
 ## Limits
 
 | Limit | What to do instead |
 | --- | --- |
-| A clause cannot capture a local value | Use `filter_by` and a parameter, or `Surreal.select_where` for whole rows |
-| `select_where` gives whole rows only, and a captured `Link` is refused | Use `filter_by` for other shapes. Capture `link.id()` |
+| A captured `Link` is refused | Capture `link.id()` |
 | A clause cannot call `Surreal.datetime` | Give the datetime as a parameter or a captured value |
 | `order_by` takes one column of the result | Select the value as a column, then order by it |
 | `limit` and `start` come after `order_by`, in that order | Use `query()` to order or page the rows of a limit again |

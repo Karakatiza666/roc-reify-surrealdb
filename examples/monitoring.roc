@@ -294,9 +294,9 @@ site_lat : Site -> SiteLat
 site_lat = |s| { id: s.id, lat: s.location.lat() }
 
 ## One block: the statement, then the Roc result for the same question.
-block : Str, Try(Surreal.Prepared(out), Surreal.Error), Try(Str, Surreal.Error) -> Str
-block = |header, prepared, reference| match (prepared, reference) {
-	(Ok(p), Ok(literal)) => p.statement().block(header, ["-- roc: ${literal}"])
+block : Str, Surreal.Prepared(out), Try(Str, Surreal.Error) -> Str
+block = |header, prepared, reference| match (prepared.statement(), reference) {
+	(Ok(st), Ok(literal)) => st.block(header, ["-- roc: ${literal}"])
 	(Err(e), _) | (_, Err(e)) => "-- unsupported ${header}: ${Str.inspect(e)}"
 }
 
@@ -308,11 +308,8 @@ rollup = |rows| {
 }
 
 ## One write block: the write, then the read whose result is compared.
-then_read : Try(Surreal.Prepared(a), Surreal.Error), Try(Surreal.Prepared(b), Surreal.Error) -> Try(Surreal.Prepared((Try(a, Surreal.Error), Try(b, Surreal.Error))), Surreal.Error)
-then_read = |write, read| match (write, read) {
-	(Ok(a), Ok(b)) => a.then(b)
-	(Err(e), _) | (_, Err(e)) => Err(e)
-}
+then_read : Surreal.Prepared(a), Surreal.Prepared(b) -> Surreal.Prepared((Try(a, Surreal.Error), Try(b, Surreal.Error)))
+then_read = |write, read| write.then(read)
 
 day_start : Surreal.Datetime
 day_start = moment("2026-03-01T00:00:00Z")
@@ -332,9 +329,9 @@ schema_block = match Surreal.schema(definitions) {
 }
 
 ## One seed block for a table, in the block format of `check.py`.
-seed : Str, Try(Surreal.Prepared(List(row)), Surreal.Error) -> Str
-seed = |name, prepared| match prepared {
-	Ok(p) => p.statement().block("-- seed: ${name}", [])
+seed : Str, Surreal.Prepared(List(row)) -> Str
+seed = |name, prepared| match prepared.statement() {
+	Ok(st) => st.block("-- seed: ${name}", [])
 	Err(e) => "-- unsupported -- seed: ${name}: ${Str.inspect(e)}"
 }
 
@@ -454,8 +451,8 @@ queries = [
 		Surreal.Mirror.literal(seed_kennels.keep_if(|k| has_fever(kept_vitals, k)).map(|k| k.label)),
 	),
 	# A point out of range: the field asserts `geo::is_valid`.
-	match sites.create({ id: "nowhere", name: "Nowhere", location: Surreal.point(200, 2), area: rectangle(Surreal.point(0, 0), Surreal.point(1, 1)) }) {
-		Ok(p) => p.statement().block("-- rejects: bad_point", ["-- error: field `location`"])
+	match sites.create({ id: "nowhere", name: "Nowhere", location: Surreal.point(200, 2), area: rectangle(Surreal.point(0, 0), Surreal.point(1, 1)) }).statement() {
+		Ok(st) => st.block("-- rejects: bad_point", ["-- error: field `location`"])
 		Err(e) => "-- unsupported -- rejects: bad_point: ${Str.inspect(e)}"
 	},
 ]
@@ -463,16 +460,16 @@ queries = [
 # ------------------------------------------------------------- live queries
 
 ## The fevered readings, kept current.
-fevered : Try(Surreal.Watch(VitalLine), Surreal.Error)
+fevered : Surreal.Watch(VitalLine)
 fevered = Surreal.from(vitals).filter(|v| fever_fn.call2(v.temp_c, v.pulse)).select(vital_line).ready_live(definitions)
 
 ## The readings above a temperature given when the watch starts. The `LET`
 ## is read once, so a new limit needs a new watch.
-hotter_than : Dec -> Try(Surreal.Watch(VitalLine), Surreal.Error)
+hotter_than : Dec -> Surreal.Watch(VitalLine)
 hotter_than = |limit| Surreal.from(vitals).filter_by(|p, v| v.temp_c > p.limit).select(vital_line).live({ limit: limit }, definitions)
 
 ## The daily rollup, kept current by the database: watch the view.
-daily_live : Try(Surreal.Watch(Daily), Surreal.Error)
+daily_live : Surreal.Watch(Daily)
 daily_live = Surreal.from(daily).ready_live(definitions)
 
 Unattended : { label : Str, carers : U64 }
@@ -486,18 +483,18 @@ unattended_line = |(k, edges)| { label: k.label, carers: edges.len() }
 
 ## The kennels with no carer. A kennel enters when its last carer goes, and
 ## leaves when one comes: a second `LIVE` on `cares_for` reports each edge.
-unattended : Try(Surreal.Watch(Unattended), Surreal.Error)
+unattended : Surreal.Watch(Unattended)
 unattended = Surreal.from(kennels).incoming(cares_for).filter(no_carer).select(unattended_line).ready_live(definitions)
 
 ## The same watch through the read row: the `In` field `cares_for` gives the
 ## second `LIVE` on `cares_for`, as `incoming` does.
-unattended_read : Try(Surreal.Watch(Unattended), Surreal.Error)
+unattended_read : Surreal.Watch(Unattended)
 unattended_read = Surreal.from(kennel_reads).filter(|k| k.cares_for.list().len() == 0).select(|k| { label: k.label, carers: k.cares_for.list().len() }).ready_live(definitions)
 
 ## The kennels with a fevered reading. The filter reads the readings of a
 ## kennel with `rows()` and the key of the kennel, so a write to a reading
 ## sends a notice for its own kennel only.
-fevered_kennels : Try(Surreal.Watch(Str), Surreal.Error)
+fevered_kennels : Surreal.Watch(Str)
 fevered_kennels = Surreal.from(kennels).filter(|k| has_fever(vitals.rows(), k)).select_value(|k| k.label).ready_live(definitions)
 
 Neglected : { label : Str, carers : U64, checks : U64 }
@@ -511,7 +508,7 @@ neglected_line = |(k, cares, seen)| { label: k.label, carers: cares.len(), check
 
 ## The kennels that no carer looks after and no carer checks: a `LIVE` on
 ## each of the two edge tables.
-neglected : Try(Surreal.Watch(Neglected), Surreal.Error)
+neglected : Surreal.Watch(Neglected)
 neglected = Surreal.from(kennels).incoming(cares_for).and_incoming(checks).filter(no_one).select(neglected_line).ready_live(definitions)
 
 KennelSite : { label : Str, site : Str }
@@ -519,7 +516,7 @@ KennelSite : { label : Str, site : Str }
 ## Each kennel with the name of its site, through the link with `.get()`. A
 ## new name of a site is an update of each kennel at it: a `LIVE` on `site`
 ## reads the kennels that link to the site.
-kennel_sites : Try(Surreal.Watch(KennelSite), Surreal.Error)
+kennel_sites : Surreal.Watch(KennelSite)
 kennel_sites = Surreal.from(kennels).select(|k| { label: k.label, site: k.site.get().name }).ready_live(definitions)
 
 SiteKennels : { name : Str, kennels : U64 }
@@ -528,7 +525,7 @@ SiteKennels : { name : Str, kennels : U64 }
 ## with `rows()` and their link to the site, so a write to a kennel sends a
 ## notice for its site only, and a kennel that moves sends one for the old
 ## site and one for the new.
-site_kennels : Try(Surreal.Watch(SiteKennels), Surreal.Error)
+site_kennels : Surreal.Watch(SiteKennels)
 site_kennels = Surreal.from(sites).select(|s| { name: s.name, kennels: kennels.rows().count_if(|k| k.site.id() == sites.id(s.id)) }).ready_live(definitions)
 
 KennelRounds : { label : Str, rounds : U64 }
@@ -537,13 +534,13 @@ KennelRounds : { label : Str, rounds : U64 }
 ## the rounds with `rows()` and the links in their list of stops, so a
 ## write to a round sends a notice for each kennel it stops at, before
 ## and after the write.
-kennel_rounds : Try(Surreal.Watch(KennelRounds), Surreal.Error)
+kennel_rounds : Surreal.Watch(KennelRounds)
 kennel_rounds = Surreal.from(kennels).select(|k| { label: k.label, rounds: rounds.rows().count_if(|r| r.stops.any(|st| st.kennel.id() == kennels.id(k.id))) }).ready_live(definitions)
 
 ## The kennels at the site named Oslo, through the link with `.get()`. A
 ## new name of the site makes its kennels leave, and the old name brings
 ## them back.
-oslo_kennels : Try(Surreal.Watch(Str), Surreal.Error)
+oslo_kennels : Surreal.Watch(Str)
 oslo_kennels = Surreal.from(kennels).filter(|k| k.site.get().name == "Oslo").select_value(|k| k.label).ready_live(definitions)
 
 ## Escape hatch: the server's own events for the fevered readings.
@@ -586,8 +583,8 @@ vital_notices : List(Surreal.Edit(Vital)), (Vital -> Bool) -> Try(Str, Surreal.E
 vital_notices = |edits, keep| Surreal.Mirror.notices_literal(edits.map_try(|e| Surreal.Mirror.notices(vitals, e, keep, vital_line))?)
 
 ## The text of a write, for a `-- live:` block.
-text_of : Try(Surreal.Prepared(out), Surreal.Error) -> Try(Surreal.Statement, Surreal.Error)
-text_of = |prepared| prepared.map_ok(|p| p.statement())
+text_of : Surreal.Prepared(out) -> Try(Surreal.Statement, Surreal.Error)
+text_of = |prepared| prepared.statement()
 
 ## The statements of the writes.
 vital_writes : List(Surreal.Edit(Vital)) -> Try(List(Surreal.Statement), Surreal.Error)
@@ -595,10 +592,16 @@ vital_writes = |edits| edits.map_try(|e| text_of(vitals.edit(e)))
 
 ## One `-- live:` block: the watch, the rows of its snapshot and the notices
 ## of its writes in Roc, and the writes.
-live_block : Str, Try(Surreal.Watch(out), Surreal.Error), Try(Str, Surreal.Error), Try(Str, Surreal.Error), Try(List(Surreal.Statement), Surreal.Error) -> Str
-live_block = |header, watch, snapshot, notices, writes| match (watch, snapshot, notices, writes) {
-	(Ok(w), Ok(rows), Ok(literal), Ok(statements)) => w.block(header, ["-- snapshot: ${rows}", "-- roc: ${literal}"], statements)
-	(Err(e), _, _, _) | (_, Err(e), _, _) | (_, _, Err(e), _) | (_, _, _, Err(e)) => "-- unsupported ${header}: ${Str.inspect(e)}"
+live_block : Str, Surreal.Watch(out), Try(Str, Surreal.Error), Try(Str, Surreal.Error), Try(List(Surreal.Statement), Surreal.Error) -> Str
+live_block = |header, watch, snapshot, notices, writes| {
+	written = match (snapshot, notices, writes) {
+		(Ok(rows), Ok(literal), Ok(statements)) => watch.block(header, ["-- snapshot: ${rows}", "-- roc: ${literal}"], statements)
+		(Err(e), _, _) | (_, Err(e), _) | (_, _, Err(e)) => Err(e)
+	}
+	match written {
+		Ok(text) => text
+		Err(e) => "-- unsupported ${header}: ${Str.inspect(e)}"
+	}
 }
 
 ## A reading late on the first day, a fever: it changes one row of the view.

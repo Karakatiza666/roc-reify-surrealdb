@@ -284,6 +284,43 @@ Translate :: {}.{
 	input_name : U64 -> Str
 	input_name = |k| "_${(k + 1).to_str()}"
 
+	## The index of the captured value that `input_name` names: `_1` is 0.
+	input_index : Str -> Try(U64, [NotInput])
+	input_index = |name| {
+		digits = name.drop_prefix("_")
+		if !name.starts_with("_") or digits.is_empty() or !digits.to_utf8().all(|b| b >= 48 and b <= 57) {
+			return Err(NotInput)
+		}
+		match U64.from_str(digits) {
+			Ok(n) if n > 0 => Ok(n - 1)
+			_ => Err(NotInput)
+		}
+	}
+
+	## The mark of slot `k` of a chain, in a statement before its values are
+	## known: `$`, then `k` between two bytes 1. A quoted text or name never
+	## holds byte 1 (`Ql.escape`), so a mark is found by its bytes alone,
+	## and a statement that joins two chains numbers the marks again.
+	slot_mark : U64 -> Str
+	slot_mark = |k| "$${Translate.mark_byte}${k.to_str()}${Translate.mark_byte}"
+
+	## The byte around the number of a `slot_mark`.
+	mark_byte : Str
+	mark_byte = "\u(1)"
+
+	## Whether a name of a path is a mark of `slot_mark`, without its `$`.
+	is_mark : Str -> Bool
+	is_mark = |name| name.starts_with(Translate.mark_byte) and name.ends_with(Translate.mark_byte) and name.count_utf8_bytes() > 2
+
+	## A parameter spelling for a clause whose captured values are slots
+	## `first`, `first + 1`, .. of its chain (`Code.first_slot`): a captured
+	## value is its `slot_mark`, and any other name is `param`'s.
+	slotted : U64, (Str -> Str) -> (Str -> Str)
+	slotted = |first, param| |name| match Translate.input_index(name) {
+		Ok(k) => Translate.slot_mark(first + k)
+		Err(_) => param(name)
+	}
+
 	# ------------------------------------------------------------ entry points
 
 	## A reified function applied to what its parameters stand for. A clause
@@ -909,7 +946,7 @@ Translate :: {}.{
 	## An optional field that a captured record does not hold (`Absent`) is
 	## left out of its object, as a stored row leaves out a field that is
 	## `NONE`. A value whose type holds an opaque type is the bytes its own
-	## encoder wrote in `Encode.Bind` (`Surreal.select_where_with`), which
+	## encoder wrote in `Encode.Bind` (`Query.filter_with`), which
 	## read back as `Encode.Format` writes a row.
 	captured : Code.Ty, Code.Value -> Try(Ql.Value, Ql.Error)
 	captured = |ty, value| match (ty, value) {
@@ -927,13 +964,29 @@ Translate :: {}.{
 				_ => Err(Unsupported("a captured datetime without its text"))
 			}
 			Link => Err(Unsupported("a captured `Link` has no SurrealQL value; capture its `id()`"))
-			Duration => Err(Unsupported("a captured `Duration` has no SurrealQL value; build it in the clause, as `Time.hours(1)`"))
+			Duration => match Translate.captured(backing, inner)? {
+				Object(fields) => match fields.find_first(|f| f.name == "nanos") {
+					Ok({ value: Int(n), .. }) if n >= 0 => Ok(Ql.Value.Duration(n.to_u64_wrap()))
+					_ => Err(Unsupported("a captured duration without its nanoseconds"))
+				}
+				_ => Err(Unsupported("a captured duration without its nanoseconds"))
+			}
 			DbFn => Err(Translate.not_constant)
-			TimeKey => Err(Unsupported("a captured `TimeKey` has no SurrealQL value; capture its `series()` and its `time()`"))
-			Geometry(_) => Err(Translate.geometry_parameter(name))
+			TimeKey => match Translate.captured(backing, inner)? {
+				Object(fields) => match (fields.find_first(|f| f.name == "series"), fields.find_first(|f| f.name == "time")) {
+					(Ok(series), Ok(time)) => Ok(Ql.Value.Array([series.value, time.value]))
+					_ => Err(Unsupported("a captured time key without its series and its time"))
+				}
+				_ => Err(Unsupported("a captured time key without its series and its time"))
+			}
+			Geometry(_) => Translate.geojson(name, Translate.captured(backing, inner)?)
 			_ => Translate.captured(backing, inner)
 		}
 		(_, Int(n)) => match n.to_i64_try() {
+			Ok(i) => Ok(Ql.Value.Int(i))
+			Err(_) => Err(Unsupported("a captured integer outside the range of a SurrealDB int"))
+		}
+		(_, U128(n)) => match n.to_i64_try() {
 			Ok(i) => Ok(Ql.Value.Int(i))
 			Err(_) => Err(Unsupported("a captured integer outside the range of a SurrealDB int"))
 		}
@@ -966,6 +1019,67 @@ Translate :: {}.{
 			}
 		}
 		_ => Err(Unsupported("a captured `${ty.name()}` has no SurrealQL value"))
+	}
+
+	## Whether a captured value of this type has a SurrealQL value
+	## (`captured`), or why not. A clause reads the type of each captured
+	## value when the compiler runs it, so this check is a compile error.
+	bindable : Code.Ty, Bool -> Try({}, Str)
+	bindable = |ty, encoded| match ty {
+		Named(name, _, backing) =>
+			match Types.nominal(name) {
+				Link => Err("a captured `Link` has no SurrealQL value; capture its `id()`")
+				DbFn => Err("a captured database function has no SurrealQL value; name the function in the clause")
+				Id | Datetime | Duration | TimeKey | Geometry(_) => Ok({})
+				_ => Translate.bindable(backing, encoded)
+			}
+		Record(fields) => fields.map_try(|f| Translate.bindable(f.ty, encoded)).map_ok(|_| {})
+		Tuple(items) => items.map_try(|t| Translate.bindable(t, encoded)).map_ok(|_| {})
+		ListOf(item) => Translate.bindable(item, encoded)
+		TagUnion(variants) => variants.map_try(|v| v.payloads.map_try(|t| Translate.bindable(t, encoded))).map_ok(|_| {})
+		Fn(_, _) => Err("a captured function has no SurrealQL value; call it in the clause")
+		Opaque(_, _, _) if encoded => Ok({})
+		Opaque(name, _, _) => Err("a captured `${name}` has no SurrealQL value; name the format of its values with `Code.Binds`")
+		_ => Ok({})
+	}
+
+	## The GeoJSON object of a captured geometry, from the value of its
+	## backing, in which each point is already its GeoJSON object. SurrealDB
+	## reads an object of this shape as a geometry:
+	## `{ type: 'Point', coordinates: [lon, lat] }`.
+	geojson : Str, Ql.Value -> Try(Ql.Value, Ql.Error)
+	geojson = |name, value| {
+		shaped = |kind, coordinates| Ql.Value.Object([{ name: "type", value: Ql.Value.Str(kind) }, { name: "coordinates", value: coordinates }])
+		field = |fields, key| match fields.find_first(|f| f.name == key) {
+			Ok(f) => Ok(f.value)
+			Err(_) => Err(Unsupported("a captured `${name}` without its `${key}`"))
+		}
+		coordinates = |v| match v {
+			Object(fields) => field(fields, "coordinates")
+			_ => Err(Unsupported("a captured `${name}` whose parts are not geometries"))
+		}
+		all = |v| match v {
+			Array(items) => items.map_try(coordinates).map_ok(|xs| Ql.Value.Array(xs))
+			_ => Err(Unsupported("a captured `${name}` that is not a list"))
+		}
+		match (name, value) {
+			("Surreal.Point", Object(fields)) => Ok(shaped("Point", Ql.Value.Array([field(fields, "lon")?, field(fields, "lat")?])))
+			("Surreal.Line", _) => Ok(shaped("LineString", all(value)?))
+			("Surreal.Polygon", Object(fields)) => {
+				exterior = all(field(fields, "exterior")?)?
+				holes = match field(fields, "holes")? {
+					Array(rings) => rings.map_try(all)?
+					_ => []
+				}
+				Ok(shaped("Polygon", Ql.Value.Array(List.concat([exterior], holes))))
+			}
+			("Surreal.MultiPoint", _) => Ok(shaped("MultiPoint", all(value)?))
+			("Surreal.MultiLine", _) => Ok(shaped("MultiLineString", all(value)?))
+			("Surreal.MultiPolygon", _) => Ok(shaped("MultiPolygon", all(value)?))
+			("Surreal.Collection", Array(items)) => Ok(Ql.Value.Object([{ name: "type", value: Ql.Value.Str("GeometryCollection") }, { name: "geometries", value: Ql.Value.Array(items) }]))
+			("Surreal.Geometry", _) => Ok(value)
+			_ => Err(Translate.geometry_parameter(name))
+		}
 	}
 
 	named_str : List({ name : Str, value : Ql.Value }), Str -> Try(Str, [Missing])
@@ -2335,7 +2449,11 @@ Translate :: {}.{
 			}
 			("List.len", [list]) => Translate.count(list, env)
 			("List.is_empty", [list]) => Ok(Binding.Infix("${Translate.list_at(list, env)?}.len() = 0"))
-			("List.contains", [list, x]) => Ok(Binding.Infix("${Translate.list_at(list, env)?} CONTAINS ${opd(x)?}"))
+			# A captured list (a slot) is `x IN $_k`; a list in the clause is `list CONTAINS x`.
+			("List.contains", [list, x]) => match Translate.unwrapped(list) {
+				Input(_) => Ok(Binding.Infix("${opd(x)?} IN ${Translate.list_at(list, env)?}"))
+				_ => Ok(Binding.Infix("${Translate.list_at(list, env)?} CONTAINS ${opd(x)?}"))
+			}
 			("List.sum", [list]) => Translate.sum(list, env)
 			("List.any", [list, f]) => Translate.lambda(list, f, "any", env)
 			("List.all", [list, f]) => Translate.lambda(list, f, "all", env)
@@ -2985,7 +3103,7 @@ Translate :: {}.{
 	is_variable = |spelled| {
 		names = spelled.drop_prefix("$").split_on(".")
 		root = names.first() ?? ""
-		spelled.starts_with("$") and names.all(|name| Ql.is_plain(name)) and root != "this" and root != "parent"
+		spelled.starts_with("$") and names.all(|name| Ql.is_plain(name) or Translate.is_mark(name)) and root != "this" and root != "parent"
 	}
 
 	is_equality_tree : Code.Tree, Env -> Bool
@@ -3505,7 +3623,7 @@ Translate :: {}.{
 	## NONE adds nothing.
 	reads_path : Str, Str -> Bool
 	reads_path = |mapped, optional| {
-		is_path = |spelled| spelled.drop_prefix("$").split_on(".").all(|name| Ql.is_plain(name))
+		is_path = |spelled| spelled.drop_prefix("$").split_on(".").all(|name| Ql.is_plain(name) or Translate.is_mark(name))
 		mapped.starts_with("${optional}.") and is_path(mapped) and is_path(optional)
 	}
 

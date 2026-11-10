@@ -36,6 +36,8 @@ done
 for f in tests/*Test.roc; do
 	"$ROC" test "$f"
 done
+# Programs that must not compile: each fails at the line its header names.
+ROC="$ROC" tests/refusals/run.sh
 # `DeadlineTest.roc` also runs a session over a scripted adapter (`main!`).
 "$ROC" tests/DeadlineTest.roc
 # The scripts and apps against a live SurrealDB.
