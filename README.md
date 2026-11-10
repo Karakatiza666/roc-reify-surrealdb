@@ -41,7 +41,7 @@ with it. See [Requirements](#requirements).
 | Modules | `Surreal` (the whole public API). `src/internal.roc` is a second header that also exposes `Ql`, `Encode`, `Types`, `Translate`, `Schema`, `Diff`, `Rpc` and `HttpRpc`, for the tests |
 | Dependencies | [roc-cbor](https://github.com/Karakatiza666/roc-cbor) 0.4.0, [roc-websocket](https://github.com/Karakatiza666/roc-websocket) 0.0.6 |
 | Examples only | [roc-basic-cli-websocket](https://github.com/Karakatiza666/roc-basic-cli-websocket) 0.0.4 (basic-cli 0.27.0), [roc-basic-webserver-websocket](https://github.com/Karakatiza666/roc-basic-webserver-websocket) 0.0.3 (basic-webserver 0.21.0) |
-| Compiler | the `reify` branch of [Karakatiza666/roc](https://github.com/Karakatiza666/roc), at commit `0aedb1ae00` (based on Roc nightly 2026-11-07), pinned in `.roc-version` |
+| Compiler | the `reify` branch of [Karakatiza666/roc](https://github.com/Karakatiza666/roc), at commit `76ed44249a` (reify nightly `nightly-reify-2026-11-07-76ed442`, based on Roc nightly 2026-11-07), pinned in `.roc-version` |
 | Database | SurrealDB 3.3.4. Migrations: 3.3.5 or later on 3.x (target `V3`), 4.0.0 (target `V4`) |
 | Tests | `scripts/all_tests.sh` |
 | License | UPL-1.0 (`LICENSE`) |
@@ -73,7 +73,7 @@ basic-webserver" for the rest of an app):
 app [main!] {
 	pf: platform "https://github.com/roc-lang/basic-cli/releases/download/0.27.0/9yjxqdGTP4xSpSEmDazwTmRsehfRZzA19pwEKkR6fj1g.tar.zst",
 	cli_ws: "https://github.com/Karakatiza666/roc-basic-cli-websocket/releases/download/0.0.4/B5j45zNdyW8Qxq6GpQ6ZVNmcPC5hwx3TxPRW4cq8wiLV.tar.zst",
-	surreal: "https://github.com/Karakatiza666/roc-reify-surrealdb/releases/download/0.0.2/A6EBqeeUMvjuaUNqem6guFUgKnCJZnynqWxzTcqxHk4V.tar.zst",
+	surreal: "https://github.com/Karakatiza666/roc-reify-surrealdb/releases/download/0.0.3/BKEfdkfK5Ldm4qnzBG7UhXH5pJ8ne2AskQvotvndrQWV.tar.zst",
 }
 
 import pf.Stdout
@@ -81,31 +81,43 @@ import surreal.Surreal
 ```
 
 The app must be compiled with the compiler of the next section. The release
-URL (`<hash>` in `.../releases/download/0.0.2/<hash>.tar.zst`) is in the notes
+URL (`<hash>` in `.../releases/download/0.0.3/<hash>.tar.zst`) is in the notes
 of each [release](https://github.com/Karakatiza666/roc-reify-surrealdb/releases),
-and `scripts/bundle.sh 0.0.2` prints it.
+and `scripts/bundle.sh 0.0.3` prints it.
 
 ## Requirements
 
 The compiler is the `reify` branch of
 [github.com/Karakatiza666/roc](https://github.com/Karakatiza666/roc), at commit
-`0aedb1ae00`. It is based on Roc nightly 2026-11-07 (upstream commit
+`76ed44249a`. It is based on Roc nightly 2026-11-07 (upstream commit
 `ad3a5d2`). A release of this package names its commit in `.roc-version`, in
 the form `reify-<the 40 digits of the commit>`:
 
 ```
-reify-0aedb1ae0046480f8442c97cf9138534659e8ab2
+reify-76ed44249ac086e593325c58f56d96d8dc4ffd47
 ```
 
-Build that commit with [Zig 0.17.0](https://ziglang.org/download/) and point
-`ROC` at the `roc` binary it makes:
+The reify nightly
+[`nightly-reify-2026-11-07-76ed442`](https://github.com/Karakatiza666/roc-reify-nightlies/releases/tag/nightly-reify-2026-11-07-76ed442)
+has a prebuilt `roc` of that commit for Linux (x86_64, arm64), macOS (Apple
+silicon, x86_64) and Windows (x86_64):
+
+```sh
+curl -LO https://github.com/Karakatiza666/roc-reify-nightlies/releases/download/nightly-reify-2026-11-07-76ed442/roc_nightly-reify-linux_x86_64-2026-11-07-76ed442.tar.gz
+tar -xzf roc_nightly-reify-linux_x86_64-2026-11-07-76ed442.tar.gz
+export ROC=$PWD/roc_nightly-reify-linux_x86_64-2026-11-07-76ed442/roc
+$ROC version                      # nightly-reify-2026-11-07-76ed442
+```
+
+To build it from source instead, use [Zig 0.17.0](https://ziglang.org/download/)
+and point `ROC` at the `roc` binary it makes:
 
 ```sh
 git clone https://github.com/Karakatiza666/roc.git
 cd roc
-git checkout 0aedb1ae0046480f8442c97cf9138534659e8ab2
+git checkout 76ed44249ac086e593325c58f56d96d8dc4ffd47
 zig build roc                     # a Debug compiler, zig-out/bin/roc
-./zig-out/bin/roc version         # debug-0aedb1ae
+./zig-out/bin/roc version         # debug-76ed4424
 export ROC=$PWD/zig-out/bin/roc
 ```
 
@@ -153,7 +165,7 @@ The app names basic-cli and the WebSocket adapter
 app [main!] {
 	pf: platform "https://github.com/roc-lang/basic-cli/releases/download/0.27.0/9yjxqdGTP4xSpSEmDazwTmRsehfRZzA19pwEKkR6fj1g.tar.zst",
 	cli_ws: "https://github.com/Karakatiza666/roc-basic-cli-websocket/releases/download/0.0.4/B5j45zNdyW8Qxq6GpQ6ZVNmcPC5hwx3TxPRW4cq8wiLV.tar.zst",
-	surreal: "https://github.com/Karakatiza666/roc-reify-surrealdb/releases/download/0.0.2/A6EBqeeUMvjuaUNqem6guFUgKnCJZnynqWxzTcqxHk4V.tar.zst",
+	surreal: "https://github.com/Karakatiza666/roc-reify-surrealdb/releases/download/0.0.3/BKEfdkfK5Ldm4qnzBG7UhXH5pJ8ne2AskQvotvndrQWV.tar.zst",
 }
 
 import pf.OsStr
@@ -220,7 +232,7 @@ app [Context, program] {
 	http: "https://github.com/roc-lang/http/releases/download/1.0.0/6ZUwqYhCS8PU9Mo6MF7oV82ET2o7KYb57CLKDq4cq4sS.tar.zst",
 	pf: platform "https://github.com/roc-lang/basic-webserver/releases/download/0.21.0/4viZsnWjdYsyH4Q87ESFAwM5c55Hnc15nAGW1UwzWpFU.tar.zst",
 	bws_ws: "https://github.com/Karakatiza666/roc-basic-webserver-websocket/releases/download/0.0.3/BjBcDpMFYd2ybt1xpiKiSHf2AgrnRnT6qRdFe2bQ2fgL.tar.zst",
-	surreal: "https://github.com/Karakatiza666/roc-reify-surrealdb/releases/download/0.0.2/A6EBqeeUMvjuaUNqem6guFUgKnCJZnynqWxzTcqxHk4V.tar.zst",
+	surreal: "https://github.com/Karakatiza666/roc-reify-surrealdb/releases/download/0.0.3/BKEfdkfK5Ldm4qnzBG7UhXH5pJ8ne2AskQvotvndrQWV.tar.zst",
 }
 
 import pf.Server
@@ -368,7 +380,7 @@ server with `docker stop surreal-roc`.
 The release bundle has its own scripts:
 
 ```sh
-ROC=/path/to/fork/zig-out/bin/roc scripts/bundle.sh 0.0.2  # dist/<hash>.tar.zst, its file list and its release URL
+ROC=/path/to/fork/zig-out/bin/roc scripts/bundle.sh 0.0.3  # dist/<hash>.tar.zst, its file list and its release URL
 ROC=/path/to/fork/zig-out/bin/roc scripts/test_bundle.sh   # checks the examples against the bundle
 ```
 
@@ -2619,9 +2631,10 @@ The cost of a new feature is small and local:
 
 ## Changes
 
-### 0.0.3 (unreleased)
+### 0.0.3
 
-Compiler pin `0aedb1ae00` (Roc nightly 2026-11-07). roc-websocket 0.0.6; the
+Compiler pin `76ed44249a`, the reify nightly `nightly-reify-2026-11-07-76ed442`
+(Roc nightly 2026-11-07), with prebuilt binaries. roc-websocket 0.0.6; the
 examples use roc-basic-cli-websocket 0.0.4 (basic-cli 0.27.0) and
 roc-basic-webserver-websocket 0.0.3 (basic-webserver 0.21.0).
 

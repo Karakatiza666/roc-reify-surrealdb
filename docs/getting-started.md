@@ -24,18 +24,21 @@ The function stays a Roc function. A test, a seed list and your own code can cal
 
 | Need | Value |
 | --- | --- |
-| Compiler | The `reify` branch of [Karakatiza666/roc](https://github.com/Karakatiza666/roc), at the commit in `.roc-version` (`reify-0aedb1ae0046480f8442c97cf9138534659e8ab2` from release 0.0.3) |
+| Compiler | The `reify` branch of [Karakatiza666/roc](https://github.com/Karakatiza666/roc), at the commit in `.roc-version` (`reify-76ed44249ac086e593325c58f56d96d8dc4ffd47` from release 0.0.3, the reify nightly `nightly-reify-2026-11-07-76ed442`) |
 | Zig, to build the compiler | 0.17.0 |
 | Database, to run queries | SurrealDB 3.3.4 |
 
 Stock Roc has no `Code` type. The package does not compile with it. The compiler feature is described in [reifying.md](https://github.com/Karakatiza666/roc/blob/reify/docs/langref/reifying.md) of the compiler repository.
 
-Build the compiler and point `ROC` at it:
+Download the prebuilt compiler of the reify nightly
+[`nightly-reify-2026-11-07-76ed442`](https://github.com/Karakatiza666/roc-reify-nightlies/releases/tag/nightly-reify-2026-11-07-76ed442)
+for your system, unpack it, and point `ROC` at its `roc`. Or build the
+compiler from source and point `ROC` at it:
 
 ```sh
 git clone https://github.com/Karakatiza666/roc.git
 cd roc
-git checkout 0aedb1ae0046480f8442c97cf9138534659e8ab2
+git checkout 76ed44249ac086e593325c58f56d96d8dc4ffd47
 zig build roc
 export ROC=$PWD/zig-out/bin/roc
 ```
@@ -52,7 +55,7 @@ Name the package in the header of your app. Only the module `Surreal` is public.
 
 | Where | What to write |
 | --- | --- |
-| Release | `surreal: "https://github.com/Karakatiza666/roc-reify-surrealdb/releases/download/0.0.2/<hash>.tar.zst"` |
+| Release | `surreal: "https://github.com/Karakatiza666/roc-reify-surrealdb/releases/download/0.0.3/<hash>.tar.zst"` |
 | Checkout | `surreal: "/path/to/roc-reify-surrealdb/src/main.roc"` |
 
 The release notes of each [release](https://github.com/Karakatiza666/roc-reify-surrealdb/releases) show the full URL with its hash. `scripts/bundle.sh 0.0.1` prints it too.

@@ -7,7 +7,7 @@ This page lists every feature and links to the page that explains it. To install
 | Link | What it gives |
 | --- | --- |
 | [Package README](../README.md) | The pitch, the setup, the internals ("How it is built"), the design limits and the tests |
-| [API docs](https://github.com/Karakatiza666/roc-reify-surrealdb/releases/download/0.0.2/package-docs.tar.gz) | `package-docs.tar.gz` of the 0.0.2 release: the signature and the doc comment of each function. Unpack it and open `index.html` |
+| [API docs](https://github.com/Karakatiza666/roc-reify-surrealdb/releases/download/0.0.3/package-docs.tar.gz) | `package-docs.tar.gz` of the 0.0.3 release: the signature and the doc comment of each function. Unpack it and open `index.html` |
 | [Examples](../examples/README.md) | The runnable apps and the helper package that the pages cite by name |
 
 ## Start here
