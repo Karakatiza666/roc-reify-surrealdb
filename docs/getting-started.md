@@ -71,8 +71,8 @@ To run a query, the app needs a platform and the WebSocket adapter of that platf
 
 | Platform | Adapter package | Transport constructor |
 | --- | --- | --- |
-| basic-cli 0.26.0 | roc-basic-cli-websocket 0.0.3 | `Surreal.Transport.websocket_timed` |
-| basic-webserver 0.20.0 | roc-basic-webserver-websocket 0.0.2 | `Surreal.Transport.websocket` |
+| basic-cli 0.27.0 | roc-basic-cli-websocket 0.0.4 | `Surreal.Transport.websocket_timed` |
+| basic-webserver 0.21.0 | roc-basic-webserver-websocket 0.0.3 | `Surreal.Transport.websocket` |
 
 The full headers are in `examples/client.roc` (basic-cli) and `examples/server.roc` (basic-webserver). [Sessions](sessions.md#choose-a-transport) explains the transports.
 
