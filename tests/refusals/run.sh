@@ -13,7 +13,7 @@ failures=0
 for f in *.roc; do
 	line=$(sed -n '1s/^# refused-at: //p' "$f")
 	message=$(sed -n '2s/^# message: //p' "$f")
-	out=$("$ROC" test "$f" 2>&1)
+	out=$("$ROC" check "$f" 2>&1)
 	if [ $? -eq 0 ]; then
 		echo "FAIL $f: it compiled"
 		failures=$((failures + 1))
