@@ -4,7 +4,7 @@
 # tests/check.py, which runs the scripts that the examples and
 # tests/BuiltinsTest.roc print against it.
 # Start one with:
-#   docker run --rm -d --name surreal-roc -p 8000:8000 surrealdb/surrealdb:v3.3.4 start --user root --pass root memory
+#   docker run --rm -d --name surreal-roc -p 8000:8000 surrealdb/surrealdb:v4.0.1 start --user root --pass root memory
 set -euo pipefail
 ROC="${ROC:-roc}"
 cd "$(dirname "$0")/.."

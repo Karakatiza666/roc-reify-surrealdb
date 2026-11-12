@@ -14,7 +14,7 @@ import "fixtures/mux/a/05.cbor" as a_5 : List(U8)
 import "fixtures/mux/a/06.cbor" as a_6 : List(U8)
 
 # Tests of `Session.next_within!` without a server: a session over a scripted
-# adapter, which gives the frames that SurrealDB 3.3.4 sent (`fixtures/mux/`)
+# adapter, which gives the frames that SurrealDB 4.0.1 sent (`fixtures/mux/`)
 # and the silences between them, and answers `receive_within!` of 50 ms
 # with `TimedOut` at a silence. `roc test` runs the expects, and
 # `roc tests/DeadlineTest.roc` runs the session (`main!`) and prints an

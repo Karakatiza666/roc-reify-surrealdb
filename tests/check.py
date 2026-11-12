@@ -68,7 +68,7 @@ HERE = pathlib.Path(__file__).resolve().parent
 EXAMPLES = HERE.parent / "examples"
 APPS = [EXAMPLES / "main.roc", HERE / "BuiltinsTest.roc", EXAMPLES / "monitoring.roc", EXAMPLES / "search.roc"]
 NS, DB = "roc", "roc_surreal"
-DOCKER = "docker run --rm -d -p 8000:8000 surrealdb/surrealdb:v3.3.4 start --user root --pass root memory"
+DOCKER = "docker run --rm -d -p 8000:8000 surrealdb/surrealdb:v4.0.1 start --user root --pass root memory"
 
 
 class Server:

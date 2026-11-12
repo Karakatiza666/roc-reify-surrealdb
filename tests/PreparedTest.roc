@@ -56,7 +56,7 @@ import cbor.Cbor
 # Tests of the typed results of plain queries and writes, without a server:
 # the text of each request, and the reply to it, read as the type of the
 # query. The files in `fixtures/queries/` are the replies that SurrealDB
-# 3.3.4 sent to the requests of `client.roc` (`check.py --record fixtures`),
+# 4.0.1 sent to the requests of `client.roc` (`check.py --record fixtures`),
 # on the rows that `check.py` leaves. Nothing outside this file imports it.
 
 # ------------------------------------------------------- the domain of client.roc
@@ -528,13 +528,13 @@ handovers = Surreal.relation("handover", shifts, shifts)
 ## The keys that SurrealDB gave in the recorded replies: ULIDs of the
 ## shifts, from `DEFAULT rand::ulid()` on `id`.
 early : Surreal.Id(Shift)
-early = shifts.id("01M6C3BN3QZJM8Y0GRCFTYK5NR")
+early = shifts.id("01M7911XWVP2307M56XCDKCQWS")
 
 late : Surreal.Id(Shift)
-late = shifts.id("01M6C3BN3R32SY9HYWP4RG89TA")
+late = shifts.id("01M7911XWWTBV4SZQC1QV464QD")
 
 night : Surreal.Id(Shift)
-night = shifts.id("01M6C3BN3R9XA7D63MA2JSK7PE")
+night = shifts.id("01M7911XWX4QRHBARKWT9D3V0F")
 
 feed : { title : Str, shift : Surreal.Link(Shift) }
 feed = { title: "Feed", shift: shifts.link(early.key()) }
@@ -548,7 +548,7 @@ handover = { from: shifts.link(early.key()), to: shifts.link(late.key()), notes:
 # A write of a row with no `id` has no key in its text.
 expect request_of(shifts.create_new({ label: "Early" })) == Ok("CREATE shift CONTENT { label: 'Early' } RETURN AFTER;")
 expect request_of(shifts.insert_new([{ label: "Late" }, { label: "Night" }])) == Ok("BEGIN;\nINSERT INTO shift [{ label: 'Late' }, { label: 'Night' }] RETURN AFTER;\nCOMMIT;")
-expect request_of(handovers.create_new(handover)) == Ok("RELATE shift:⟨01M6C3BN3QZJM8Y0GRCFTYK5NR⟩->handover->shift:⟨01M6C3BN3R32SY9HYWP4RG89TA⟩ CONTENT { notes: 'keys' } RETURN AFTER;")
+expect request_of(handovers.create_new(handover)) == Ok("RELATE shift:⟨01M7911XWVP2307M56XCDKCQWS⟩->handover->shift:⟨01M7911XWWTBV4SZQC1QV464QD⟩ CONTENT { notes: 'keys' } RETURN AFTER;")
 
 # The result is each row that the write made: the key that the server gave
 # it, as an `Id` of the table, and its other fields, in the order written.
@@ -556,14 +556,22 @@ expect ready(shifts.create_new({ label: "Early" })).result(create_shift_reply) =
 expect ready(shifts.insert_new([{ label: "Late" }, { label: "Night" }])).result(insert_shifts_reply) == Ok([{ id: late, fields: { label: "Late" } }, { id: night, fields: { label: "Night" } }])
 
 # A link to a row with a key from the server, and a UUID key, as text.
-expect ready(tasks.insert_new([feed, walk])).result(insert_tasks_reply) == Ok([{ id: tasks.id("01a19835-d479-78d2-ab74-94d43551495f"), fields: feed }, { id: tasks.id("01a19835-d479-78d2-ab74-94eba65d32a6"), fields: walk }])
+expect ready(tasks.insert_new([feed, walk])).result(insert_tasks_reply) == Ok([{ id: tasks.id("01a1d210-f79e-77e0-b588-1324ffd4dc5a"), fields: feed }, { id: tasks.id("01a1d210-f79e-77e0-b588-13259488a7ac"), fields: walk }])
 
 # An edge with SurrealDB's random key: its ends are `from` and `to`.
-expect ready(handovers.create_new(handover)).result(relate_handover_reply) == Ok([{ id: handovers.id("5cydmqi6344mvu5l5uhj"), fields: handover }])
+expect ready(handovers.create_new(handover)).result(relate_handover_reply) == Ok([{ id: handovers.id("956wn0p4gj5ik7k4a6er"), fields: handover }])
 
-# The `Id` of a row that the server keyed reads and deletes it by key.
-expect ready(shifts.at(early).select(|r| r).prepare_one({})).result(shift_at_key_reply) == Ok(Ok({ id: early.key(), label: "Early" }))
-expect ready(shifts.delete_at(early).prepare({})).result(delete_shift_reply) == Ok([{ id: early.key(), label: "Early" }])
+# The `Id` of a row that the server keyed reads and deletes it by key. As
+# in `client.roc`, the key is the argument of a function, so the request
+# binds it with a `LET` and its reply has two results.
+shift_at : Surreal.Id(Shift) -> Surreal.Prepared(Try(Shift, [NotFound]))
+shift_at = |key| shifts.at(key).ready_one()
+
+delete_shift : Surreal.Id(Shift) -> Surreal.Prepared(List(Shift))
+delete_shift = |key| shifts.delete_at(key).ready()
+
+expect ready(shift_at(early)).result(shift_at_key_reply) == Ok(Ok({ id: early.key(), label: "Early" }))
+expect ready(delete_shift(early)).result(delete_shift_reply) == Ok([{ id: early.key(), label: "Early" }])
 
 # A reply to a write of another table: the key is of `shift`, not `task`.
 expect ready(tasks.create_new(feed)).result(create_shift_reply).map_ok(|rows| rows.map(|r| r.id)) == Err(Wire("a row that a write of `task` made has no text key of `task`"))

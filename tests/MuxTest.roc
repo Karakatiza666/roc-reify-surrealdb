@@ -31,7 +31,7 @@ import "fixtures/mux/e/04.cbor" as e_4 : List(U8)
 import "fixtures/mux/e/05.cbor" as e_5 : List(U8)
 
 # Tests of the `Inbox` of a session, without a server. The files in
-# `fixtures/mux/` are the frames of one session that SurrealDB 3.3.4 sent,
+# `fixtures/mux/` are the frames of one session that SurrealDB 4.0.1 sent,
 # in the order they came (`check.py --record fixtures`, `record_mux`): two
 # watches, requests in flight, and writes that send notices. The order of
 # the frames of one case can differ between two recordings, so a test
@@ -332,8 +332,9 @@ expect e_drained.map_ok(|d| ends(d.inbox.take_notice(live_a.lives()))) == Ok(Boo
 
 # A notice can come before the reply to the request of its watch. While a
 # watch starts, a notice of a uuid that is not known yet is held; `watch`
-# keeps the notices of the new uuids and drops the others.
-expect fed(Surreal.Inbox.empty({}), [c_1]).map_ok(|i| i.notices().len()) == Ok(0)
-expect fed(Surreal.Inbox.empty({}).start(), [c_1]).map_ok(|i| i.notices().len()) == Ok(0)
-expect queued(fed(Surreal.Inbox.empty({}).start(), [c_1]).map_ok(|i| i.watch(live_a.lives()))) == [uuid_of(live_a)]
+# keeps the notices of the new uuids and drops the others. `c_0` is the
+# notice of case `c` (SurrealDB 4.0.1 sent it before the reply).
+expect fed(Surreal.Inbox.empty({}), [c_0]).map_ok(|i| i.notices().len()) == Ok(0)
+expect fed(Surreal.Inbox.empty({}).start(), [c_0]).map_ok(|i| i.notices().len()) == Ok(0)
+expect queued(fed(Surreal.Inbox.empty({}).start(), [c_0]).map_ok(|i| i.watch(live_a.lives()))) == [uuid_of(live_a)]
 expect queued(fed(Surreal.Inbox.empty({}).start(), two_frames).map_ok(|i| i.watch(live_b.lives()))) == [uuid_of(live_b), uuid_of(live_b)]

@@ -22,7 +22,7 @@ import "fixtures/http/pin_labels_again.cbor" as pin_labels_again_http : List(U8)
 import "fixtures/queries/pin_labels_again.cbor" as pin_labels_again_ws : List(U8)
 
 # Tests of a session over HTTP, without a server: the post of a message,
-# the reply in a response, and the replies that SurrealDB 3.3.4 sent over
+# the reply in a response, and the replies that SurrealDB 4.0.1 sent over
 # HTTP to the requests of `client.roc -- --http` (`check.py --record
 # fixtures` saves them in `fixtures/http/`), read as the type of each
 # query, and through the `Inbox` in another order than they were sent, as
@@ -199,7 +199,7 @@ shifts : Surreal.Table(Shift)
 shifts = Surreal.table("shift")
 
 # Rows whose keys the server made, over HTTP: the keys of the reply.
-expect ready(shifts.insert_new([{ label: "Late" }, { label: "Night" }])).result(insert_shifts_http) == Ok([{ id: shifts.id("01M6C3C4WZPAQMZR07SSWWGY9P"), fields: { label: "Late" } }, { id: shifts.id("01M6C3C4WZTZJYYQJS3HAXET73"), fields: { label: "Night" } }])
+expect ready(shifts.insert_new([{ label: "Late" }, { label: "Night" }])).result(insert_shifts_http) == Ok([{ id: shifts.id("01M79122QHG33QKJFYM5PCVZ35"), fields: { label: "Late" } }, { id: shifts.id("01M79122QHZJY72A5QEQEXRGJ7"), fields: { label: "Night" } }])
 
 # Two `send!`s over HTTP put both replies into the inbox, in the order of
 # the posts. `await!` takes the second first, then the first.

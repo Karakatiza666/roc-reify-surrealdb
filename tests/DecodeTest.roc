@@ -12,8 +12,8 @@ import "fixtures/fevered/02.cbor" as fevered_2 : List(U8)
 import "fixtures/fevered/03.cbor" as fevered_3 : List(U8)
 import "fixtures/fevered/04.cbor" as fevered_4 : List(U8)
 import "fixtures/fevered/05.cbor" as fevered_5 : List(U8)
-import "fixtures/fevered/06.cbor" as fevered_kill_reply : List(U8)
-import "fixtures/fevered/07.cbor" as fevered_killed : List(U8)
+import "fixtures/fevered/07.cbor" as fevered_kill_reply : List(U8)
+import "fixtures/fevered/06.cbor" as fevered_killed : List(U8)
 import "fixtures/unattended/00.cbor" as unattended_reply : List(U8)
 import "fixtures/unattended/01.cbor" as unattended_1 : List(U8)
 import "fixtures/unattended/02.cbor" as unattended_2 : List(U8)
@@ -38,13 +38,13 @@ import "fixtures/fever_events/01.cbor" as events_1 : List(U8)
 import "fixtures/fever_events/02.cbor" as events_2 : List(U8)
 import "fixtures/fever_events/03.cbor" as events_3 : List(U8)
 import "fixtures/fever_events/04.cbor" as events_4 : List(U8)
-import "fixtures/fever_events/06.cbor" as events_killed : List(U8)
+import "fixtures/fever_events/05.cbor" as events_killed : List(U8)
 import "fixtures/errors/00.cbor" as failed_statement : List(U8)
 import "fixtures/errors/01.cbor" as unknown_method : List(U8)
-import "fixtures/queries/delete_shift.cbor" as delete_shift_reply : List(U8)
+import "fixtures/queries/create_shift.cbor" as create_shift_reply : List(U8)
 
 # Tests of the decoding of a live session, without a server. The files in
-# `fixtures/` are messages that SurrealDB 3.3.4 sent for the live blocks of
+# `fixtures/` are messages that SurrealDB 4.0.1 sent for the live blocks of
 # `monitoring.roc` (`check.py --record fixtures`). Each notice decodes to the
 # notice that the Roc Mirror predicts for the same write, and the changes of
 # a stream of them are the changes of `Watch.step`. Nothing outside this
@@ -411,7 +411,7 @@ expect {
 }
 
 # A key that the server made: a ULID, from `DEFAULT rand::ulid()` on `id`
-# (`client.roc`, the reply to the delete of the shift by its key). It is
+# (`client.roc`, the reply to the create of the shift). It is
 # a text key, so it reads as an `Id` and a `Link`.
 Shift : { id : Str, label : Str }
 
@@ -420,7 +420,7 @@ shifts = Surreal.table("shift")
 
 expect {
 	reply : Try({ result : List({ result : List({ id : Surreal.Id(Shift), label : Str }) }) }, Surreal.Error)
-	reply = Surreal.Unchecked.decode(delete_shift_reply)
-	reply.map_ok(|r| r.result.join_map(|one| one.result)) == Ok([{ id: shifts.id("01M6C3BN3QZJM8Y0GRCFTYK5NR"), label: "Early" }])
+	reply = Surreal.Unchecked.decode(create_shift_reply)
+	reply.map_ok(|r| r.result.join_map(|one| one.result)) == Ok([{ id: shifts.id("01M7911XWVP2307M56XCDKCQWS"), label: "Early" }])
 }
-expect read(tag(8, [Cbor.Value.Text("shift"), Cbor.Value.Text("01M6C3BN3QZJM8Y0GRCFTYK5NR")])) == Ok(shifts.link("01M6C3BN3QZJM8Y0GRCFTYK5NR"))
+expect read(tag(8, [Cbor.Value.Text("shift"), Cbor.Value.Text("01M7911XWVP2307M56XCDKCQWS")])) == Ok(shifts.link("01M7911XWVP2307M56XCDKCQWS"))

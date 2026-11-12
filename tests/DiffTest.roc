@@ -236,7 +236,7 @@ notice = |action, key, ops| {
 		}
 		Cbor.Value.Map(List.concat([(text("op"), text(o.op)), (text("path"), text(o.path))], given))
 	}
-	uuid = Cbor.Value.Tag(37, Cbor.Value.Bytes([0x64, 0x9b, 0x64, 0xcf, 0xe2, 0xaf, 0x42, 0x68, 0x83, 0xfc, 0x8e, 0x3f, 0x24, 0x24, 0x60, 0x09]))
+	uuid = Cbor.Value.Tag(37, Cbor.Value.Bytes([0x56, 0x24, 0x0b, 0xb5, 0xb2, 0x49, 0x42, 0xf8, 0x9a, 0x71, 0xab, 0xdf, 0xad, 0x08, 0x95, 0xaf]))
 	record = Cbor.Value.Tag(8, Cbor.Value.Array([text("kennel"), text(key)]))
 	Cbor.encode(Cbor.Value.Map([(text("result"), Cbor.Value.Map([(text("action"), text(action)), (text("id"), uuid), (text("record"), record), (text("result"), Cbor.Value.Array(ops.map(op_map)))]))]))
 }
