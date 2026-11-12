@@ -40,8 +40,9 @@ Ql :: {}.{
 	MigrationProblem : [Changed, OutOfOrder, Edit, Text(Str), Target({ file : Str, server : Str }), Unplanned(List(Str))]
 
 	## Why the server refused a request or a statement: the `kind` of its
-	## error, and for the kind `Internal`, what its message says when the
-	## message has the form SurrealDB 3.3.4 writes. Each keeps the message.
+	## error, and for the kind `Internal` (and a `Validation` of a type),
+	## what its message says when the message has the form SurrealDB 4.0.1
+	## writes. Each keeps the message.
 	##
 	## | Tag | The server's error |
 	## | --- | --- |
@@ -50,7 +51,7 @@ Ql :: {}.{
 	## | `Unique` | A unique index of the schema the session knows (`Session.knowing`) already holds the value: its table and fields (SurrealQL paths) |
 	## | `Index` | The same for an index the session does not know |
 	## | `Assert` | A field's `ASSERT` fails: the field, the record, the value and the condition |
-	## | `Type` | A value does not fit the field's `TYPE` |
+	## | `Type` | A value does not fit the field's `TYPE` (`Validation` with details `InvalidRequest`) |
 	## | `Check` | A `.check(name, ..)` of the schema that is an event fails (a check that a field holds is an `Assert`) |
 	## | `Referenced` | A delete of a record that a link with `Reject` points at: `by` is the linking record (a root link) or `table.path` (a nested link) |
 	## | `Denied` | `NotAllowed`, a post that HTTP refuses with 401 or 403, or a signup, a signin or a token that the server refuses (`Session.open!`) |

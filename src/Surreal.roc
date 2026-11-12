@@ -5700,12 +5700,19 @@ reply_outcomes = |bytes, indexes| {
 }
 
 ## The typed error of a `Failure` (see `ServerError`). The message of
-## an `Internal` error is read by `Schema.violation`.
+## an `Internal` error is read by `Schema.violation`, and so is a value
+## that does not fit a field's `TYPE`: SurrealDB 4 sends it as kind
+## `Validation` with details `InvalidRequest` (verified on 4.0.1).
 server_error : Surreal.Failure, List(Schema.Known) -> ServerError
 server_error = |e, indexes| match (e.kind, detail_kind(e.details)) {
 	("AlreadyExists", what) => Exists({ what: what ?? "", name: detail_name(e.details), message: e.message })
 	("NotFound", what) => NotFound({ what: what ?? "", name: detail_name(e.details), message: e.message })
 	("NotAllowed", _) => Denied(e.message)
+	("Validation", Ok("InvalidRequest")) if e.message.starts_with("Couldn't coerce value for field `") =>
+		match Schema.violation(e.message, e.message, indexes) {
+			Type(t) => Type(t)
+			_ => Invalid(e.message)
+		}
 	("Validation", _) if e.message.starts_with("Parse error") => Parse(e.message)
 	("Validation", _) => Invalid(e.message)
 	("Query", Ok("TransactionConflict")) => Conflict(e.message)

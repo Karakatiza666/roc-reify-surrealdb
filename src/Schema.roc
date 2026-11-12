@@ -1172,7 +1172,9 @@ Schema :: {}.{
 	)
 
 	## An error of the kind `Internal`, read from its message where it has
-	## a form that SurrealDB 3.3.4 writes for a constraint (verified):
+	## a form that SurrealDB 4.0.1 writes for a constraint (verified). The
+	## message of a type error is the same, but its kind is `Validation`
+	## (`Surreal.server_error` sends it here):
 	##
 	## | Message | Tag |
 	## | --- | --- |
