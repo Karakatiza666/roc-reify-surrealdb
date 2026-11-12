@@ -80,7 +80,7 @@ expect Surreal.from(orders).select_value(|o| o.customer.get().name).to_surql() =
 # `limit` or `start` are type errors (a `Limited` and a `Started` have no such
 # method). To order the rows of a limit, take them as a subquery.
 expect Surreal.from(orders).select(order_line).order_by(|r| r.total, Desc).start(2).limit(2).to_surql() == Ok("SELECT total AS total, customer.name AS who FROM order ORDER BY total DESC LIMIT 2 START 2")
-expect Surreal.from(orders).select(order_line).limit(2).query().select(|r| r).order_by(|r| r.total, Desc).to_surql() == Ok("SELECT total, who FROM (SELECT total AS total, customer.name AS who FROM order LIMIT 2) ORDER BY total DESC")
+expect Surreal.from(orders).select(order_line).limit(2).query().select(|r| r).order_by(|r| r.total, Desc).to_surql() == Ok("SELECT total, who FROM (SELECT total AS total, customer.name AS who FROM order ORDER BY id LIMIT 2) ORDER BY total DESC")
 # SurrealDB orders by a field path only. It accepts a path through a link
 # or into a column and leaves the rows unordered, and refuses a call, so the
 # key is one column of the result.
@@ -239,29 +239,29 @@ expect Surreal.from(orders).select(|r| r).filter(|o| o.total > 5).to_surql() == 
 # After a group, a limit or a start, a filter reads a subquery. After a group, that is `HAVING`.
 expect Surreal.from(orders).group_by(|o| o.customer.get().address.city).aggregate(|city, rows| { city, revenue: rows.map(|o| o.total).sum() }).filter(|r| r.revenue > 100).to_surql() == Ok("SELECT city, revenue FROM (SELECT customer.address.city AS city, math::sum(total) AS revenue FROM order GROUP BY city) WHERE revenue > 100.0dec")
 expect Surreal.from(orders).select(order_line).order_by(|r| r.total, Desc).limit(3).filter(|r| r.who != "Ada").to_surql() == Ok("SELECT total, who FROM (SELECT total AS total, customer.name AS who FROM order ORDER BY total DESC LIMIT 3) WHERE who != 'Ada'")
-expect Surreal.from(orders).select(order_line).start(1).filter(|r| r.who != "Ada").to_surql() == Ok("SELECT total, who FROM (SELECT total AS total, customer.name AS who FROM order START 1) WHERE who != 'Ada'")
-expect Surreal.from(orders).select(|r| r).limit(2).filter(|o| o.total > 5).to_surql() == Ok("SELECT customer, id, items, payment, total FROM (SELECT customer, record::id(id) AS id, items, payment, total FROM order LIMIT 2) WHERE total > 5.0dec")
+expect Surreal.from(orders).select(order_line).start(1).filter(|r| r.who != "Ada").to_surql() == Ok("SELECT total, who FROM (SELECT total AS total, customer.name AS who FROM order ORDER BY id START 1) WHERE who != 'Ada'")
+expect Surreal.from(orders).select(|r| r).limit(2).filter(|o| o.total > 5).to_surql() == Ok("SELECT customer, id, items, payment, total FROM (SELECT customer, record::id(id) AS id, items, payment, total FROM order ORDER BY id LIMIT 2) WHERE total > 5.0dec")
 # A row of values is `$this` in the outer query.
 expect Surreal.from(orders).select_value(|o| o.total).order_by(|t| t, Desc).limit(3).filter(|t| t < 100).to_surql() == Ok("SELECT VALUE $this FROM (SELECT VALUE total FROM order ORDER BY total DESC LIMIT 3) WHERE $this < 100.0dec")
-expect Surreal.from(orders).select(|o| { t: o.total }).limit(1).query().select_value(|r| r).to_surql() == Ok("SELECT VALUE $this FROM (SELECT total AS t FROM order LIMIT 1)")
+expect Surreal.from(orders).select(|o| { t: o.total }).limit(1).query().select_value(|r| r).to_surql() == Ok("SELECT VALUE $this FROM (SELECT total AS t FROM order ORDER BY id LIMIT 1)")
 # `query` makes the result rows the rows of a new query: one `SELECT` after a projection.
 expect Surreal.from(orders).select(|o| { who: o.customer.get().name, city: o.customer.get().address.city }).query().filter(|r| r.city == "Paris").select(|r| { who: r.who }).to_surql() == Ok("SELECT customer.name AS who FROM order WHERE customer.address.city = 'Paris'")
 expect Surreal.from(orders).select(|o| { city: o.customer.get().address.city }).query().group_by(|r| r.city).aggregate(|city, rows| { city, n: rows.len() }).to_surql() == Ok("SELECT customer.address.city AS city, count() AS n FROM order GROUP BY city")
 expect Surreal.from(orders).select(|o| { who: o.customer.get().name, owner: o.customer.get() }).query().select(|r| r).to_surql() == Ok("SELECT customer.{ address, id: record::id(id), name, tags } AS owner, customer.name AS who FROM order")
-expect Surreal.from(orders).select_value(|o| o.customer.get()).limit(1).query().select_value(|c| c.address.city).to_surql() == Ok("SELECT VALUE address.city FROM (SELECT VALUE customer.{ address, id: record::id(id), name, tags } FROM order LIMIT 1)")
+expect Surreal.from(orders).select_value(|o| o.customer.get()).limit(1).query().select_value(|c| c.address.city).to_surql() == Ok("SELECT VALUE address.city FROM (SELECT VALUE customer.{ address, id: record::id(id), name, tags } FROM order ORDER BY id LIMIT 1)")
 # A parameter of a filter over a subquery is a `LET`, as anywhere.
 expect Surreal.from(orders).group_by(|o| o.customer.get().address.city).aggregate(|city, rows| { city, n: rows.len().to_i64_wrap() }).query().filter_by(|p, r| r.n >= p.least).select(|r| r).prepare({ least: 2 }).request() == Ok("LET $least = 2;\nSELECT city, n FROM (SELECT customer.address.city AS city, count() AS n FROM order GROUP BY city) WHERE $least <= n;")
 # A row of the table keeps its edges after a projection of the whole row. A row of a subquery has none.
 expect Surreal.from(customers).select(|r| r).query().outgoing(purchased).select(|(c, bought)| { name: c.name, n: bought.len() }).to_surql() == Ok("SELECT ->purchased.len() AS n, name AS name FROM customer")
 expect Surreal.from(customers).select(|r| r).limit(2).query().outgoing(purchased).select(|(c, bought)| { name: c.name, n: bought.len() }).to_surql() == Err(Unsupported("only a row of a table has edges; take `outgoing` or `incoming` before `select`"))
-expect Surreal.from(orders).select(order_line).limit(2).query().group_by(|r| r.who).aggregate(|who, rows| { who, n: rows.len() }).to_surql() == Ok("SELECT count() AS n, who AS who FROM (SELECT total AS total, customer.name AS who FROM order LIMIT 2) GROUP BY who")
+expect Surreal.from(orders).select(order_line).limit(2).query().group_by(|r| r.who).aggregate(|who, rows| { who, n: rows.len() }).to_surql() == Ok("SELECT count() AS n, who AS who FROM (SELECT total AS total, customer.name AS who FROM order ORDER BY id LIMIT 2) GROUP BY who")
 
 # ------------------------------------------------------ unchecked
 
 # `SELECT *` and `FETCH` are outside the types: the row has no Roc fields.
 expect Surreal.Unchecked.select_star(Surreal.from(orders)).to_surql() == Ok("SELECT * FROM order")
 expect Surreal.Unchecked.fetch(Surreal.Unchecked.select_star(Surreal.from(orders)), "customer").to_surql() == Ok("SELECT * FROM order FETCH customer")
-expect Surreal.Unchecked.fetch(Surreal.Unchecked.fetch(Surreal.Unchecked.select_star(Surreal.from(orders).filter(|o| o.total > 10)), "customer"), "items[*].product").limit(5).to_surql() == Ok("SELECT * FROM order WHERE total > 10.0dec LIMIT 5 FETCH customer, items[*].product")
+expect Surreal.Unchecked.fetch(Surreal.Unchecked.fetch(Surreal.Unchecked.select_star(Surreal.from(orders).filter(|o| o.total > 10)), "customer"), "items[*].product").limit(5).to_surql() == Ok("SELECT * FROM order WHERE total > 10.0dec ORDER BY id LIMIT 5 FETCH customer, items[*].product")
 # A filter after a fetch reads the source row. A query after it reads a subquery, which keeps the `FETCH`.
 expect Surreal.Unchecked.fetch(Surreal.Unchecked.select_star(Surreal.from(orders)), "customer").filter(|_| Bool.True).to_surql() == Ok("SELECT * FROM order WHERE true FETCH customer")
 expect Surreal.Unchecked.select_star(Surreal.Unchecked.fetch(Surreal.Unchecked.select_star(Surreal.from(orders)), "customer").query()).to_surql() == Ok("SELECT * FROM (SELECT * FROM order FETCH customer)")
@@ -395,8 +395,8 @@ request_text : Surreal.Prepared(out) -> Try(Str, Surreal.Error)
 request_text = |prepared| prepared.request()
 
 expect request_text(Surreal.from(customers).select(|c| { name: c.name }).ready()) == Ok("SELECT name AS name FROM customer;")
-expect request_text(Surreal.from(customers).select(|c| { name: c.name }).limit(2).ready()) == Ok("SELECT name AS name FROM customer LIMIT 2;")
-expect request_text(Surreal.from(customers).select(|c| { name: c.name }).start(1).ready()) == Ok("SELECT name AS name FROM customer START 1;")
+expect request_text(Surreal.from(customers).select(|c| { name: c.name }).limit(2).ready()) == Ok("SELECT name AS name FROM customer ORDER BY id LIMIT 2;")
+expect request_text(Surreal.from(customers).select(|c| { name: c.name }).start(1).ready()) == Ok("SELECT name AS name FROM customer ORDER BY id START 1;")
 expect request_text(customers.update_at(ada, |c| { ..c, name: "Ada L." }).ready()) == Ok("UPDATE customer:⟨ada⟩ SET name = 'Ada L.' RETURN AFTER;")
 expect request_text(customers.delete_at(ada).ready()) == Ok("DELETE customer:⟨ada⟩ RETURN BEFORE;")
 expect request_text(Surreal.from(orders).totals(|rows| { n: rows.len() }).ready()) == Ok("SELECT count() AS n FROM order GROUP ALL;")
@@ -689,7 +689,7 @@ expect Surreal.from(products).select(|_| { n: readings.rows().keep_if(|r| r.leve
 expect Surreal.from(customers).select(|c| { big: orders.rows().keep_if(|o| o.customer.id() == customers.id(c.id) and o.total > o.items.len().to_dec()).len() }).to_surql() == Ok("SELECT id.chain(|$v1_0| (SELECT VALUE id FROM order WHERE (customer = $v1_0) AND (total > <decimal>items.len()))).len() AS big FROM customer")
 expect Surreal.from(customers).select(|c| { n: orders.rows().count_if(|o| o.customer.id() == customers.id(c.id) and c.name != "") }).to_surql() == Ok("SELECT id.chain(|$v1_0| (SELECT VALUE id FROM order WHERE customer = $v1_0)).filter(|$v1| name != '').len() AS n FROM customer")
 # A find reads one row, in the order of the table when the test is not `==`.
-expect Surreal.from(customers).select(|c| { first: orders.rows().find_first(|o| o.customer.id() == customers.id(c.id)).map_ok(|o| o.total) ?? 0 }).to_surql() == Ok("SELECT (IF id.chain(|$v1_0| (SELECT VALUE id FROM order WHERE customer = $v1_0 LIMIT 1))[0] IS NONE THEN NONE ELSE id.chain(|$v1_0| (SELECT VALUE id FROM order WHERE customer = $v1_0 LIMIT 1))[0].total END) ?? 0.0dec AS first FROM customer")
+expect Surreal.from(customers).select(|c| { first: orders.rows().find_first(|o| o.customer.id() == customers.id(c.id)).map_ok(|o| o.total) ?? 0 }).to_surql() == Ok("SELECT (IF id.chain(|$v1_0| (SELECT VALUE id FROM order WHERE customer = $v1_0 ORDER BY id LIMIT 1))[0] IS NONE THEN NONE ELSE id.chain(|$v1_0| (SELECT VALUE id FROM order WHERE customer = $v1_0 ORDER BY id LIMIT 1))[0].total END) ?? 0.0dec AS first FROM customer")
 expect Surreal.from(customers).select(|_| { big: orders.rows().keep_if(|o| o.total > 100).map(|o| o.total) }).to_surql() == Ok("SELECT (SELECT VALUE id FROM order WHERE total > 100.0dec ORDER BY id).map(|$v2| $v2.total) AS big FROM customer")
 # A parameter of the statement is read in place.
 expect Surreal.from(customers).filter_by(|p, c| orders.rows().any(|o| o.total > p.min_total and o.customer.id() == customers.id(c.id))).select_value(|c| c.name).to_surql() == Ok("SELECT VALUE name FROM customer WHERE id.chain(|$v1_1| (SELECT VALUE id FROM order WHERE (total > $min_total) AND (customer = $v1_1) LIMIT 1)) != []")

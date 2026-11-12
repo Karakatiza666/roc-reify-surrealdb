@@ -2990,7 +2990,9 @@ Translate :: {}.{
 			[one] => Translate.text(one)?
 			many => Str.join_with(many.map_try(Translate.operand)?, " AND ")
 		}
-		order = if (split.ordered and (name == "filter" or name == "find")) " ORDER BY id" else ""
+		# `find` takes the first row by key, as the Roc `find_first` over the
+		# rows in key order: SurrealDB 4 reads them in no fixed order.
+		order = if ((split.ordered and name == "filter") or name == "find") " ORDER BY id" else ""
 		select = |limit| split.chains.fold_rev("(SELECT VALUE id FROM ${table} WHERE ${Str.join_with(tests, " AND ")}${order}${limit})", |c, inner| "${c.value}.chain(|${c.slot}| ${inner})")
 		closure = |method| "${select("")}.${method}(|${var_name}| ${rest_text})"
 		pushed = match (name, rest_text) {

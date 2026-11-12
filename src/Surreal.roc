@@ -2472,17 +2472,24 @@ Surreal :: {}.{
 			Ok(RawWatch.({ lets, live: "LIVE SELECT VALUE ${row} FROM ${name}${where_text(now)?}" }))
 		}
 
+		## The text of the `SELECT`. A `LIMIT` or a `START` with no `order_by`
+		## and no group gets `ORDER BY id`: SurrealDB 4 reads the rows of a
+		## table in no fixed order, so without it the rows of a limit are
+		## any rows, not the first by key. A group already gives its rows
+		## in the order of the group.
 		render : Selected(p, out), (Str -> Str) -> Try(Str, Error)
 		render = |Selected.(s), param| {
 			run = |clause| clause(param)
 			filters = s.filters.map_try(|f| Translate.text(f(Now, param)?))?
+			limited = !(is_unlimited(s.limit)) or !(from_first(s.start))
+			order = if (s.order.is_empty() and s.groups.is_empty() and limited) ["id"] else s.order.map_try(run)?
 			parts = [
 				"SELECT ${run(s.columns)?}",
 				"FROM ${from_text(s.target, param)?}",
 			]
 				.concat(keyword("WHERE", if (filters.len() > 1) filters.map(|f| "(${f})") else filters, " AND "))
 				.concat(keyword("GROUP BY", s.groups.map_try(run)?, ", "))
-				.concat(keyword("ORDER BY", s.order.map_try(run)?, ", "))
+				.concat(keyword("ORDER BY", order, ", "))
 				.concat(
 					match s.limit {
 						Unlimited => []

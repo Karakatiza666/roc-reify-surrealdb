@@ -85,7 +85,7 @@ first_page = |skip, size| Surreal.from(medications).select(|m| m).order_by(|m| m
 expect script(first_page(20, 10)) == "LET $_1 = 20;\nLET $_2 = 10;\nSELECT record::id(id) AS id, name, stock, unit_price FROM medication ORDER BY name LIMIT $_2 START $_1;"
 
 # A count the program fixes is a literal.
-expect script(Surreal.from(medications).select(|m| m).limit(3).ready()) == "SELECT record::id(id) AS id, name, stock, unit_price FROM medication LIMIT 3;"
+expect script(Surreal.from(medications).select(|m| m).limit(3).ready()) == "SELECT record::id(id) AS id, name, stock, unit_price FROM medication ORDER BY id LIMIT 3;"
 
 # Two statements that both capture: the second's slots come after the
 # first's, so each name has one value.
