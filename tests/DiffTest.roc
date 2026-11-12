@@ -68,8 +68,13 @@ expect Diff.pointer("") == Ok([])
 expect Diff.pointer("/temp") == Ok(["temp"])
 expect Diff.pointer("/meta/y/z") == Ok(["meta", "y", "z"])
 expect Diff.pointer("/arr/0/a") == Ok(["arr", "0", "a"])
-# SurrealDB does not escape a `/` in a field name: `x/y~z` is two parts.
-expect Diff.pointer("/x/y~z") == Ok(["x", "y~z"])
+# RFC 6901 escapes: `~1` is `/` and `~0` is `~` in a part. SurrealDB 4.0.1
+# sent `/m/a~1b`, `/m/c~0d` and `/x~1y` for the keys `a/b` and `c~d` of
+# `m`, and `x/y`. `~01` is `~1`: `~1` is read first.
+expect Diff.pointer("/m/a~1b") == Ok(["m", "a/b"])
+expect Diff.pointer("/m/c~0d") == Ok(["m", "c~d"])
+expect Diff.pointer("/x~1y") == Ok(["x/y"])
+expect Diff.pointer("/~01") == Ok(["~1"])
 expect Diff.pointer("temp") == Err(BadPointer("temp"))
 
 # ------------------------------------------------------------ ops on a row

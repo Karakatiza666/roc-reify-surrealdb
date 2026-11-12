@@ -448,6 +448,8 @@ a_change = match Diff.TextPatch.parse("@@ -1 +1 @@\n-a\n+b\n") {
 # `patch_ops_at`: JSON Patch ops, the paths and values written as text.
 expect customers.patch_ops_at(ada, [Replace(["name"], Cbor.Value.Text("Ada L.")), Add(["tags", "-"], Cbor.Value.Text("vip")), Remove(["address", "zip"])]).statement().map_ok(|st| st.surql) == Ok("UPDATE customer:⟨ada⟩ PATCH [{ op: 'replace', path: '/name', value: 'Ada L.' }, { op: 'add', path: '/tags/-', value: 'vip' }, { op: 'remove', path: '/address/zip' }] RETURN AFTER")
 expect customers.patch_ops_at(ada, []).statement().map_ok(|st| st.surql) == Ok("UPDATE customer:⟨ada⟩ PATCH [] RETURN AFTER")
+# A `/` or a `~` in a key is escaped in the path (RFC 6901), as SurrealDB 4 reads it.
+expect customers.patch_ops_at(ada, [Replace(["notes", "a/b"], Cbor.Value.Int(1)), Remove(["notes", "c~d"]), Remove(["~1"])]).statement().map_ok(|st| st.surql) == Ok("UPDATE customer:⟨ada⟩ PATCH [{ op: 'replace', path: '/notes/a~1b', value: 1 }, { op: 'remove', path: '/notes/c~0d' }, { op: 'remove', path: '/~01' }] RETURN AFTER")
 expect customers.patch_ops_at(ada, [Replace(["id"], Cbor.Value.Text("x"))]).statement().map_ok(|st| st.surql) == Err(Unsupported("a patch cannot change `id`, the record key (the op is at `/id`)"))
 expect customers.patch_ops_at(ada, [Replace([], Cbor.Value.Null)]).statement().map_ok(|st| st.surql) == Err(Unsupported("a patch of a delete: delete the row with `delete_at`"))
 expect customers.patch_ops_at(ada, [a_change]).statement().map_ok(|st| st.surql) == Err(Unsupported("a `change` op is a text diff, and the ORM reads it and does not write it; replay the field with a `replace`"))

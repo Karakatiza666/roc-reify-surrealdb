@@ -5027,9 +5027,9 @@ patch_item : Op -> Try(Str, Error)
 patch_item = |op| {
 	path = Diff.path_of(op)
 	if path.first() == Ok("id") {
-		return Err(Unsupported("a patch cannot change `id`, the record key (the op is at `/${Str.join_with(path, "/")}`)"))
+		return Err(Unsupported("a patch cannot change `id`, the record key (the op is at `${Diff.pointer_text(path)}`)"))
 	}
-	at = Ql.literal(Ql.Value.Str(Str.join_with(path.map(|part| "/${part}"), "")))
+	at = Ql.literal(Ql.Value.Str(Diff.pointer_text(path)))
 	given = |word, value| match value_of(value) {
 		Ok(v) => Ok("{ op: '${word}', path: ${at}, value: ${Ql.literal(v)} }")
 		Err(NoValue(why)) => Err(Unsupported("a patch with ${why} as a value"))

@@ -1372,5 +1372,7 @@ write_forms! = |run| {
 	$run = check!($run, "merge_where", tallies.merge(|t| t.hits > 10, { tags: ["hot"] }), same_rows(hot))?
 	$run = check!($run, "patch_ops_at", tallies.patch_ops_at(tallies.id("t3"), patch_ops), same_rows(bumped.keep_if(|t| t.id == "t3").map(patched_three)))?
 	$run = check!($run, "patch_no_such_field", tallies.patch_ops_at(tallies.id("t3"), [Replace(["nope"], Cbor.Value.Int(1))]), refused(no_such_field, "a server error about `nope`"))?
+	# The path of a key with a `/` is escaped: the server names the key `a/b`, not `a`.
+	$run = check!($run, "patch_slash_key", tallies.patch_ops_at(tallies.id("t3"), [Replace(["a/b"], Cbor.Value.Int(1))]), refused(|e| e.message().contains("`a/b`"), "a server error about `a/b`"))?
 	script!($run, "remove_tallies", Ok("REMOVE TABLE tally;"))
 }

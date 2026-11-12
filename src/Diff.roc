@@ -5,14 +5,15 @@ import cbor.Cbor
 #
 # A DIFF notice is a list of ops over the stored row. A `change` op edits a
 # string in place with a patch in the diff-match-patch text format, not a
-# JSON Patch value (verified on SurrealDB 3.3.4):
+# JSON Patch value (verified on SurrealDB 4.0.1):
 #
 # `{ op: 'change', path: '/s', value: '@@ -3,12 +3,12 @@\n ive \n-cafe\n+100%25\n  x t\n' }`
 Diff :: {}.{
 
-	## A JSON Pointer, split on `/`: `/meta/y/z` is `["meta", "y", "z"]`,
-	## and `""` is the whole row. SurrealDB does not escape a `/` or a `~`
-	## in a field name (verified), so a part is the text between two `/`.
+	## A JSON Pointer (RFC 6901), split on `/`: `/meta/y/z` is `["meta",
+	## "y", "z"]`, and `""` is the whole row. A part is a key as it is:
+	## SurrealDB 4 writes a `/` in a key as `~1` and a `~` as `~0`
+	## (verified on 4.0.1), and `pointer` reads them back.
 	Pointer : List(Str)
 
 	## The parts of a pointer. A pointer other than `""` starts with `/`.
@@ -21,10 +22,15 @@ Diff :: {}.{
 		if text.is_empty() {
 			Ok([])
 		} else if text.starts_with("/") {
-			Ok(text.drop_prefix("/").split_on("/"))
+			Ok(text.drop_prefix("/").split_on("/").map(|part| part.replace_each("~1", "/").replace_each("~0", "~")))
 		} else {
 			Err(BadPointer(text))
 		}
+
+	## The text of a pointer: each part after a `/`, with `~` written as
+	## `~0` and `/` as `~1`.
+	pointer_text : Pointer -> Str
+	pointer_text = |parts| Str.join_with(parts.map(|part| "/${part.replace_each("~", "~0").replace_each("/", "~1")}"), "")
 
 	## One op of a patch, in the order of the patch. `Change` edits a
 	## string in place with a text patch.
