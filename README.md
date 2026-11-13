@@ -538,7 +538,7 @@ Roc tag unions with `match` in a query.
 | A read row agrees with its stored row | `kennel_reads.define_read()` in the schema list | None. A field, a link or an edge table that does not agree is a `BadSchema` | `examples/monitoring.roc:132` |
 | The rows of a table in a clause: a correlated count | `vitals.rows().keep_if(\|v\| v.id.series() == kennels.id(k.id)).len()` | `id.chain(\|$v1\| (SELECT VALUE id FROM vital:[$v1, NONE]..=[$v1, ..])).len()`, a range scan of the keys of the kennel. `kennels.id(k.id)` of the row that the statement reads is `id` | `examples/monitoring.roc:445` |
 | A semi join | `.filter(\|k\| vitals.rows().any(\|v\| .. and v.fevered))` | `WHERE (SELECT VALUE id FROM vital WHERE .. AND fevered LIMIT 1) != []`: the tests of the row go into the `WHERE` of the subquery | `examples/monitoring.roc:450` |
-| A count of related rows | `kennels.rows().count_if(\|k\| k.site.id() == sites.id(s.id))` | `id.chain(\|$v1_0\| (SELECT VALUE id FROM kennel WHERE site = $v1_0)).len()`, which the index of the link serves | `examples/monitoring.roc:529` |
+| A count of related rows | `kennels.rows().count_if(\|k\| k.site.id() == sites.id(s.id))` | `(SELECT VALUE id FROM kennel WHERE site = $parent.id).len()`, about 15 times faster than with `chain` on SurrealDB 4.0.1 (measured; SurrealDB does not document it) | `examples/monitoring.roc:529` |
 | The id of a row of a table, read in a clause | `ruth_id = vets.id("ruth")` | `vet:⟨ruth⟩` | `examples/main.roc:121` |
 | Graph traversal | `.outgoing(treats)`, `.incoming(treats)` with `edges.keep_if(..).len()` | `->treats.len()`, `<-treats[WHERE primary]<-vet.name` | `examples/main.roc:850`, `examples/main.roc:856` |
 | A graph path of an edge and a link | `owners_of_primary(treats.edges_from(v))`, with `edges.keep_if(\|e\| e.primary).map(\|e\| e.to.get().owner.get().name)` | `->treats[WHERE primary]->patient.owner.name` | `examples/main.roc:1184` |
@@ -697,7 +697,7 @@ schema off that description. So a clause can read a table:
 | Roc | SurrealQL |
 | --- | --- |
 | `orders.rows()` | `(SELECT VALUE id FROM order)`. Each row is a record id, so a field read is a traversal: `$v1.total` |
-| `orders.rows().keep_if(\|o\| o.customer.get().id == c.id).len()` | A correlated count: `record::id(id).chain(\|$v1_0\| (SELECT VALUE id FROM order WHERE record::id(customer) = $v1_0)).len()`. A conjunct that reads the row of `orders` goes into the `WHERE`; a value of the clause is bound around the subquery with `chain`. The other conjuncts stay a `.filter(..)` |
+| `orders.rows().keep_if(\|o\| o.customer.get().id == c.id).len()` | A correlated count: `record::id(id).chain(\|$v1_0\| (SELECT VALUE id FROM order WHERE record::id(customer) = $v1_0)).len()`. A conjunct that reads the row of `orders` goes into the `WHERE`; a wrapped value of the clause, as `record::id(id)` here, is bound around the subquery with `chain`. One plain field of the row is `$parent.<path>`: `o.customer.id() == customers.id(c.id)` gives `(SELECT VALUE id FROM order WHERE customer = $parent.id).len()`. The other conjuncts stay a `.filter(..)` |
 | `vitals.rows().keep_if(\|v\| v.id.series() == x)` | The rows of the series `x` of a time series: a range scan of the keys, not of the table: `x.chain(\|$v1\| (SELECT VALUE id FROM vital:[$v1, NONE]..=[$v1, ..]))` |
 | `p.vaccines.any(\|v\| v.vet.id() == x)` | `x IN vaccines[*].vet`, which an index of `vaccines[*].vet` serves. A closure that reads more than fields of the element stays `any` |
 | `.filter(\|c\| orders.rows().any(\|o\| ..))` | A semi join, also in a live query |

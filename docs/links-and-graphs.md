@@ -383,7 +383,7 @@ SELECT VALUE label FROM kennel WHERE id.chain(|$v1| (SELECT VALUE id FROM vital:
 
 The block `kennels_fevered` of `examples/monitoring.roc` runs this. The key of a `vital` is a time series key. A `keep_if` that tests `v.id.series()` against a value that does not read `v` is a range scan of the keys of that series: `vital:[$v1, NONE]..=[$v1, ..]`. SurrealDB reads the keys of one kennel. `kennels.id(k.id)` of the row that the statement reads is its record id, `id`. A `filter` of the whole table (`(SELECT VALUE id FROM vital).filter(..)`) reads every row of `vital` for each kennel, so the range is much faster on a large series. Any other test goes into the `WHERE` of the subquery when it reads the row of the other table (see below).
 
-The function of `keep_if`, `count_if`, `any` or `find_first` over `rows()` is cut at `and`. Each conjunct that reads the row of the other table goes into the `WHERE` of the subquery, so an index can serve it. A value of the clause that it reads is bound around the subquery with `chain`, because the subquery reads its own row. The other conjuncts stay a `filter`. From `examples/monitoring.roc`, `site_kennels`:
+The function of `keep_if`, `count_if`, `any` or `find_first` over `rows()` is cut at `and`. Each conjunct that reads the row of the other table goes into the `WHERE` of the subquery, so an index can serve it. A value of the clause that it reads is `$parent.<path>` in the subquery when it is a plain field of the row of the statement, such as `id` or `address.city`, and it is the only value of the clause in that `WHERE`. In the other cases it is bound around the subquery with `chain`, because the subquery reads its own row: a wrapped value such as `record::id(id)`, two or more values, a value read inside a closure of the clause, and the columns of `group_by`, `totals` and a view, where SurrealDB refuses `$parent`. The other conjuncts stay a `filter`. From `examples/monitoring.roc`, `site_kennels`:
 
 ```roc
 # Fragment: uses `sites` and `kennels` from examples/monitoring.roc.
@@ -391,7 +391,7 @@ Surreal.from(sites).select(|s| { name: s.name, kennels: kennels.rows().count_if(
 ```
 
 ```surql
-SELECT VALUE { name: name, kennels: id.chain(|$v1_0| (SELECT VALUE id FROM kennel WHERE site = $v1_0)).len() } FROM site;
+SELECT VALUE { name: name, kennels: (SELECT VALUE id FROM kennel WHERE site = $parent.id).len() } FROM site;
 ```
 
 | Function | Subquery |
@@ -401,7 +401,7 @@ SELECT VALUE { name: name, kennels: id.chain(|$v1_0| (SELECT VALUE id FROM kenne
 | `any` | `(SELECT VALUE id FROM t WHERE .. LIMIT 1) != []` |
 | `find_first` | `(SELECT VALUE id FROM t WHERE .. ORDER BY id LIMIT 1)[0]`: the first row by key, as the Roc `find_first` over the rows in key order |
 
-Measured on SurrealDB 4.0.1 with 30 sites and 30000 kennels and an index on `site`, the count above: 5.7 s with `.filter(..)` and 0.82 to 0.88 s with the `WHERE` in `chain`. The same subquery with `$parent.id` in place of `chain` took 0.06 to 0.07 s. The package does not use `$parent.id`: on 3.3.5 it was `NONE` in an `UPDATE .. WHERE` and in a view (not re-tested on 4.0.1). With `visits.rows()` and `x.vet.get().id == v.id` the test is `record::id(vet) = $v1_0`, which no index serves.
+Measured on SurrealDB 4.0.1 with 30 sites and 30000 kennels and an index on `site`, the count above: 5.7 s with `.filter(..)`, 0.6 to 0.88 s with the `WHERE` in `chain`, and 0.04 to 0.07 s with `$parent.id`. An `UPDATE .. WHERE` with the subquery: 1.3 s with `chain` and 0.08 s with `$parent.id`. Both forms plan a `TableScan` of the subquery. The speed of `$parent` is measured on 4.0.1 only, and SurrealDB does not document it, so a later version can change it. On 3.3.5 `$parent` was `NONE` in an `UPDATE .. WHERE` and in a view; on 4.0.1 the tests of the package run both on the server (`tests/BuiltinsTest.roc`). With `visits.rows()` and `x.vet.get().id == v.id` the test is `record::id(vet) = $v1_0`, which no index serves, and the value stays in `chain`.
 
 A `rows()` with no test of the row reads the whole table for each row of the query. Prefer a link or an edge when the rows are linked. A live query that reads `rows()` sends a notice, on a write to the other table, for each row of the result that the written row is related to, such as the kennel of a reading. With no such relation, it sends one for each row of the result (see [Live queries](live-queries.md#only-the-rows-that-a-write-reaches)).
 
