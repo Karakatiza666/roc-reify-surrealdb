@@ -25,7 +25,7 @@ Rpc :: {}.{
 			Str.join_with([bytes.sublist({ start: 0, len: 4 }), bytes.sublist({ start: 4, len: 2 }), bytes.sublist({ start: 6, len: 2 }), bytes.sublist({ start: 8, len: 2 }), bytes.sublist({ start: 10, len: 6 })].map(hex), "-")
 		}
 
-		parser_for : Cbor -> (Cbor.State -> Try({ value : Uuid, rest : Cbor.State }, [InvalidCbor(U64)]))
+		parser_for : Cbor -> (Cbor.Reader -> Try({ value : Uuid, rest : Cbor.Reader }, [InvalidCbor(U64)]))
 		parser_for = |encoding| |state| {
 			tag = Cbor.parse_cbor_tag(encoding, state)?
 			bytes = Cbor.parse_bytes(encoding, tag.rest)?
@@ -36,11 +36,8 @@ Rpc :: {}.{
 			}
 		}
 
-		encoder_for : Cbor -> (Uuid, List(U8) -> Try(List(U8), []))
-		encoder_for = |_| |Uuid.(bytes), out| {
-			tagged = Cbor.encode_cbor_tag(37, out)?
-			Cbor.encode_item(Cbor.Bytes.(bytes), tagged)
-		}
+		encoder_for : Cbor -> (Uuid, Cbor.Writer -> Try(Cbor.Writer, err))
+		encoder_for = |_| |Uuid.(bytes), w| Cbor.encode_tagged(37, Cbor.Bytes.(bytes), w)
 	}
 
 	## `signin` as a system user of the server.
@@ -53,7 +50,7 @@ Rpc :: {}.{
 	access : U64, Str, { ns : Str, db : Str, access : Str }, List((Cbor.Value, Cbor.Value)) -> { id : U64, method : Str, params : List(Cbor.Value) }
 	access = |id, method, at, vars| {
 		head = [(Cbor.Value.Text("ns"), Cbor.Value.Text(at.ns)), (Cbor.Value.Text("db"), Cbor.Value.Text(at.db)), (Cbor.Value.Text("ac"), Cbor.Value.Text(at.access))]
-		{ id, method, params: [Cbor.Value.Map(head.concat(vars))] }
+		{ id, method, params: [Cbor.Value.Map(head.concat(vars).fold(Cbor.ValueMap.empty(), |m, (k, v)| m.insert(k, v)))] }
 	}
 
 	## `authenticate`: the session is the user of a token.

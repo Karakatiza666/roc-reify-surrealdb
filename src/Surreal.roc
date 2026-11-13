@@ -62,9 +62,9 @@ Surreal :: {}.{
 		encoder_for = |_format| |Id.(i), state| Encode.Format.encode_id(i.table, i.key, state)
 
 		## A record id from the server: tag 8 and `[table, key]`, with a text key.
-		parser_for : Cbor -> (Cbor.State -> Try({ value : Id(row), rest : Cbor.State }, [InvalidCbor(U64)]))
+		parser_for : Cbor -> (Cbor.Reader -> Try({ value : Id(row), rest : Cbor.Reader }, [InvalidCbor(U64)]))
 		parser_for = |encoding| |state| {
-			pair : { value : (Str, Str), rest : Cbor.State }
+			pair : { value : (Str, Str), rest : Cbor.Reader }
 			pair = tagged(encoding, state, 8)?
 			Ok({ value: Id.({ table: pair.value.0, key: pair.value.1 }), rest: pair.rest })
 		}
@@ -106,7 +106,7 @@ Surreal :: {}.{
 		}
 
 		## A link from the server: its record id. The row is not fetched.
-		parser_for : Cbor -> (Cbor.State -> Try({ value : Link(row), rest : Cbor.State }, [InvalidCbor(U64)]))
+		parser_for : Cbor -> (Cbor.Reader -> Try({ value : Link(row), rest : Cbor.Reader }, [InvalidCbor(U64)]))
 		parser_for = |encoding| |state| {
 			read = Id.parser_for(encoding)(state)?
 			Ok({ value: Link.({ id: read.value, fetched: NotFetched }), rest: read.rest })
@@ -210,9 +210,9 @@ Surreal :: {}.{
 
 		## A datetime from the server: tag 12 and `[seconds, nanoseconds]`
 		## since 1970. The nanoseconds are left out when they are 0.
-		parser_for : Cbor -> (Cbor.State -> Try({ value : Datetime, rest : Cbor.State }, [InvalidCbor(U64)]))
+		parser_for : Cbor -> (Cbor.Reader -> Try({ value : Datetime, rest : Cbor.Reader }, [InvalidCbor(U64)]))
 		parser_for = |encoding| |state| {
-			parts : { value : List(I64), rest : Cbor.State }
+			parts : { value : List(I64), rest : Cbor.Reader }
 			parts = tagged(encoding, state, 12)?
 			match datetime_of(parts.value) {
 				Ok(at) => Ok({ value: at, rest: parts.rest })
@@ -302,10 +302,10 @@ Surreal :: {}.{
 
 		## The array `[series, time]` from the server, as `record::id(id)`
 		## gives it.
-		parser_for : Cbor -> (Cbor.State -> Try({ value : TimeKey(s), rest : Cbor.State }, [InvalidCbor(U64), ..errs])) where [s.Cbor.Parseable([InvalidCbor(U64), ..errs])]
+		parser_for : Cbor -> (Cbor.Reader -> Try({ value : TimeKey(s), rest : Cbor.Reader }, [InvalidCbor(U64), ..errs])) where [s.Cbor.Parseable([InvalidCbor(U64), ..errs])]
 		parser_for = |encoding| |state| {
 			start = Cbor.parse_tuple_start(encoding, state, 2)?
-			first : { value : s, rest : Cbor.State }
+			first : { value : s, rest : Cbor.Reader }
 			first = Cbor.parse_item(encoding, start)?
 			second = Datetime.parser_for(encoding)(first.rest)?
 			Ok({ value: TimeKey.({ series: first.value, time: second.value }), rest: second.rest })
@@ -339,9 +339,9 @@ Surreal :: {}.{
 		encoder_for = |_format| |p, state| Encode.Format.encode_geometry(geojson(Geometry.Point(p)), state)
 
 		## A point from the server: tag 88 and `[lon, lat]`.
-		parser_for : Cbor -> (Cbor.State -> Try({ value : Point, rest : Cbor.State }, [InvalidCbor(U64)]))
+		parser_for : Cbor -> (Cbor.Reader -> Try({ value : Point, rest : Cbor.Reader }, [InvalidCbor(U64)]))
 		parser_for = |encoding| |state| {
-			pair : { value : (F64, F64), rest : Cbor.State }
+			pair : { value : (F64, F64), rest : Cbor.Reader }
 			pair = tagged(encoding, state, 88)?
 			Ok({ value: Point.({ lon: pair.value.0, lat: pair.value.1 }), rest: pair.rest })
 		}
@@ -358,9 +358,9 @@ Surreal :: {}.{
 		encoder_for = |_format| |l, state| Encode.Format.encode_geometry(geojson(Geometry.Line(l)), state)
 
 		## Tag 89 and the points, each a tag 88.
-		parser_for : Cbor -> (Cbor.State -> Try({ value : Line, rest : Cbor.State }, [InvalidCbor(U64)]))
+		parser_for : Cbor -> (Cbor.Reader -> Try({ value : Line, rest : Cbor.Reader }, [InvalidCbor(U64)]))
 		parser_for = |encoding| |state| {
-			points : { value : List(Point), rest : Cbor.State }
+			points : { value : List(Point), rest : Cbor.Reader }
 			points = tagged(encoding, state, 89)?
 			Ok({ value: Line.(points.value), rest: points.rest })
 		}
@@ -379,9 +379,9 @@ Surreal :: {}.{
 		encoder_for = |_format| |p, state| Encode.Format.encode_geometry(geojson(Geometry.Polygon(p)), state)
 
 		## Tag 90 and the rings, each a line (tag 89): the outer ring first.
-		parser_for : Cbor -> (Cbor.State -> Try({ value : Polygon, rest : Cbor.State }, [InvalidCbor(U64)]))
+		parser_for : Cbor -> (Cbor.Reader -> Try({ value : Polygon, rest : Cbor.Reader }, [InvalidCbor(U64)]))
 		parser_for = |encoding| |state| {
-			rings : { value : List(Line), rest : Cbor.State }
+			rings : { value : List(Line), rest : Cbor.Reader }
 			rings = tagged(encoding, state, 90)?
 			match rings.value {
 				[Line.(exterior), .. as holes] => Ok({ value: Polygon.({ exterior, holes: holes.map(|Line.(points)| points) }), rest: rings.rest })
@@ -401,9 +401,9 @@ Surreal :: {}.{
 		encoder_for = |_format| |m, state| Encode.Format.encode_geometry(geojson(Geometry.MultiPoint(m)), state)
 
 		## Tag 91 and the points.
-		parser_for : Cbor -> (Cbor.State -> Try({ value : MultiPoint, rest : Cbor.State }, [InvalidCbor(U64)]))
+		parser_for : Cbor -> (Cbor.Reader -> Try({ value : MultiPoint, rest : Cbor.Reader }, [InvalidCbor(U64)]))
 		parser_for = |encoding| |state| {
-			points : { value : List(Point), rest : Cbor.State }
+			points : { value : List(Point), rest : Cbor.Reader }
 			points = tagged(encoding, state, 91)?
 			Ok({ value: MultiPoint.(points.value), rest: points.rest })
 		}
@@ -420,9 +420,9 @@ Surreal :: {}.{
 		encoder_for = |_format| |m, state| Encode.Format.encode_geometry(geojson(Geometry.MultiLine(m)), state)
 
 		## Tag 92 and the lines.
-		parser_for : Cbor -> (Cbor.State -> Try({ value : MultiLine, rest : Cbor.State }, [InvalidCbor(U64)]))
+		parser_for : Cbor -> (Cbor.Reader -> Try({ value : MultiLine, rest : Cbor.Reader }, [InvalidCbor(U64)]))
 		parser_for = |encoding| |state| {
-			lines : { value : List(Line), rest : Cbor.State }
+			lines : { value : List(Line), rest : Cbor.Reader }
 			lines = tagged(encoding, state, 92)?
 			Ok({ value: MultiLine.(lines.value), rest: lines.rest })
 		}
@@ -439,9 +439,9 @@ Surreal :: {}.{
 		encoder_for = |_format| |m, state| Encode.Format.encode_geometry(geojson(Geometry.MultiPolygon(m)), state)
 
 		## Tag 93 and the polygons.
-		parser_for : Cbor -> (Cbor.State -> Try({ value : MultiPolygon, rest : Cbor.State }, [InvalidCbor(U64)]))
+		parser_for : Cbor -> (Cbor.Reader -> Try({ value : MultiPolygon, rest : Cbor.Reader }, [InvalidCbor(U64)]))
 		parser_for = |encoding| |state| {
-			polygons : { value : List(Polygon), rest : Cbor.State }
+			polygons : { value : List(Polygon), rest : Cbor.Reader }
 			polygons = tagged(encoding, state, 93)?
 			Ok({ value: MultiPolygon.(polygons.value), rest: polygons.rest })
 		}
@@ -458,9 +458,9 @@ Surreal :: {}.{
 		encoder_for = |_format| |c, state| Encode.Format.encode_geometry(geojson(Geometry.Collection(c)), state)
 
 		## Tag 94 and the geometries.
-		parser_for : Cbor -> (Cbor.State -> Try({ value : Collection, rest : Cbor.State }, [InvalidCbor(U64)]))
+		parser_for : Cbor -> (Cbor.Reader -> Try({ value : Collection, rest : Cbor.Reader }, [InvalidCbor(U64)]))
 		parser_for = |encoding| |state| {
-			items : { value : List(Geometry), rest : Cbor.State }
+			items : { value : List(Geometry), rest : Cbor.Reader }
 			items = tagged(encoding, state, 94)?
 			Ok({ value: Collection.(items.value), rest: items.rest })
 		}
@@ -476,7 +476,7 @@ Surreal :: {}.{
 		encoder_for = |_format| |g, state| Encode.Format.encode_geometry(geojson(g), state)
 
 		## The kind of the geometry is its tag: 88 to 94.
-		parser_for : Cbor -> (Cbor.State -> Try({ value : Geometry, rest : Cbor.State }, [InvalidCbor(U64)]))
+		parser_for : Cbor -> (Cbor.Reader -> Try({ value : Geometry, rest : Cbor.Reader }, [InvalidCbor(U64)]))
 		parser_for = |encoding| |state| match Cbor.peek(encoding, state)? {
 			Tag(88) => Point.parser_for(encoding)(state).map_ok(|r| { value: Geometry.Point(r.value), rest: r.rest })
 			Tag(89) => Line.parser_for(encoding)(state).map_ok(|r| { value: Geometry.Line(r.value), rest: r.rest })
@@ -504,9 +504,9 @@ Surreal :: {}.{
 		## A duration from the server: tag 14 and `[seconds, nanoseconds]`.
 		## The nanoseconds are left out when they are 0, and both when the
 		## duration is 0.
-		parser_for : Cbor -> (Cbor.State -> Try({ value : Duration, rest : Cbor.State }, [InvalidCbor(U64)]))
+		parser_for : Cbor -> (Cbor.Reader -> Try({ value : Duration, rest : Cbor.Reader }, [InvalidCbor(U64)]))
 		parser_for = |encoding| |state| {
-			parts : { value : List(U64), rest : Cbor.State }
+			parts : { value : List(U64), rest : Cbor.Reader }
 			parts = tagged(encoding, state, 14)?
 			nanos = match parts.value {
 				[] => Ok(0)
@@ -2872,9 +2872,9 @@ Surreal :: {}.{
 		## A record id from the server: tag 8 and `[table, key]`. The key
 		## is read as a value that the ORM writes (`value_of`), so a
 		## key of another kind, such as a duration, is an error.
-		parser_for : Cbor -> (Cbor.State -> Try({ value : Ref, rest : Cbor.State }, [InvalidCbor(U64)]))
+		parser_for : Cbor -> (Cbor.Reader -> Try({ value : Ref, rest : Cbor.Reader }, [InvalidCbor(U64)]))
 		parser_for = |encoding| |state| {
-			pair : { value : (Str, Cbor.Value), rest : Cbor.State }
+			pair : { value : (Str, Cbor.Value), rest : Cbor.Reader }
 			pair = tagged(encoding, state, 8)?
 			match value_of(pair.value.1) {
 				Ok(key) => Ok({ value: Ref.({ table: pair.value.0, key: key }), rest: pair.rest })
@@ -4188,7 +4188,7 @@ datetime_of = |parts| match parts {
 }
 
 ## The item after a CBOR tag, read as `a`. Another tag is an error at the tag.
-tagged : Cbor, Cbor.State, U64 -> Try({ value : a, rest : Cbor.State }, [InvalidCbor(U64), ..errs]) where [a.Cbor.Parseable([InvalidCbor(U64), ..errs])]
+tagged : Cbor, Cbor.Reader, U64 -> Try({ value : a, rest : Cbor.Reader }, [InvalidCbor(U64), ..errs]) where [a.Cbor.Parseable([InvalidCbor(U64), ..errs])]
 tagged = |encoding, state, number| {
 	tag = Cbor.parse_cbor_tag(encoding, state)?
 	if tag.value == number {
@@ -5534,9 +5534,11 @@ live_block = |header, roles, directives, request, writes| {
 ## before `null` is no value, a `Dec` reads the text of a tag 10
 ## (`'4E+1'` is 40), and a tag union reads the form that `Encode`
 ## writes: `'Cash'`, `{ kind: 'Card', last4: .. }`, `{ kind: 'Check',
-## value: 7 }`, `{ kind: 'Wire', value: ['eu', 9] }`.
+## value: 7 }`, `{ kind: 'Wire', value: ['eu', 9] }`. The other lenient
+## reads are the ones of roc-cbor 0.4 (`Cbor.sql_rows`): a `null` is no
+## value too, as `undefined` is.
 read_options : Cbor.Options
-read_options = { ignore_tags: [6, 10], dec_from_text: Bool.True, unions: Internal({ tag: "kind", content: "value" }) }
+read_options = { ignore_tags: [6, 10], allow: [DecFromText, BoolFromInt, FloatToInt, NullAsAbsent, UndefinedAsNull, BytesFromArray], unions: Internal({ tag: "kind", content: "value" }) }
 
 ## A value of the type `a` from CBOR bytes of the server.
 read_cbor : List(U8) -> Try(a, Error) where [a.Cbor.Readable(errs)]
@@ -5580,7 +5582,7 @@ path_of = |bytes, pos| match Cbor.path_at(bytes, pos) {
 value_of : Cbor.Value -> Try(Ql.Value, [NoValue(Str)])
 value_of = |value| match value {
 	Int(n) =>
-		match n.to_i64_try() {
+		match n.to_i128().to_i64_try() {
 			Ok(i) => Ok(Ql.Value.Int(i))
 			Err(_) => Err(NoValue("an integer outside I64"))
 		}
@@ -5597,7 +5599,7 @@ value_of = |value| match value {
 	Tag(12, Array(parts)) => {
 		numbers = parts.map_try(
 			|part| match part {
-				Int(n) => n.to_i64_try().map_err(|_| NoValue("a datetime outside I64 seconds"))
+				Int(n) => n.to_i128().to_i64_try().map_err(|_| NoValue("a datetime outside I64 seconds"))
 				_ => Err(NoValue("a datetime that is not numbers"))
 			},
 		)?
@@ -5610,7 +5612,7 @@ value_of = |value| match value {
 	Map(entries) =>
 		Ok(
 			Ql.Value.Object(
-				entries.map_try(
+				entries.to_list().map_try(
 					|(name, item)| match name {
 						Text(text) => Ok({ name: text, value: value_of(item)? })
 						_ => Err(NoValue("a map key that is not text"))
@@ -5620,7 +5622,7 @@ value_of = |value| match value {
 		)
 	Tag(number, _) => Err(NoValue("a value of the tag ${number.to_str()}"))
 	Bytes(_) => Err(NoValue("bytes"))
-	Simple(n) => Err(NoValue("the simple value ${n.to_str()}"))
+	Simple(n) => Err(NoValue("the simple value ${Str.inspect(n)}"))
 }
 
 ## The results of the statements of a `query` reply, which must be
@@ -5720,7 +5722,7 @@ server_error = |e, indexes| match (e.kind, detail_kind(e.details)) {
 ## The `kind` of an error's `details`: `Record`, `TimedOut`, ..
 detail_kind : Try(Cbor.Value, [Missing]) -> Try(Str, [Missing])
 detail_kind = |details| match details {
-	Ok(Map(entries)) => text_at(entries, "kind")
+	Ok(Map(entries)) => text_at(entries.to_list(), "kind")
 	_ => Err(Missing)
 }
 
@@ -5729,8 +5731,8 @@ detail_kind = |details| match details {
 detail_name : Try(Cbor.Value, [Missing]) -> Str
 detail_name = |details| match details {
 	Ok(Map(entries)) =>
-		match entries.find_first(|(key, _)| key == Text("details")) {
-			Ok((_, Map(inner))) => text_at(inner, "id").on_err(|_| text_at(inner, "name")) ?? ""
+		match entries.to_list().find_first(|(key, _)| key == Text("details")) {
+			Ok((_, Map(inner))) => text_at(inner.to_list(), "id").on_err(|_| text_at(inner.to_list(), "name")) ?? ""
 			_ => ""
 		}
 	_ => ""
@@ -5838,7 +5840,7 @@ cbor_entries = |record| {
 	value : Try(Cbor.Value, _)
 	value = Cbor.parse(Cbor.encode(record))
 	match value {
-		Ok(Map(entries)) => entries
+		Ok(Map(entries)) => entries.to_list()
 		_ => crash "the derived encoder writes a record as a CBOR map"
 	}
 }
@@ -6029,7 +6031,7 @@ value_at = |value, path| match (path, value) {
 	([], Null) => Err(Absent)
 	([], _) => Ok(value)
 	([key, .. as deeper], Map(entries)) =>
-		match entries.find_first(|(k, _)| k == Cbor.Value.Text(key)) {
+		match entries.to_list().find_first(|(k, _)| k == Cbor.Value.Text(key)) {
 			Ok((_, child)) => value_at(child, deeper)
 			Err(_) => Err(Absent)
 		}
@@ -6040,8 +6042,8 @@ value_at = |value, path| match (path, value) {
 keyed : Cbor.Value -> Cbor.Value
 keyed = |stored| match stored {
 	Map(entries) =>
-		Cbor.Value.Map(
-			entries.map(
+		Diff.vmap(
+			entries.to_list().map(
 				|(k, v)| match (k, v) {
 					(Text("id"), Tag(8, Array([_, key]))) => (k, key)
 					_ => (k, v)
@@ -6056,8 +6058,8 @@ keyed = |stored| match stored {
 stored_row : Cbor.Value, Bool -> Cbor.Value
 stored_row = |stored, edge| match (keyed(stored), edge) {
 	(Map(entries), Bool.True) =>
-		Cbor.Value.Map(
-			entries.map(
+		Diff.vmap(
+			entries.to_list().map(
 				|(k, v)| match k {
 					Text("in") => (Cbor.Value.Text("from"), v)
 					Text("out") => (Cbor.Value.Text("to"), v)
@@ -6077,12 +6079,12 @@ read_created = |t| |results|
 		|one| match stored_row(one, is_edge(t.kind)) {
 			Map(entries) => {
 				id = match one {
-					Map(stored) => stored.find_first(|(k, _)| k == Cbor.Value.Text("id")).map_ok(|(_, v)| v)
+					Map(stored) => stored.to_list().find_first(|(k, _)| k == Cbor.Value.Text("id")).map_ok(|(_, v)| v)
 					_ => Err(NotFound)
 				}
 				match id {
 					Ok(Tag(8, Array([Text(table), Text(key)]))) if table == t.name => {
-						fields = row_of(Cbor.Value.Map(entries.keep_if(|(k, _)| k != Cbor.Value.Text("id"))))?
+						fields = row_of(Diff.vmap(entries.to_list().keep_if(|(k, _)| k != Cbor.Value.Text("id"))))?
 						Ok({ id: Id.({ table, key }), fields })
 					}
 					_ => Err(Wire("a row that a write of `${t.name}` made has no text key of `${t.name}`"))

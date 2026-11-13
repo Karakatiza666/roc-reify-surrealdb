@@ -1,9 +1,10 @@
 app [] {
-	cbor: "https://github.com/Karakatiza666/roc-cbor/releases/download/0.4.0/EnfRKFT7uPHmd3zT5PcwAiBWUtGmBXapJqFK5166U33J.tar.zst",
+	cbor: "https://github.com/Karakatiza666/roc-cbor/releases/download/0.5.0/B5U2mPsWTtuxfCRMzqQxio2ecDv7CAzCoyEMENMh4FNF.tar.zst",
 	internal: "../src/internal.roc",
 }
 
 import internal.Rpc
+import internal.Diff
 import cbor.Cbor
 
 # Tests of the RPC requests of a session and of the uuids of live queries,
@@ -26,7 +27,7 @@ expect
 		== {
 			id: 1,
 			method: "signin",
-			params: [Cbor.Value.Map([(Text("ns"), Text("roc")), (Text("db"), Text("roc_surreal")), (Text("ac"), Text("account")), (Text("email"), Text("ann@roc"))])],
+			params: [Diff.vmap([(Text("ns"), Text("roc")), (Text("db"), Text("roc_surreal")), (Text("ac"), Text("account")), (Text("email"), Text("ann@roc"))])],
 		}
 expect Rpc.Uuid.from_bytes(uuid).map_ok(|u| u.to_str()) == Ok("01234567-89ab-cdef-0123-456789abcdef")
 expect Rpc.Uuid.from_bytes([1]) == Err(BadUuid)

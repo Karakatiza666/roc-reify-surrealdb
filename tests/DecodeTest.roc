@@ -1,10 +1,11 @@
 app [] {
-	cbor: "https://github.com/Karakatiza666/roc-cbor/releases/download/0.4.0/EnfRKFT7uPHmd3zT5PcwAiBWUtGmBXapJqFK5166U33J.tar.zst",
+	cbor: "https://github.com/Karakatiza666/roc-cbor/releases/download/0.5.0/B5U2mPsWTtuxfCRMzqQxio2ecDv7CAzCoyEMENMh4FNF.tar.zst",
 	internal: "../src/internal.roc",
 }
 
 import internal.Ql
 import internal.Surreal
+import internal.Diff
 import cbor.Cbor
 import "fixtures/fevered/00.cbor" as fevered_reply : List(U8)
 import "fixtures/fevered/01.cbor" as fevered_1 : List(U8)
@@ -354,8 +355,8 @@ read = |value| Surreal.Unchecked.decode(Cbor.encode(value))
 tag : U64, List(Cbor.Value) -> Cbor.Value
 tag = |number, items| Cbor.Value.Tag(number, Cbor.Value.Array(items))
 
-int : I128 -> Cbor.Value
-int = |n| Cbor.Value.Int(n)
+int : I64 -> Cbor.Value
+int = |n| Cbor.Value.Int(Cbor.IntValue.from_i64(n))
 
 # A datetime: `[seconds, nanoseconds]`, the nanoseconds left out when 0, before 1970 too.
 expect read(tag(12, [int(1772375400)])) == Ok(moment("2026-03-01T14:30:00Z"))
@@ -375,7 +376,7 @@ expect read(tag(14, [int(0), int(1)])) == Ok(Surreal.Time.nanos(1))
 expect read(Cbor.Value.Tag(10, Cbor.Value.Text("4E+1"))) == Ok(40.0.Dec)
 expect {
 	row : Try({ n : I64, gone ?: Str }, Surreal.Error)
-	row = read(Cbor.Value.Map([(Cbor.Value.Text("n"), int(1)), (Cbor.Value.Text("gone"), Cbor.Value.Tag(6, Cbor.Value.Null))]))
+	row = read(Diff.vmap([(Cbor.Value.Text("n"), int(1)), (Cbor.Value.Text("gone"), Cbor.Value.Tag(6, Cbor.Value.Null))]))
 	row.map_ok(|r| r.?gone) == Ok(Err(MissingField))
 }
 

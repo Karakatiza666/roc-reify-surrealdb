@@ -1,5 +1,5 @@
 app [] {
-	cbor: "https://github.com/Karakatiza666/roc-cbor/releases/download/0.4.0/EnfRKFT7uPHmd3zT5PcwAiBWUtGmBXapJqFK5166U33J.tar.zst",
+	cbor: "https://github.com/Karakatiza666/roc-cbor/releases/download/0.5.0/B5U2mPsWTtuxfCRMzqQxio2ecDv7CAzCoyEMENMh4FNF.tar.zst",
 	internal: "../src/internal.roc",
 }
 
@@ -82,15 +82,15 @@ expect Diff.pointer("temp") == Err(BadPointer("temp"))
 text : Str -> Cbor.Value
 text = |t| Cbor.Value.Text(t)
 
-int : I128 -> Cbor.Value
-int = |n| Cbor.Value.Int(n)
+int : I64 -> Cbor.Value
+int = |n| Cbor.Value.Int(Cbor.IntValue.from_i64(n))
 
 ## `{ s: 'naive cafe x the end', meta: { y: { z: 1 } }, arr: [{ a: 1 }, 2], tags: ['a', 'b'] }`
 row : Cbor.Value
-row = Cbor.Value.Map([
+row = Diff.vmap([
 	(text("s"), text(base)),
-	(text("meta"), Cbor.Value.Map([(text("y"), Cbor.Value.Map([(text("z"), int(1))]))])),
-	(text("arr"), Cbor.Value.Array([Cbor.Value.Map([(text("a"), int(1))]), int(2)])),
+	(text("meta"), Diff.vmap([(text("y"), Diff.vmap([(text("z"), int(1))]))])),
+	(text("arr"), Cbor.Value.Array([Diff.vmap([(text("a"), int(1))]), int(2)])),
 	(text("tags"), Cbor.Value.Array([text("a"), text("b")])),
 ])
 
@@ -113,7 +113,7 @@ ops_on = |start, raw| {
 at : Cbor.Value, List(Str) -> Cbor.Value
 at = |value, path| match (path, value) {
 	([], _) => value
-	([key, .. as rest], Map(entries)) => at(entries.find_first(|(k, _)| k == text(key)).map_ok(|(_, v)| v) ?? Cbor.Value.Undefined, rest)
+	([key, .. as rest], Map(entries)) => at(entries.get(text(key)) ?? Cbor.Value.Undefined, rest)
 	([key, .. as rest], Array(items)) => at(items.get(U64.from_str(key) ?? 99) ?? Cbor.Value.Undefined, rest)
 	_ => Cbor.Value.Undefined
 }
@@ -239,11 +239,11 @@ notice = |action, key, ops| {
 			Ok(v) => [(text("value"), v)]
 			Err(_) => []
 		}
-		Cbor.Value.Map(List.concat([(text("op"), text(o.op)), (text("path"), text(o.path))], given))
+		Diff.vmap(List.concat([(text("op"), text(o.op)), (text("path"), text(o.path))], given))
 	}
 	uuid = Cbor.Value.Tag(37, Cbor.Value.Bytes([0x56, 0x24, 0x0b, 0xb5, 0xb2, 0x49, 0x42, 0xf8, 0x9a, 0x71, 0xab, 0xdf, 0xad, 0x08, 0x95, 0xaf]))
 	record = Cbor.Value.Tag(8, Cbor.Value.Array([text("kennel"), text(key)]))
-	Cbor.encode(Cbor.Value.Map([(text("result"), Cbor.Value.Map([(text("action"), text(action)), (text("id"), uuid), (text("record"), record), (text("result"), Cbor.Value.Array(ops.map(op_map)))]))]))
+	Cbor.encode(Diff.vmap([(text("result"), Diff.vmap([(text("action"), text(action)), (text("id"), uuid), (text("record"), record), (text("result"), Cbor.Value.Array(ops.map(op_map)))]))]))
 }
 
 kennel_patch : Str, Str, List({ op : Str, path : Str, value : Try(Cbor.Value, [Missing]) }) -> Surreal.Patch(Kennel)
@@ -259,7 +259,7 @@ reopened : Surreal.Patch(Kennel)
 reopened = kennel_patch("UPDATE", "q", [{ op: "add", path: "/site", value: Ok(Cbor.Value.Text("oslo")) }, { op: "remove", path: "/note", value: Err(Missing) }])
 
 created : Surreal.Patch(Kennel)
-created = kennel_patch("CREATE", "q", [{ op: "replace", path: "", value: Ok(Cbor.Value.Map([(Cbor.Value.Text("label"), Cbor.Value.Text("Quay"))])) }])
+created = kennel_patch("CREATE", "q", [{ op: "replace", path: "", value: Ok(Diff.vmap([(Cbor.Value.Text("label"), Cbor.Value.Text("Quay"))])) }])
 
 deleted : Surreal.Patch(Kennel)
 deleted = kennel_patch("DELETE", "q", [{ op: "replace", path: "", value: Err(Missing) }])

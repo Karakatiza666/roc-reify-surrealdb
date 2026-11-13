@@ -85,17 +85,17 @@ Diff :: {}.{
 		([], Drop) => Err(BadPath(path))
 		([key], Insert(_)) | ([key], Put(_)) | ([key], Drop) =>
 			match value {
-				Map(entries) => Ok(Cbor.Value.Map(Diff.set_key(entries, key, what)))
+				Map(entries) => Ok(Diff.vmap(Diff.set_key(entries.to_list(), key, what)))
 				Array(items) => Diff.at_index(items, key, path, what).map_ok(|done| Cbor.Value.Array(done))
 				_ => Err(BadPath(path))
 			}
 		([key, .. as deeper], _) =>
 			match value {
 				Map(entries) =>
-					match entries.find_first(|(k, _)| k == Cbor.Value.Text(key)) {
+					match entries.to_list().find_first(|(k, _)| k == Cbor.Value.Text(key)) {
 						Ok((_, child)) => {
 							changed = Diff.edit(child, deeper, path, what)?
-							Ok(Cbor.Value.Map(Diff.set_key(entries, key, Put(changed))))
+							Ok(Diff.vmap(Diff.set_key(entries.to_list(), key, Put(changed))))
 						}
 						Err(_) => Err(BadPath(path))
 					}
@@ -114,6 +114,11 @@ Diff :: {}.{
 				_ => Err(BadPath(path))
 			}
 	}
+
+	## A CBOR map of the pairs, in their order. A later key replaces an
+	## earlier one.
+	vmap : List((Cbor.Value, Cbor.Value)) -> Cbor.Value
+	vmap = |pairs| Cbor.Value.Map(pairs.fold(Cbor.ValueMap.empty(), |m, (k, v)| m.insert(k, v)))
 
 	## The entries of a map with `key` set (`Insert`, `Put`) or removed
 	## (`Drop`). A new key goes at the end.
