@@ -1961,13 +1961,14 @@ Surreal :: {}.{
 		)
 
 		## The login of a new record user (`Session.open!`): `signup` with
-		## the variables of the record.
-		sign_up : Access(up, on), { ns : Str, db : Str }, up -> Login where [up.Cbor.Writable]
-		sign_up = |Access.(a), at, vars| SignUp({ access: a.name, ns: at.ns, db: at.db, vars: cbor_entries(vars) })
+		## the variables of the record, each written as a parameter of a
+		## query is (`Ql.cbor`): a `Dec` is a decimal, an `Id` a record id.
+		sign_up : Access(up, on), { ns : Str, db : Str }, up -> Login where [up.encoder_for : Encode.Format -> (up, Encode.State -> Try(Encode.State, []))]
+		sign_up = |Access.(a), at, vars| SignUp({ access: a.name, ns: at.ns, db: at.db, vars: access_vars(vars) })
 
 		## The login of a record user: `signin` with the variables of the record.
-		sign_in : Access(up, on), { ns : Str, db : Str }, on -> Login where [on.Cbor.Writable]
-		sign_in = |Access.(a), at, vars| SignIn({ access: a.name, ns: at.ns, db: at.db, vars: cbor_entries(vars) })
+		sign_in : Access(up, on), { ns : Str, db : Str }, on -> Login where [on.encoder_for : Encode.Format -> (on, Encode.State -> Try(Encode.State, []))]
+		sign_in = |Access.(a), at, vars| SignIn({ access: a.name, ns: at.ns, db: at.db, vars: access_vars(vars) })
 	}
 
 	## An access method of this name. The annotation on the binding fixes
@@ -3559,7 +3560,7 @@ Surreal :: {}.{
 	## namespace and database, and the variables of its `SIGNUP` or
 	## `SIGNIN` query, a CBOR map that `Access.sign_up` and
 	## `Access.sign_in` write from a typed record.
-	RecordLogin : { access : Str, ns : Str, db : Str, vars : List((Cbor.Value, Cbor.Value)) }
+	RecordLogin : { access : Str, ns : Str, db : Str, vars : Try(List((Cbor.Value, Cbor.Value)), Error) }
 
 	## Who the requests of a session are from (`HttpRpc.Auth`). A WebSocket
 	## session signs in once, on its connection, and the server keeps it;
@@ -6317,16 +6318,12 @@ kill_each! = |session, lives| match lives {
 	}
 }
 
-## The entries of the CBOR map of a record.
-cbor_entries : a -> List((Cbor.Value, Cbor.Value)) where [a.Cbor.Writable]
-cbor_entries = |record| {
-	value : Try(Cbor.Value, _)
-	value = Cbor.parse(Cbor.encode(record))
-	match value {
-		Ok(Map(entries)) => entries.to_list()
-		_ => crash "the derived encoder writes a record as a CBOR map"
-	}
-}
+## The variables of a signup or a signin: one entry for each field of
+## the record, its value as `Ql.cbor` prints it, so a variable has the
+## same form as a parameter of a query. The names that a parameter may
+## not have are refused.
+access_vars : a -> Try(List((Cbor.Value, Cbor.Value)), Error) where [a.encoder_for : Encode.Format -> (a, Encode.State -> Try(Encode.State, []))]
+access_vars = |record| lets_of(record)?.map_try(|f| Ok((Cbor.Value.Text(f.name), Ql.cbor(f.value)?)))
 
 ## Sends a request whose id is the next id, reads its reply, and
 ## checks that it is not an error.
@@ -6352,7 +6349,8 @@ record_login! : Connection, Str, RecordLogin => Try(Session, Error)
 record_login! = |connection, method, r| {
 	scope = Scope({ ns: r.ns, db: r.db })
 	opened = Session.({ connection, next_id: 1, inbox: Inbox.empty({}), known: [], auth: { who: Anonymous, scope } })
-	got = answer!(opened, Cbor.encode(Rpc.access(1, method, { ns: r.ns, db: r.db, access: r.access }, r.vars))).map_err(login_error)?
+	vars = r.vars?
+	got = answer!(opened, Cbor.encode(Rpc.access(1, method, { ns: r.ns, db: r.db, access: r.access }, vars))).map_err(login_error)?
 	Session.(signed) = got.session
 	match got.result {
 		Text(token) => Ok(Session.({ ..signed, auth: { who: Bearer(token), scope } }))

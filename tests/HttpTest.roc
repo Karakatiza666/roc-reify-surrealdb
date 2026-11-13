@@ -69,13 +69,28 @@ expect HttpRpc.post(url, { who: Anonymous, scope: Scope({ ns: "roc", db: "roc_su
 expect HttpRpc.post(url, { who: Anonymous, scope: FromToken }, message).headers == cbor_headers
 
 # The login of a record user holds the variables of its access method,
-# written by the derived encoder: one map entry for each field.
+# each written as a parameter of a query is: one map entry for each field.
 accounts : Surreal.Access({ email : Str, pass : Str }, { email : Str, pass : Str })
 accounts = Surreal.access("account")
 
 expect
 	accounts.sign_in({ ns: "roc", db: "roc_surreal" }, { email: "ann@roc", pass: "secret" })
-		== SignIn({ access: "account", ns: "roc", db: "roc_surreal", vars: [(Text("email"), Text("ann@roc")), (Text("pass"), Text("secret"))] })
+		== SignIn({ access: "account", ns: "roc", db: "roc_surreal", vars: Ok([(Text("email"), Text("ann@roc")), (Text("pass"), Text("secret"))]) })
+
+# A `Dec` is a decimal (tag 10 and its text), and an `Id` a record id (tag
+# 8), as in a query. The derived encoder of roc-cbor wrote a `Dec` as tag
+# 4, which SurrealDB refuses ("unknown CBOR tag").
+wallets : Surreal.Access({ email : Str, credit : Dec, site : Surreal.Id(Site) }, { email : Str })
+wallets = Surreal.access("wallet")
+
+expect
+	wallets.sign_up({ ns: "roc", db: "roc_surreal" }, { email: "ann@roc", credit: 2.5, site: sites.id("oslo") })
+		== SignUp({ access: "wallet", ns: "roc", db: "roc_surreal", vars: Ok([(Text("credit"), Tag(10, Text("2.5"))), (Text("email"), Text("ann@roc")), (Text("site"), Tag(8, Array([Text("site"), Text("oslo")])))]) })
+# A name that SurrealDB protects is refused before the login is sent.
+guarded : Surreal.Access({ auth : Str }, { auth : Str })
+guarded = Surreal.access("guarded")
+
+expect guarded.sign_in({ ns: "roc", db: "roc_surreal" }, { auth: "x" }) == SignIn({ access: "guarded", ns: "roc", db: "roc_surreal", vars: Err(Unsupported("`$auth` is a protected variable in SurrealDB; name the parameter otherwise")) })
 
 # ------------------------------------------------------------ the response
 

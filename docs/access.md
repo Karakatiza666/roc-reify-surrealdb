@@ -64,7 +64,7 @@ The server runs the signup and the signin as a system user. The permissions of t
 
 ## Sign up and sign in
 
-`accounts.sign_up(scope, vars)` and `accounts.sign_in(scope, vars)` make a `Surreal.Login`. `scope` is the record `{ ns, db }`. `vars` is a record of the type `up` or `on`. The record needs the `Cbor.Writable` encoder, which every record of plain types has. Give the login to `Session.open!` (see [Log in](sessions.md#log-in)).
+`accounts.sign_up(scope, vars)` and `accounts.sign_in(scope, vars)` make a `Surreal.Login`. `scope` is the record `{ ns, db }`. `vars` is a record of the type `up` or `on`. Each field is written as a parameter of a query is, so a field may be a `Dec`, an `Id`, a `Datetime` or any other type that a row may hold. The names that a parameter may not have are refused. Give the login to `Session.open!` (see [Log in](sessions.md#log-in)).
 
 ```roc
 # Fragment: uses `accounts`, `scope`, `transport` from examples/client.roc.
