@@ -81,6 +81,22 @@ expect plan_to(v2).statements(DropData) == [["DEFINE FIELD OVERWRITE size ON bin
 expect plan_to(v3).statements(DropData).first() == Ok(["DEFINE FIELD OVERWRITE code ON bin TYPE int DEFAULT 0 MIGRATE EXISTING ROWS AS m_${seed}_bin_code USING <int> $value FALLBACK 0", "DEFINE FIELD OVERWRITE size ON bin TYPE int DEFAULT 1 MIGRATE EXISTING ROWS AS m_${seed}_bin_size USING 1"])
 expect plan_to(v3).warnings().contains(TypeChanged({ table: "bin", path: "code", from: "string", to: "int" }))
 
+# A schema of 0.0.3 has `int` with a range for a narrow Roc integer. The
+# sized type takes only the values in its range, so the plan casts the
+# rows. A type that holds each value of the old one needs no cast.
+Gauge : { id : Str, level : U8, peak : U16 }
+
+gauges : Surreal.Table(Gauge)
+gauges = Surreal.table("gauge")
+
+old_gauge : Str
+old_gauge = "DEFINE TABLE OVERWRITE gauge SCHEMAFULL;\nDEFINE FIELD OVERWRITE level ON gauge TYPE int ASSERT $value >= 0 AND $value <= 255;\nDEFINE FIELD OVERWRITE peak ON gauge TYPE u8;"
+
+gauge_seed : Str
+gauge_seed = Str.from_utf8(Crypto.SHA256.hash(old_gauge.to_utf8()).to_hex().to_utf8().take_first(8)) ?? ""
+
+expect Surreal.plan(old_gauge, [gauges.define().done()]).map_ok(|p| p.statements(DropData)) == Ok([["DEFINE FIELD OVERWRITE level ON gauge TYPE u8 MIGRATE EXISTING ROWS AS m_${gauge_seed}_gauge_level USING <u8> $value FALLBACK NONE", "DEFINE FIELD OVERWRITE peak ON gauge TYPE u16"]])
+
 # A view over a migrated table: removed in section 1, defined in section 2.
 expect
 	match Surreal.plan(Surreal.schema(v1.append(count_def)) ?? "", v2.append(count_def)) {

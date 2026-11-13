@@ -712,15 +712,35 @@ Schema :: {}.{
 	}
 
 	## Whether a field of type `new` takes every value of type `old`: the
-	## same members and more, `option` kept or added, `any`, or `number`
-	## for `int`, `float` and `decimal`.
+	## same members and more, `option` kept or added, `any`, `number` for
+	## each number type, or a sized number type that holds each value of
+	## a smaller one (`u8` in `i16`, `u32` in `int`, `f32` in `float`).
 	widens : Str, Str -> Bool
 	widens = |old, new| {
 		a = Schema.unwrapped(old)
 		b = Schema.unwrapped(new)
 		wide = Schema.members(b.inner)
-		taken = |m| wide.contains(m) or (wide.contains("number") and ["int", "float", "decimal"].contains(m))
+		taken = |m| wide.contains(m) or (wide.contains("number") and Schema.number_types.contains(m)) or Schema.wider_numbers(m).any(|w| wide.contains(w))
 		old == new or b.inner == "any" or ((b.optional or !a.optional) and Schema.members(a.inner).all(taken))
+	}
+
+	## The number types of SurrealDB 4.
+	number_types : List(Str)
+	number_types = ["int", "float", "decimal", "i8", "u8", "i16", "u16", "i32", "u32", "u64", "f16", "f32"]
+
+	## The number types that hold each value of a sized one, with no loss
+	## (verified on SurrealDB 4.0.1: a field of such a type takes the value).
+	wider_numbers : Str -> List(Str)
+	wider_numbers = |ty| match ty {
+		"i8" => ["i16", "i32", "int"]
+		"u8" => ["i16", "u16", "i32", "u32", "u64", "int"]
+		"i16" => ["i32", "int"]
+		"u16" => ["i32", "u32", "u64", "int"]
+		"i32" => ["int"]
+		"u32" => ["u64", "int"]
+		"f16" => ["f32", "float"]
+		"f32" => ["float"]
+		_ => []
 	}
 
 	## A statement of `script` by what it defines: `kind` is the word after

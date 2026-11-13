@@ -394,6 +394,8 @@ expect {
 	big == Ok(18446744073709551615)
 }
 expect read(Cbor.Value.Tag(188, Cbor.Value.Float(1.5))) == Ok(1.5.F32)
+# A `List(U8)` is an `array<u8>`: each item has its tag.
+expect read(Cbor.Value.Array([Cbor.Value.Tag(181, int(1)), Cbor.Value.Tag(181, int(255))])) == Ok([1.U8, 255])
 expect {
 	wide : Try(U8, Surreal.Error)
 	wide = read(Cbor.Value.Tag(183, int(300)))

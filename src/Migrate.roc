@@ -203,7 +203,7 @@ Migrate :: {}.{
 
 	## A type that a cast `<type>` converts to.
 	castable : Str -> Bool
-	castable = |ty| ["int", "float", "decimal", "number", "string", "bool", "datetime", "duration", "uuid"].contains(ty)
+	castable = |ty| ["int", "float", "decimal", "number", "string", "bool", "datetime", "duration", "uuid", "i8", "u8", "i16", "u16", "i32", "u32", "u64", "f16", "f32"].contains(ty)
 
 	## The snapshot after the plan: the statements of the schema. With
 	## `KeepData` the dropped tables and fields stay, so that a later plan

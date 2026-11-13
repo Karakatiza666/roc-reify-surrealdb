@@ -243,9 +243,16 @@ KennelRead : { id : Str, label : Str, site : Surreal.Linked(Site), cares_for : S
 kennel_reads : Surreal.Table(KennelRead)
 kennel_reads = Surreal.table("kennel")
 
+## A row of sized numbers and a date: the field types are `u8`, `u64` and
+## `date`, and CBOR v2 tags each value (181, 186, 100).
+Gauge : { id : Str, level : U8, peak : U64, day : Surreal.Date }
+
+gauges : Surreal.Table(Gauge)
+gauges = Surreal.table("gauge")
+
 ## The tables of `roc_watch`.
 read_definitions : List(Surreal.Defined)
-read_definitions = [sites.define().done(), kennels.define().done(), carers.define().done(), cares_for.define().done(), badges.define().done(), kennel_reads.define_read()]
+read_definitions = [sites.define().done(), kennels.define().done(), carers.define().done(), cares_for.define().done(), badges.define().done(), kennel_reads.define_read(), gauges.define().done()]
 
 Label : { label : Str }
 
@@ -585,6 +592,80 @@ check_watch! = |session, name, watch, groups| {
 	Ok({ session: next, failures: $failures })
 }
 
+## The patches of each write to a gauge.
+gauge_patches : Try(Surreal.DiffWatch(Gauge), Surreal.Error)
+gauge_patches = Surreal.from(gauges).live_diff({})
+
+gauge_steps : List(Surreal.Edit(Gauge))
+gauge_steps = {
+	first = { id: "g", level: 5, peak: 18446744073709551615, day: Surreal.Date.from_days(20770) }
+	[Create(first), Replace(first, { ..first, level: 200, day: Surreal.Date.from_days(-1) })]
+}
+
+Kinds : { result : List({ result : List(List(Str)) }) }
+
+## Runs the gauge watch: each patch is written again to the same key in
+## the database `roc_watch_copy` (`patch_at`), where `gauge` has no schema.
+## Then the copy is the row, and each value has the type of its field
+## (`u8`, `u64`, `date`) only because the patch wrote that type.
+check_gauges! : Surreal.Session => Try({ session : Surreal.Session, failures : U64 }, Str)
+check_gauges! = |session| {
+	made = Surreal.Unchecked.query!(session, "REMOVE DATABASE IF EXISTS roc_watch_copy; DEFINE DATABASE roc_watch_copy;").map_err(Str.inspect)?
+	copy_opened = Surreal.Session.open!(transport, Root({ ns: "roc", db: "roc_watch_copy", user: "root", pass: "root" })).map_err(Str.inspect)?
+	copy_made = Surreal.Unchecked.query!(copy_opened, "DEFINE TABLE gauge SCHEMALESS; CREATE gauge:g;").map_err(Str.inspect)?
+	var $copy = copy_made.session
+	started = made.session.live!(gauge_patches.map_err(Str.inspect)?).map_err(Str.inspect)?
+	say!("gauge_patches:")?
+	var $session = started.session
+	var $live = started.live
+	var $failures = 0
+	for edit in gauge_steps {
+		wrote = $session.run!(gauges.edit(edit))
+		$session = wrote.session
+		_ = wrote.result.map_err(|e| "a write failed: ${Str.inspect(e)}")?
+		got_patch = $session.next_within!($live, change_limit_ms).map_err(Str.inspect)?
+		$session = got_patch.session
+		$live = got_patch.live
+		match got_patch.next {
+			Got(patch) => {
+				copied = $copy.run!(gauges.patch_at(gauges.id("g"), [patch]))
+				$copy = copied.session
+				rows = $session.run!(Surreal.from(gauges).ready())
+				$session = rows.session
+				line = "${Str.inspect(patch.action())} ${patch.ref().to_str()}"
+				match (copied.result, rows.result) {
+					(Ok(copy), Ok(stored)) if Str.inspect(copy) == Str.inspect(stored) => say!("ok   ${line}, copy ${Str.inspect(copy)}")?
+					_ => {
+						$failures = $failures + 1
+						say!("FAIL ${line}: the copy is ${Str.inspect(copied.result)}, the row ${Str.inspect(rows.result)}")?
+					}
+				}
+			}
+			TimedOut => return Err("no gauge patch in ${(change_limit_ms // 1000).to_str()} s for ${Str.inspect(edit)}")
+			Unread(e) => {
+				$failures = $failures + 1
+				say!("FAIL ${Str.inspect(e)}")?
+			}
+			Ended => {
+				$failures = $failures + 1
+				say!("FAIL the gauge watch ended")?
+			}
+		}
+	}
+	kinds = Surreal.Unchecked.query!($copy, "SELECT VALUE [type::of(level), type::of(peak), type::of(day)] FROM gauge").map_err(Str.inspect)?
+	types : Try(Kinds, Surreal.Error)
+	types = Surreal.Unchecked.decode(kinds.reply)
+	want = [["u8", "u64", "date"]]
+	if types.map_ok(|t| t.result.map(|r| r.result)) == Ok([want]) {
+		say!("ok   the copy has the types ${Str.inspect(want)}")?
+	} else {
+		$failures = $failures + 1
+		say!("FAIL the copy has the types ${Str.inspect(types)}")?
+	}
+	next = $session.kill!($live.lives()).map_err(Str.inspect)?
+	Ok({ session: next, failures: $failures })
+}
+
 ## Runs the patch watch: for each write, the write on the session, then
 ## its patch, applied to a view of the stored rows. The row of the view
 ## must be the row that Roc wrote. The next write starts after the patch
@@ -656,7 +737,8 @@ check_reads! = |session| {
 	second = check_watch!(first.session, "carer_names", carer_names, carer_names_steps)?
 	third = check_watch!(second.session, "badge_sites", badge_sites, badge_sites_steps)?
 	fourth = check_watch!(third.session, "badged_carers", badged_carers, badged_carers_steps)?
-	Ok(first.failures + second.failures + third.failures + fourth.failures)
+	fifth = check_gauges!(fourth.session)?
+	Ok(first.failures + second.failures + third.failures + fourth.failures + fifth.failures)
 }
 
 say! : Str => Try({}, Str)

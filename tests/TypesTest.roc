@@ -116,7 +116,7 @@ expect defs_of("customer") == [
 	"address object []",
 	"address.city string []",
 	"address.zip option<string> []",
-	"age int [$value >= 0 AND $value <= 255]",
+	"age u8 []",
 	"born datetime []",
 	"email string []",
 	"name string []",
@@ -128,7 +128,7 @@ expect defs_of("product") == [
 	"live bool []",
 	"price decimal []",
 	"ratio float []",
-	"stock int [$value >= -2147483648 AND $value <= 2147483647]",
+	"stock i32 []",
 	"title string []",
 ]
 
@@ -159,18 +159,18 @@ expect defs_of("crate") == [
 expect defs_of("kitchen") == [
 	"at datetime []",
 	"big bigdecimal []",
-	"bytes array<int> [$value.all(|$e1| $e1 >= 0 AND $e1 <= 255)]",
+	"bytes array<u8> []",
 	"clock time []",
 	"day date []",
 	"dec decimal []",
-	"deep array<array<int>> [$value.all(|$e1| $e1.all(|$e2| $e2 >= -128 AND $e2 <= 127))]",
-	"f32 float []",
+	"deep array<array<i8>> []",
+	"f32 f32 []",
 	"f64 float []",
 	"flag bool []",
-	"i16 int [$value >= -32768 AND $value <= 32767]",
-	"i32 int [$value >= -2147483648 AND $value <= 2147483647]",
+	"i16 i16 []",
+	"i32 i32 []",
 	"i64 int []",
-	"i8 int [$value >= -128 AND $value <= 127]",
+	"i8 i8 []",
 	"many array<record<product>> [$value.all(|$e1| record::exists($e1))]",
 	"maybe option<record<product>> [($value = NONE OR (record::exists($value)))]",
 	"names array<string> []",
@@ -181,16 +181,16 @@ expect defs_of("kitchen") == [
 	"pick { kind: \"Box\", w: int } | \"Pad\" | { kind: \"Pair\", value: [string, int] } []",
 	"plain \"Green\" | \"Red\" []",
 	"re regex []",
-	"rows array<{ n: int, s: string }> []",
-	"rows[*].n  [$value >= 0 AND $value <= 255]",
+	"rows array<{ n: u8, s: string }> []",
+	"rows[*].n  []",
 	"rows[*].s  []",
 	"span array<interval> []",
 	"stamp timestamp []",
 	"status \"Active\" | \"Closed\" []",
 	"text string []",
-	"u16 int [$value >= 0 AND $value <= 65535]",
-	"u32 int [$value >= 0 AND $value <= 4294967295]",
-	"u8 int [$value >= 0 AND $value <= 255]",
+	"u16 u16 []",
+	"u32 u32 []",
+	"u8 u8 []",
 	"who record<product> [record::exists($value)]",
 ]
 
@@ -502,7 +502,7 @@ series_defs = |name| match series_registry.find_first(|s| s.name == name) {
 
 # The key of a time series is `[series, time]`, and its `TYPE` comes first.
 # An `Id` series is not checked for existence: a key has no delete policy.
-expect series_defs("reading") == ["id [record<product>, datetime] []", "level int [$value >= 0 AND $value <= 255]"]
+expect series_defs("reading") == ["id [record<product>, datetime] []", "level u8 []"]
 expect series_defs("probe") == ["id [{ sensor: int, site: string }, datetime] []", "level int []"]
 expect series_defs("linked_reading") == ["table `linked_reading`: the series of `id` holds a `Link`; a key holds an `Id`, because a key has no delete policy"]
 expect series_defs("nested") == ["table `nested`: the series of `id` holds a `Link`; a key holds an `Id`, because a key has no delete policy"]

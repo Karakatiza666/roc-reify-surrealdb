@@ -132,14 +132,14 @@ expect script_of([customer_def, product_def, order_def, purchased_def]) == [
 	"DEFINE FIELD OVERWRITE address ON customer TYPE object;",
 	"DEFINE FIELD OVERWRITE address.city ON customer TYPE string;",
 	"DEFINE FIELD OVERWRITE address.zip ON customer TYPE option<string> ASSERT (IF $value IS NONE THEN true ELSE string::starts_with($value, '7') END);",
-	"DEFINE FIELD OVERWRITE age ON customer TYPE int ASSERT $value >= 0 AND $value <= 255;",
+	"DEFINE FIELD OVERWRITE age ON customer TYPE u8;",
 	"DEFINE FIELD OVERWRITE email ON customer TYPE string ASSERT string::contains($value, '@');",
 	"DEFINE FIELD OVERWRITE name ON customer TYPE string ASSERT $value != '';",
 	"DEFINE FIELD OVERWRITE referrer ON customer TYPE option<record<customer>> REFERENCE ON DELETE REJECT ASSERT ($value = NONE OR (record::exists($value)));",
 	"DEFINE FIELD OVERWRITE tags ON customer TYPE array<string> DEFAULT ['new'] ASSERT $value.all(|$item| $item != '');",
 	"DEFINE FIELD OVERWRITE label ON product TYPE string VALUE $this.title + '!';",
 	"DEFINE FIELD OVERWRITE price ON product TYPE decimal;",
-	"DEFINE FIELD OVERWRITE stock ON product TYPE int DEFAULT 0 ASSERT $value >= -2147483648 AND $value <= 2147483647;",
+	"DEFINE FIELD OVERWRITE stock ON product TYPE i32 DEFAULT 0;",
 	"DEFINE FIELD OVERWRITE title ON product TYPE string READONLY;",
 	"DEFINE FIELD OVERWRITE created ON order TYPE datetime VALUE time::now() READONLY;",
 	"DEFINE FIELD OVERWRITE customer ON order TYPE record<customer> REFERENCE ON DELETE CASCADE ASSERT record::exists($value);",
@@ -200,7 +200,6 @@ expect problem_of([packs.define().default_by(|p| p.id, |_| Surreal.Rand.ulid()).
 # One top-level field, read at any depth: that field's ASSERT, over `$value`.
 expect lines_with([customers.define().check("city", |c| c.address.city != "").done()], "ASSERT") == [
 	"DEFINE FIELD OVERWRITE address ON customer TYPE object ASSERT $value.city != '';",
-	"DEFINE FIELD OVERWRITE age ON customer TYPE int ASSERT $value >= 0 AND $value <= 255;",
 	"DEFINE FIELD OVERWRITE referrer ON customer TYPE option<record<customer>> REFERENCE ON DELETE REJECT ASSERT ($value = NONE OR (record::exists($value)));",
 ]
 
@@ -491,7 +490,7 @@ expect script_of([Surreal.function(|_| hot_fn), product_def, reading_def, daily.
 	"DEFINE TABLE OVERWRITE reading_daily TYPE NORMAL AS SELECT time::floor(record::id(id)[1], 1d) AS day, count(fn::hot(level)) AS hot, record::id(id)[0] AS product, count() AS readings FROM reading GROUP BY day, product;",
 	"DEFINE FIELD OVERWRITE label ON product TYPE string VALUE $this.title + '!';",
 	"DEFINE FIELD OVERWRITE price ON product TYPE decimal;",
-	"DEFINE FIELD OVERWRITE stock ON product TYPE int DEFAULT 0 ASSERT $value >= -2147483648 AND $value <= 2147483647;",
+	"DEFINE FIELD OVERWRITE stock ON product TYPE i32 DEFAULT 0;",
 	"DEFINE FIELD OVERWRITE title ON product TYPE string READONLY;",
 	"DEFINE FIELD OVERWRITE id ON reading TYPE [record<product>, datetime];",
 	"DEFINE FIELD OVERWRITE level ON reading TYPE int;",
@@ -726,7 +725,7 @@ expect script_of([packs.define().done()]) == [
 	"DEFINE FIELD OVERWRITE size ON pack TYPE object;",
 	"DEFINE FIELD OVERWRITE size.label ON pack TYPE string DEFAULT 'crate';",
 	"DEFINE FIELD OVERWRITE size.w ON pack TYPE int DEFAULT 1;",
-	"DEFINE FIELD OVERWRITE stock ON pack TYPE int DEFAULT 0 ASSERT $value >= -2147483648 AND $value <= 2147483647;",
+	"DEFINE FIELD OVERWRITE stock ON pack TYPE i32 DEFAULT 0;",
 	"DEFINE FIELD OVERWRITE tags ON pack TYPE array<string> DEFAULT ['new'];",
 ]
 
@@ -858,7 +857,7 @@ expect script_of(
 		"DEFINE ANALYZER OVERWRITE terms TOKENIZERS blank,class FILTERS lowercase,ascii,snowball(english),edgengram(2,5);",
 		"DEFINE TABLE OVERWRITE note SCHEMAFULL;",
 		"DEFINE FIELD OVERWRITE body ON note TYPE string;",
-		"DEFINE FIELD OVERWRITE embedding ON note TYPE array<float>;",
+		"DEFINE FIELD OVERWRITE embedding ON note TYPE array<f32>;",
 		"DEFINE FIELD OVERWRITE exact ON note TYPE array<float>;",
 		"DEFINE FIELD OVERWRITE tags ON note TYPE array<string>;",
 		"DEFINE FIELD OVERWRITE title ON note TYPE object;",
@@ -910,6 +909,13 @@ expect Schema.widens("int", "number")
 expect !Schema.widens("option<int>", "int")
 expect !Schema.widens("string", "int")
 expect !Schema.widens("{ a: int | string }", "{ a: int }")
+# A sized number type widens to a type that holds each of its values
+# (verified on 4.0.1), and to `number`. A narrower type, or a float for an
+# integer, is a change of type.
+expect Schema.widens("u8", "i16") and Schema.widens("u8", "u64") and Schema.widens("u32", "int") and Schema.widens("i32", "int")
+expect Schema.widens("option<u16>", "option<i32>") and Schema.widens("f32", "float") and Schema.widens("u64", "number")
+expect !Schema.widens("int", "u8") and !Schema.widens("i8", "u8") and !Schema.widens("u64", "int") and !Schema.widens("i16", "u16")
+expect !Schema.widens("float", "f32") and !Schema.widens("u8", "float") and !Schema.widens("u16", "i16")
 
 # The value that a new field gives the rows that are there: its default
 # as the schema value holds it, or `NoDefault`.
@@ -1034,4 +1040,4 @@ Count : { id : Str, n : U64, more : List(U64) }
 counts : Surreal.Table(Count)
 counts = Surreal.table("count")
 
-expect Surreal.schema([counts.define().done()]) == Ok("DEFINE TABLE OVERWRITE count SCHEMAFULL;\nDEFINE FIELD OVERWRITE more ON count TYPE array<int> ASSERT $value.all(|$e1| $e1 >= 0);\nDEFINE FIELD OVERWRITE n ON count TYPE int ASSERT $value >= 0;")
+expect Surreal.schema([counts.define().done()]) == Ok("DEFINE TABLE OVERWRITE count SCHEMAFULL;\nDEFINE FIELD OVERWRITE more ON count TYPE array<u64>;\nDEFINE FIELD OVERWRITE n ON count TYPE u64;")

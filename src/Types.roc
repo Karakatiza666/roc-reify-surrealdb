@@ -523,18 +523,6 @@ Types :: {}.{
 
 	# ----------------------------------------------------------- type mapping
 
-	## The range of a narrow Roc integer, which SurrealDB's `int` does not hold.
-	int_range : Code.Ty -> Try({ lo : I64, hi : I64 }, [NotRanged])
-	int_range = |ty| match ty {
-		I8 => Ok({ lo: -128, hi: 127 })
-		U8 => Ok({ lo: 0, hi: 255 })
-		I16 => Ok({ lo: -32768, hi: 32767 })
-		U16 => Ok({ lo: 0, hi: 65535 })
-		I32 => Ok({ lo: -2147483648, hi: 2147483647 })
-		U32 => Ok({ lo: 0, hi: 4294967295 })
-		_ => Err(NotRanged)
-	}
-
 	## The `TYPE` of a field. A record is `object` and a list of records is
 	## `array<object>`: their fields get their own definitions.
 	surreal_type : Code.Ty, Types.Registry -> Try(Str, Ql.Error)
@@ -552,8 +540,16 @@ Types :: {}.{
 	inline_type = |ty, registry| match Types.unwrap(ty) {
 		Str => Ok("string")
 		Bool => Ok("bool")
-		I64 | I8 | I16 | I32 | U8 | U16 | U32 | U64 => Ok("int")
-		F32 | F64 => Ok("float")
+		I8 => Ok("i8")
+		U8 => Ok("u8")
+		I16 => Ok("i16")
+		U16 => Ok("u16")
+		I32 => Ok("i32")
+		U32 => Ok("u32")
+		I64 => Ok("int")
+		U64 => Ok("u64")
+		F32 => Ok("f32")
+		F64 => Ok("float")
 		Dec => Ok("decimal")
 		Named(name, args, _) =>
 			if Types.nominal(name) == Datetime {
@@ -655,12 +651,8 @@ Types :: {}.{
 				}
 			},
 		)
-		# `int` holds no more than an `I64`, and the encoder writes a larger `U64` as a decimal.
-		U64 => ["${subject} >= 0"]
-		other => match Types.int_range(other) {
-			Ok({ lo, hi }) => ["${subject} >= ${lo.to_str()} AND ${subject} <= ${hi.to_str()}"]
-			Err(_) => []
-		}
+		# A sized number type (`u8`) checks its own range.
+		_ => []
 	}
 
 	## The `DEFINE FIELD` list of a table, parents before children, in name
@@ -880,10 +872,6 @@ Types :: {}.{
 # Tests that need no table. The rest are in `TypesTest.roc`, where a row type
 # comes from a reified table.
 
-expect Types.int_range(U8) == Ok({ lo: 0, hi: 255 })
-expect Types.int_range(I32) == Ok({ lo: -2147483648, hi: 2147483647 })
-expect Types.int_range(I64) == Err(NotRanged)
-expect Types.int_range(Str) == Err(NotRanged)
 expect Types.user_named("Customer")
 expect !Types.user_named("Surreal.Link")
 expect !Types.user_named("Builtin.Try")
@@ -902,20 +890,25 @@ expect Types.open(Named("N", [], Record([{ name: "next", ty: Recursive("N"), pre
 expect Types.dot("items[*]", "qty") == "items[*].qty"
 expect Types.dot("payment", "value") == "payment.value"
 expect Types.dot("a", "x y") == "a.⟨x y⟩"
-expect Types.constraints(U8, "$value", 0) == ["$value >= 0 AND $value <= 255"]
+point : Code.Ty
+point = Named("Surreal.Point", [], Record([{ name: "lon", ty: F64, presence: Required }, { name: "lat", ty: F64, presence: Required }]))
+
+# A sized number type checks its own range, so it has no constraint.
+expect Types.constraints(U8, "$value", 0) == []
 expect Types.constraints(Str, "$value", 0) == []
-expect Types.constraints(U64, "$value", 0) == ["$value >= 0"]
-expect Types.constraints(ListOf(U64), "$value", 0) == ["$value.all(|$e1| $e1 >= 0)"]
-expect Types.constraints(ListOf(I8), "$value", 0) == ["$value.all(|$e1| $e1 >= -128 AND $e1 <= 127)"]
-expect Types.constraints(ListOf(ListOf(U8)), "$value", 0) == ["$value.all(|$e1| $e1.all(|$e2| $e2 >= 0 AND $e2 <= 255))"]
-expect Types.constraints(Record([{ name: "n", ty: U16, presence: Optional }]), "$value", 0) == ["($value.n = NONE OR ($value.n >= 0 AND $value.n <= 65535))"]
-expect Types.constraints(TagUnion([{ name: "A", payloads: [] }, { name: "B", payloads: [U8] }]), "$value", 0) == ["(IF $value.kind = 'B' THEN $value.value >= 0 AND $value.value <= 255 ELSE true END)"]
-expect Types.constraints(TagUnion([{ name: "C", payloads: [Str, U8] }]), "$value", 0) == ["(IF $value.kind = 'C' THEN $value.value[1] >= 0 AND $value.value[1] <= 255 ELSE true END)"]
+expect Types.constraints(U64, "$value", 0) == []
+expect Types.constraints(ListOf(I8), "$value", 0) == []
+expect Types.constraints(ListOf(point), "$value", 0) == ["$value.all(|$e1| geo::is_valid($e1))"]
+expect Types.constraints(ListOf(ListOf(point)), "$value", 0) == ["$value.all(|$e1| $e1.all(|$e2| geo::is_valid($e2)))"]
+expect Types.constraints(Record([{ name: "n", ty: point, presence: Optional }]), "$value", 0) == ["($value.n = NONE OR (geo::is_valid($value.n)))"]
+expect Types.constraints(TagUnion([{ name: "A", payloads: [] }, { name: "B", payloads: [point] }]), "$value", 0) == ["(IF $value.kind = 'B' THEN geo::is_valid($value.value) ELSE true END)"]
+expect Types.constraints(TagUnion([{ name: "C", payloads: [Str, point] }]), "$value", 0) == ["(IF $value.kind = 'C' THEN geo::is_valid($value.value[1]) ELSE true END)"]
 expect Types.key_check([{ name: "a", ty: Str, presence: Required }, { name: "it's", ty: Str, presence: Optional }]) == "$value.all(|$e| object::keys($e).all(|$k| $k IN ['a', 'it\\'s']))"
 expect Types.union_type([{ name: "A", payloads: [] }, { name: "B", payloads: [Str] }, { name: "C", payloads: [Str, I64] }], []) == Ok("\"A\" | { kind: \"B\", value: string } | { kind: \"C\", value: [string, int] }")
 expect Types.union_type([], []) == Err(BadSchema("an empty union has no values"))
 expect Types.inline_type(ListOf(Record([{ name: "n", ty: I64, presence: Optional }])), []) == Ok("array<{ n: option<int> }>")
-expect Types.inline_type(U64, []) == Ok("int")
+expect Types.inline_type(U64, []) == Ok("u64")
+expect [I8, U8, I16, U16, I32, U32, I64, U64, F32, F64, Dec].map(|t| Types.inline_type(t, []) ?? "") == ["i8", "u8", "i16", "u16", "i32", "u32", "int", "u64", "f32", "float", "decimal"]
 expect Types.inline_type(I128, []).is_err()
 expect Types.inline_type(Tuple([Str]), []).is_err()
 expect Types.inline_type(Recursive("C"), []).is_err()
