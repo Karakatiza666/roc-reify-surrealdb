@@ -279,6 +279,33 @@ expect patch_script(quay, [relabel, reopened]) == Ok("UPDATE kennel:⟨q⟩ PATC
 expect patch_script(quay, []) == Ok("UPDATE kennel:⟨q⟩ PATCH [] RETURN AFTER")
 # The patch of a create replaces the whole row (`""`).
 expect patch_script(quay, [created]) == Ok("UPDATE kennel:⟨q⟩ PATCH [{ op: 'replace', path: '', value: { label: 'Quay' } }] RETURN AFTER")
+# A value of a type of CBOR v2 keeps its type: the literal of the type.
+v2_values : List(Cbor.Value)
+v2_values = [
+	Cbor.Value.Tag(181, int(5)),
+	Cbor.Value.Tag(180, int(-3)),
+	Cbor.Value.Tag(182, int(-300)),
+	Cbor.Value.Tag(183, int(65535)),
+	Cbor.Value.Tag(184, int(-70000)),
+	Cbor.Value.Tag(185, int(4000000000)),
+	Cbor.Value.Tag(186, Cbor.Value.Int(Cbor.IntValue.from_u64(18446744073709551615))),
+	Cbor.Value.Tag(187, Cbor.Value.Float(1.5)),
+	Cbor.Value.Tag(188, Cbor.Value.Float(0.25)),
+	Cbor.Value.Tag(192, text("1.50")),
+	Cbor.Value.Tag(193, text("a.*")),
+	Cbor.Value.Tag(100, int(20770)),
+	Cbor.Value.Tag(189, int(45000500000000)),
+	Cbor.Value.Tag(190, Cbor.Value.Array([int(1794573000), int(5)])),
+	Cbor.Value.Tag(191, Cbor.Value.Array([int(1), int(2), int(3000000)])),
+]
+
+retyped : Surreal.Patch(Kennel)
+retyped = kennel_patch("UPDATE", "q", [{ op: "replace", path: "/meta", value: Ok(Cbor.Value.Array(v2_values)) }])
+
+expect patch_script(quay, [retyped]) == Ok("UPDATE kennel:⟨q⟩ PATCH [{ op: 'replace', path: '/meta', value: [5u8, -3i8, -300i16, 65535u16, -70000i32, 4000000000u32, 18446744073709551615u64, 1.5f16, 0.25f32, <bigdecimal>'1.50', <regex>'a.*', <date>'2026-11-13', <time>'12:30:00.5', <timestamp>'2026-11-13T12:30:00.000000005', <interval>'P1M2DT3S'] }] RETURN AFTER")
+# A sized number outside its type is refused.
+expect patch_script(quay, [kennel_patch("UPDATE", "q", [{ op: "replace", path: "/n", value: Ok(Cbor.Value.Tag(181, int(300))) }])]) == Err(Unsupported("a patch with a value of the tag 181 outside its range as a value"))
+
 # Refused when it is built: a patch of another row, of a delete, and a text diff.
 expect patch_script(kennels.id("a"), [relabel]) == Err(Unsupported("a patch is of another row than `kennel:⟨a⟩`"))
 expect patch_script(quay, [deleted]) == Err(Unsupported("a patch of a delete: delete the row with `delete_at`"))

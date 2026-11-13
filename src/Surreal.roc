@@ -195,13 +195,13 @@ Surreal :: {}.{
 			seconds = nanos.div_floor_by(1000000000)
 			rest = nanos.mod_by(1000000000)
 			day_seconds = seconds.mod_by(86400)
-			(year, month, day) = civil_from_days(seconds.div_floor_by(86400))
+			(year, month, day) = Ql.civil_from_days(seconds.div_floor_by(86400))
 			if year < 0 or year > 9999 {
 				Err(BadDatetime)
 			} else {
-				fraction = if (rest == 0) "" else ".${pad(rest, 9)}"
-				clock = "${pad(day_seconds // 3600, 2)}:${pad(day_seconds % 3600 // 60, 2)}:${pad(day_seconds % 60, 2)}"
-				Surreal.datetime("${pad(year, 4)}-${pad(month, 2)}-${pad(day, 2)}T${clock}${fraction}Z")
+				fraction = if (rest == 0) "" else ".${Ql.pad(rest, 9)}"
+				clock = "${Ql.pad(day_seconds // 3600, 2)}:${Ql.pad(day_seconds % 3600 // 60, 2)}:${Ql.pad(day_seconds % 60, 2)}"
+				Surreal.datetime("${Ql.pad(year, 4)}-${Ql.pad(month, 2)}-${Ql.pad(day, 2)}T${clock}${fraction}Z")
 			}
 		}
 
@@ -4144,31 +4144,11 @@ days_from_civil = |year, month, day| {
 	era * 146097 + year_of_era * 365 + year_of_era // 4 - year_of_era // 100 + day_of_year - 719468
 }
 
-## The year, month and day of a day number counted from 1970-01-01.
-civil_from_days : I128 -> (I128, I128, I128)
-civil_from_days = |days| {
-	shifted = days + 719468
-	era = shifted.div_floor_by(146097)
-	day_of_era = shifted - era * 146097
-	year_of_era = (day_of_era - day_of_era // 1460 + day_of_era // 36524 - day_of_era // 146096) // 365
-	day_of_year = day_of_era - (365 * year_of_era + year_of_era // 4 - year_of_era // 100)
-	march_month = (5 * day_of_year + 2) // 153
-	month = if (march_month < 10) march_month + 3 else march_month - 9
-	(year_of_era + era * 400 + (if (month <= 2) 1 else 0), month, day_of_year - (153 * march_month + 2) // 5 + 1)
-}
-
 ## The nanoseconds of the fraction of a datetime.
 fraction_nanos : Datetime -> I128
 fraction_nanos = |Datetime.(d)| {
 	digits = d.iso.to_utf8().drop_first(20).drop_last(1)
 	digits.concat(List.repeat(48, 9 - digits.len())).fold(0.I128, |acc, b| acc * 10 + (b - 48).to_i128())
-}
-
-## A number in at least `width` digits, with leading zeros.
-pad : I128, U64 -> Str
-pad = |n, width| {
-	text = n.to_str()
-	Str.repeat("0", width - text.count_utf8_bytes()).concat(text)
 }
 
 ## A fraction without its trailing zeros.
@@ -5579,8 +5559,12 @@ path_of = |bytes, pos| match Cbor.path_at(bytes, pos) {
 
 ## A value of the server as a value of the ORM. A record id is `Ref`,
 ## a datetime (tag 12) `Datetime`, a decimal (tag 10) `Decimal`, and
-## NONE (tag 6) and `null` are `None`. A value that the ORM does not
-## write, such as a duration or bytes, is `NoValue`.
+## NONE (tag 6) and `null` are `None`. A value of a type of CBOR v2 keeps
+## its type: a sized number (tags 180 to 188) is `I8` to `U64`, `F16` or
+## `F32`, and the tags 100, 189 to 193 are `Date`, `Time`, `Timestamp`,
+## `Interval`, `BigDecimal` and `Regex`. So a patch that writes it back
+## writes the same type. A value that the ORM does not write, such as a
+## duration or bytes, is `NoValue`.
 value_of : Cbor.Value -> Try(Ql.Value, [NoValue(Str)])
 value_of = |value| match value {
 	Int(n) =>
@@ -5622,10 +5606,37 @@ value_of = |value| match value {
 				)?,
 			),
 		)
+	Tag(180, Int(n)) => sized(n, 180, |i| i.to_i8_try()).map_ok(|v| Ql.Value.I8(v))
+	Tag(181, Int(n)) => sized(n, 181, |i| i.to_u8_try()).map_ok(|v| Ql.Value.U8(v))
+	Tag(182, Int(n)) => sized(n, 182, |i| i.to_i16_try()).map_ok(|v| Ql.Value.I16(v))
+	Tag(183, Int(n)) => sized(n, 183, |i| i.to_u16_try()).map_ok(|v| Ql.Value.U16(v))
+	Tag(184, Int(n)) => sized(n, 184, |i| i.to_i32_try()).map_ok(|v| Ql.Value.I32(v))
+	Tag(185, Int(n)) => sized(n, 185, |i| i.to_u32_try()).map_ok(|v| Ql.Value.U32(v))
+	Tag(186, Int(n)) => sized(n, 186, |i| i.to_u64_try()).map_ok(|v| Ql.Value.U64(v))
+	Tag(187, Float(f)) => Ok(Ql.Value.F16(f.to_f32_wrap()))
+	Tag(188, Float(f)) => Ok(Ql.Value.F32(f.to_f32_wrap()))
+	Tag(192, Text(text)) => Ok(Ql.Value.BigDecimal(text))
+	Tag(193, Text(text)) => Ok(Ql.Value.Regex(text))
+	Tag(100, Int(n)) => sized(n, 100, |i| i.to_i32_try()).map_ok(|v| Ql.Value.Date(v))
+	Tag(189, Int(n)) => sized(n, 189, |i| i.to_u64_try()).map_ok(|v| Ql.Value.Time(v))
+	Tag(190, Array([Int(secs), Int(nanos)])) =>
+		match (secs.to_i128().to_i64_try(), nanos.to_i128().to_u32_try()) {
+			(Ok(s), Ok(ns)) if ns < 1000000000 => Ok(Ql.Value.Timestamp({ secs: s, nanos: ns }))
+			_ => Err(NoValue("a timestamp outside I64 seconds"))
+		}
+	Tag(191, Array([Int(months), Int(days), Int(micros)])) =>
+		match (months.to_i128().to_i32_try(), days.to_i128().to_i32_try(), micros.to_i128().to_i64_try()) {
+			(Ok(m), Ok(d), Ok(us)) => Ok(Ql.Value.Interval({ months: m, days: d, micros: us }))
+			_ => Err(NoValue("an interval outside its range"))
+		}
 	Tag(number, _) => Err(NoValue("a value of the tag ${number.to_str()}"))
 	Bytes(_) => Err(NoValue("bytes"))
 	Simple(n) => Err(NoValue("the simple value ${Str.inspect(n)}"))
 }
+
+## The integer of a tag of CBOR v2, in the range of its type.
+sized : Cbor.IntValue, U64, (I128 -> Try(n, _)) -> Try(n, [NoValue(Str)])
+sized = |n, tag, fit| fit(n.to_i128()).map_err(|_| NoValue("a value of the tag ${tag.to_str()} outside its range"))
 
 ## The results of the statements of a `query` reply, which must be
 ## `count`. A refused request, or a statement that failed, is a

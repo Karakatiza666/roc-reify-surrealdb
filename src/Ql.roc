@@ -102,6 +102,15 @@ Ql :: {}.{
 	## `Decimal` stay apart because SurrealDB keeps them apart. `Record` is a
 	## record id with a text key, and `Ref` one with a key of any value, such
 	## as the array of a time series key.
+	##
+	## The sized numbers of SurrealDB (`I8` to `U64`, `F16` and `F32`) are
+	## apart from `Int` (`i64`) and `Float` (`f64`): their literal has the
+	## suffix of the type (`5u8`), and CBOR v2 tags them (180 to 188). The
+	## other types of CBOR v2: `Regex` (tag 193) and `BigDecimal` (192) hold
+	## their text, `Date` (100) the days since 1970-01-01, `Time` (189) the
+	## nanoseconds since midnight, `Timestamp` (190) the seconds and
+	## nanoseconds since 1970 with no time zone, and `Interval` (191) the
+	## months, the days and the microseconds.
 	Value := [
 		None,
 		Bool(Bool),
@@ -115,6 +124,21 @@ Ql :: {}.{
 		Ref({ table : Str, key : Value }),
 		Array(List(Value)),
 		Object(List({ name : Str, value : Value })),
+		I8(I8),
+		U8(U8),
+		I16(I16),
+		U16(U16),
+		I32(I32),
+		U32(U32),
+		U64(U64),
+		F16(F32),
+		F32(F32),
+		Regex(Str),
+		BigDecimal(Str),
+		Date(I32),
+		Time(U64),
+		Timestamp({ secs : I64, nanos : U32 }),
+		Interval({ months : I32, days : I32, micros : I64 }),
 	]
 
 	## The value as source text: `'it\'s'`, `20dec`, `customer:⟨ada⟩`, `{ a: 1 }`.
@@ -133,6 +157,97 @@ Ql :: {}.{
 		Array(items) => "[${Str.join_with(items.map(Ql.literal), ", ")}]"
 		Object([]) => "{}"
 		Object(fields) => "{ ${Str.join_with(fields.map(|f| "${Ql.member(f.name)}: ${Ql.literal(f.value)}"), ", ")} }"
+		I8(n) => "${n.to_str()}i8"
+		U8(n) => "${n.to_str()}u8"
+		I16(n) => "${n.to_str()}i16"
+		U16(n) => "${n.to_str()}u16"
+		I32(n) => "${n.to_str()}i32"
+		U32(n) => "${n.to_str()}u32"
+		U64(n) => "${n.to_str()}u64"
+		F16(f) => Ql.sized_float(f, "f16")
+		F32(f) => Ql.sized_float(f, "f32")
+		Regex(pattern) => "<regex>${Ql.quote(pattern)}"
+		BigDecimal(text) => "<bigdecimal>${Ql.quote(text)}"
+		Date(days) => "<date>'${Ql.date_text(days.to_i128())}'"
+		Time(nanos) => "<time>'${Ql.clock_text(nanos.to_i128())}'"
+		Timestamp(t) => {
+			days = t.secs.to_i128().div_floor_by(86400)
+			nanos = t.secs.to_i128().mod_by(86400) * 1000000000 + t.nanos.to_i128()
+			"<timestamp>'${Ql.date_text(days)}T${Ql.clock_text(nanos)}'"
+		}
+		Interval(i) => "<interval>'${Ql.interval_text(i)}'"
+	}
+
+	## A float of a sized type with its suffix (`1.5f32`). The non-finite
+	## values have no literal, so they are a cast: `<f32>NaN`.
+	sized_float : F32, Str -> Str
+	sized_float = |f, suffix|
+		if f.is_nan() {
+			"<${suffix}>NaN"
+		} else if f.is_infinite() {
+			if (f < 0) "<${suffix}>-Infinity" else "<${suffix}>Infinity"
+		} else {
+			"${f.to_str()}${suffix}"
+		}
+
+	## The date of a day number counted from 1970-01-01, as SurrealDB reads
+	## it: `2026-11-13`, `-0001-01-01`, `+10000-01-01`.
+	date_text : I128 -> Str
+	date_text = |days| {
+		(year, month, day) = Ql.civil_from_days(days)
+		year_text = if year < 0 "-${Ql.pad(0 - year, 4)}" else if year > 9999 "+${year.to_str()}" else Ql.pad(year, 4)
+		"${year_text}-${Ql.pad(month, 2)}-${Ql.pad(day, 2)}"
+	}
+
+	## The time of day of the nanoseconds since midnight: `12:30:00`,
+	## `12:30:00.5`. The fraction has no trailing zeros.
+	clock_text : I128 -> Str
+	clock_text = |nanos| {
+		secs = nanos // 1000000000
+		rest = nanos % 1000000000
+		clock = "${Ql.pad(secs // 3600, 2)}:${Ql.pad(secs % 3600 // 60, 2)}:${Ql.pad(secs % 60, 2)}"
+		if (rest == 0) clock else "${clock}.${Ql.fraction(rest, 9)}"
+	}
+
+	## An interval in ISO 8601: `P1M2DT3.5S`. Each part has its own sign,
+	## as SurrealDB reads it (`P1M-2D`).
+	interval_text : { months : I32, days : I32, micros : I64 } -> Str
+	interval_text = |i| {
+		micros = i.micros.to_i128()
+		size = if (micros < 0) 0 - micros else micros
+		seconds = "${if (micros < 0) "-" else ""}${(size // 1000000).to_str()}${if (size % 1000000 == 0) "" else ".${Ql.fraction(size % 1000000, 6)}"}"
+		"P${i.months.to_str()}M${i.days.to_str()}DT${seconds}S"
+	}
+
+	## The digits of a fraction of `width` digits, without trailing zeros:
+	## 500000000 of 9 is `5`.
+	fraction : I128, U64 -> Str
+	fraction = |n, width| {
+		var $digits = Ql.pad(n, width).to_utf8()
+		while $digits.last() == Ok(48) {
+			$digits = $digits.drop_last(1)
+		}
+		Str.from_utf8($digits) ?? ""
+	}
+
+	## The year, month and day of a day number counted from 1970-01-01.
+	civil_from_days : I128 -> (I128, I128, I128)
+	civil_from_days = |days| {
+		shifted = days + 719468
+		era = shifted.div_floor_by(146097)
+		day_of_era = shifted - era * 146097
+		year_of_era = (day_of_era - day_of_era // 1460 + day_of_era // 36524 - day_of_era // 146096) // 365
+		day_of_year = day_of_era - (365 * year_of_era + year_of_era // 4 - year_of_era // 100)
+		march_month = (5 * day_of_year + 2) // 153
+		month = if (march_month < 10) march_month + 3 else march_month - 9
+		(year_of_era + era * 400 + (if (month <= 2) 1 else 0), month, day_of_year - (153 * march_month + 2) // 5 + 1)
+	}
+
+	## A number in at least `width` digits, with leading zeros.
+	pad : I128, U64 -> Str
+	pad = |n, width| {
+		text = n.to_str()
+		Str.repeat("0", width - text.count_utf8_bytes()).concat(text)
 	}
 
 	## A float with the `f` suffix, so a whole number stays a float. SurrealQL
@@ -333,3 +448,32 @@ expect Ql.literal(Value.Float(0.00001)) == "1e-5f"
 expect Ql.member("value") == "value"
 expect Ql.member("x y") == "⟨x y⟩"
 expect Ql.literal(Value.Object([{ name: "value", value: Value.Int(1) }])) == "{ value: 1 }"
+
+# The sized numbers have the suffix of their type; a non-finite float is a cast.
+expect Ql.literal(Value.U8(5)) == "5u8"
+expect Ql.literal(Value.I8(-128)) == "-128i8"
+expect Ql.literal(Value.I16(-300)) == "-300i16"
+expect Ql.literal(Value.U16(65535)) == "65535u16"
+expect Ql.literal(Value.I32(-70000)) == "-70000i32"
+expect Ql.literal(Value.U32(4000000000)) == "4000000000u32"
+expect Ql.literal(Value.U64(18446744073709551615)) == "18446744073709551615u64"
+expect Ql.literal(Value.F32(1.5)) == "1.5f32"
+expect Ql.literal(Value.F32(0.1)) == "0.1f32"
+expect Ql.literal(Value.F32(F32.nan)) == "<f32>NaN"
+expect Ql.literal(Value.F16(-F32.infinity)) == "<f16>-Infinity"
+expect Ql.literal(Value.F16(1.5)) == "1.5f16"
+
+# The other types of CBOR v2 are casts of their text (verified on 4.0.1).
+expect Ql.literal(Value.Regex("a'b/c")) == "<regex>'a\\'b/c'"
+expect Ql.literal(Value.BigDecimal("1.50")) == "<bigdecimal>'1.50'"
+expect Ql.literal(Value.Date(20770)) == "<date>'2026-11-13'"
+expect Ql.literal(Value.Date(-1)) == "<date>'1969-12-31'"
+expect Ql.literal(Value.Date(-719893)) == "<date>'-0001-01-01'"
+expect Ql.literal(Value.Date(2932897)) == "<date>'+10000-01-01'"
+expect Ql.literal(Value.Time(45000500000000)) == "<time>'12:30:00.5'"
+expect Ql.literal(Value.Time(0)) == "<time>'00:00:00'"
+expect Ql.literal(Value.Timestamp({ secs: 1794573000, nanos: 123456789 })) == "<timestamp>'2026-11-13T12:30:00.123456789'"
+expect Ql.literal(Value.Timestamp({ secs: -1, nanos: 500000000 })) == "<timestamp>'1969-12-31T23:59:59.5'"
+expect Ql.literal(Value.Interval({ months: 1, days: 2, micros: 3000000 })) == "<interval>'P1M2DT3S'"
+expect Ql.literal(Value.Interval({ months: 1, days: -2, micros: -1000001 })) == "<interval>'P1M-2DT-1.000001S'"
+expect Ql.literal(Value.Interval({ months: 0, days: 0, micros: 0 })) == "<interval>'P0M0DT0S'"
