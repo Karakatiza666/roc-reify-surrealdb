@@ -23,9 +23,9 @@ Encode :: {}.{
 
 	## The format the encoder is derived against. `I128` and `U128` have no
 	## method here on purpose: a row that holds one does not type-check where
-	## it is written, because SurrealDB's `int` is 64-bit signed. A `U64` above
-	## the `I64` range is a decimal, so a comparison stays exact, and a field of
-	## type `int` refuses it.
+	## it is written, because SurrealDB has no 128-bit integer. A sized number
+	## is the value of its type (`U8` is `5u8`), so a table with no schema
+	## stores the type of the Roc field. `I64` is `int`, `F64` is `float`.
 	Format := [Surreal].{
 		rename_field : Format, Str -> Str
 		rename_field = |_, name| name
@@ -37,34 +37,34 @@ Encode :: {}.{
 		encode_bool = |b, state| Ok(state.append(Value(Ql.Value.Bool(b))))
 
 		encode_i8 : I8, Encode.State -> Try(Encode.State, [])
-		encode_i8 = |n, state| Ok(state.append(Value(Ql.Value.Int(n.to_i64()))))
+		encode_i8 = |n, state| Ok(state.append(Value(Ql.Value.I8(n))))
 
 		encode_i16 : I16, Encode.State -> Try(Encode.State, [])
-		encode_i16 = |n, state| Ok(state.append(Value(Ql.Value.Int(n.to_i64()))))
+		encode_i16 = |n, state| Ok(state.append(Value(Ql.Value.I16(n))))
 
 		encode_i32 : I32, Encode.State -> Try(Encode.State, [])
-		encode_i32 = |n, state| Ok(state.append(Value(Ql.Value.Int(n.to_i64()))))
+		encode_i32 = |n, state| Ok(state.append(Value(Ql.Value.I32(n))))
 
 		encode_i64 : I64, Encode.State -> Try(Encode.State, [])
 		encode_i64 = |n, state| Ok(state.append(Value(Ql.Value.Int(n))))
 
 		encode_u8 : U8, Encode.State -> Try(Encode.State, [])
-		encode_u8 = |n, state| Ok(state.append(Value(Ql.Value.Int(n.to_i64()))))
+		encode_u8 = |n, state| Ok(state.append(Value(Ql.Value.U8(n))))
 
 		encode_u16 : U16, Encode.State -> Try(Encode.State, [])
-		encode_u16 = |n, state| Ok(state.append(Value(Ql.Value.Int(n.to_i64()))))
+		encode_u16 = |n, state| Ok(state.append(Value(Ql.Value.U16(n))))
 
 		encode_u32 : U32, Encode.State -> Try(Encode.State, [])
-		encode_u32 = |n, state| Ok(state.append(Value(Ql.Value.Int(n.to_i64()))))
+		encode_u32 = |n, state| Ok(state.append(Value(Ql.Value.U32(n))))
 
 		encode_u64 : U64, Encode.State -> Try(Encode.State, [])
-		encode_u64 = |n, state| Ok(state.append(Value(if n > 9223372036854775807 Ql.Value.Decimal(n.to_dec()) else Ql.Value.Int(n.to_i64_wrap()))))
+		encode_u64 = |n, state| Ok(state.append(Value(Ql.Value.U64(n))))
 
 		encode_dec : Dec, Encode.State -> Try(Encode.State, [])
 		encode_dec = |d, state| Ok(state.append(Value(Ql.Value.Decimal(d))))
 
 		encode_f32 : F32, Encode.State -> Try(Encode.State, [])
-		encode_f32 = |f, state| Ok(state.append(Value(Ql.Value.Float(f.to_f64()))))
+		encode_f32 = |f, state| Ok(state.append(Value(Ql.Value.F32(f))))
 
 		encode_f64 : F64, Encode.State -> Try(Encode.State, [])
 		encode_f64 = |f, state| Ok(state.append(Value(Ql.Value.Float(f))))
@@ -129,7 +129,9 @@ Encode :: {}.{
 	## (`Encode.bound`). Each value is a kind byte, then its contents: a text
 	## is its byte count (8 bytes, big-endian) and its bytes, an integer 8
 	## bytes, a `Dec` its attos in 16, a float its bits in 8, and a record, a
-	## list and a tag hold their members up to a `0`.
+	## list and a tag hold their members up to a `0`. A sized integer is a
+	## `10`, the byte of its type (`Encode.sized_kinds`) and 8 bytes, and an
+	## `F32` an `11` and its bits in 4.
 	Bind := [Default].{
 		default : () -> Bind
 		default = || Default
@@ -144,34 +146,34 @@ Encode :: {}.{
 		encode_bool = |b, out| Ok(out.concat([2, if (b) 1 else 0]))
 
 		encode_i8 : I8, List(U8) -> Try(List(U8), [])
-		encode_i8 = |n, out| Ok(Encode.put_int(out, n.to_i64()))
+		encode_i8 = |n, out| Ok(Encode.put_sized(out, 0, n.to_i64().to_u64_wrap()))
 
 		encode_i16 : I16, List(U8) -> Try(List(U8), [])
-		encode_i16 = |n, out| Ok(Encode.put_int(out, n.to_i64()))
+		encode_i16 = |n, out| Ok(Encode.put_sized(out, 2, n.to_i64().to_u64_wrap()))
 
 		encode_i32 : I32, List(U8) -> Try(List(U8), [])
-		encode_i32 = |n, out| Ok(Encode.put_int(out, n.to_i64()))
+		encode_i32 = |n, out| Ok(Encode.put_sized(out, 4, n.to_i64().to_u64_wrap()))
 
 		encode_i64 : I64, List(U8) -> Try(List(U8), [])
 		encode_i64 = |n, out| Ok(Encode.put_int(out, n))
 
 		encode_u8 : U8, List(U8) -> Try(List(U8), [])
-		encode_u8 = |n, out| Ok(Encode.put_int(out, n.to_i64()))
+		encode_u8 = |n, out| Ok(Encode.put_sized(out, 1, n.to_u64()))
 
 		encode_u16 : U16, List(U8) -> Try(List(U8), [])
-		encode_u16 = |n, out| Ok(Encode.put_int(out, n.to_i64()))
+		encode_u16 = |n, out| Ok(Encode.put_sized(out, 3, n.to_u64()))
 
 		encode_u32 : U32, List(U8) -> Try(List(U8), [])
-		encode_u32 = |n, out| Ok(Encode.put_int(out, n.to_i64()))
+		encode_u32 = |n, out| Ok(Encode.put_sized(out, 5, n.to_u64()))
 
 		encode_u64 : U64, List(U8) -> Try(List(U8), [])
-		encode_u64 = |n, out| Ok(if n > 9223372036854775807 Encode.big_endian(out.append(4), n.to_dec().to_attos().to_u128_wrap(), 16) else Encode.put_int(out, n.to_i64_wrap()))
+		encode_u64 = |n, out| Ok(Encode.put_sized(out, 6, n))
 
 		encode_dec : Dec, List(U8) -> Try(List(U8), [])
 		encode_dec = |d, out| Ok(Encode.big_endian(out.append(4), d.to_attos().to_u128_wrap(), 16))
 
 		encode_f32 : F32, List(U8) -> Try(List(U8), [])
-		encode_f32 = |f, out| Ok(Encode.big_endian(out.append(5), f.to_f64().to_bits().to_u128(), 8))
+		encode_f32 = |f, out| Ok(Encode.big_endian(out.append(11), f.to_bits().to_u128(), 4))
 
 		encode_f64 : F64, List(U8) -> Try(List(U8), [])
 		encode_f64 = |f, out| Ok(Encode.big_endian(out.append(5), f.to_bits().to_u128(), 8))
@@ -192,6 +194,23 @@ Encode :: {}.{
 	put_text = |out, text| {
 		bytes = text.to_utf8()
 		Encode.big_endian(out, bytes.len().to_u128(), 8).concat(bytes)
+	}
+
+	## A sized integer: `10`, the byte of its type, and its 64 bits.
+	put_sized : List(U8), U8, U64 -> List(U8)
+	put_sized = |out, kind, bits| Encode.big_endian(out.concat([10, kind]), bits.to_u128(), 8)
+
+	## The value of a sized integer of `put_sized`.
+	sized_value : U8, U64 -> Try(Ql.Value, [BadBytes])
+	sized_value = |kind, bits| match kind {
+		0 => bits.to_i64_wrap().to_i8_try().map_ok(|n| Ql.Value.I8(n)).map_err(|_| BadBytes)
+		1 => bits.to_u8_try().map_ok(|n| Ql.Value.U8(n)).map_err(|_| BadBytes)
+		2 => bits.to_i64_wrap().to_i16_try().map_ok(|n| Ql.Value.I16(n)).map_err(|_| BadBytes)
+		3 => bits.to_u16_try().map_ok(|n| Ql.Value.U16(n)).map_err(|_| BadBytes)
+		4 => bits.to_i64_wrap().to_i32_try().map_ok(|n| Ql.Value.I32(n)).map_err(|_| BadBytes)
+		5 => bits.to_u32_try().map_ok(|n| Ql.Value.U32(n)).map_err(|_| BadBytes)
+		6 => Ok(Ql.Value.U64(bits))
+		_ => Err(BadBytes)
 	}
 
 	put_int : List(U8), I64 -> List(U8)
@@ -227,6 +246,11 @@ Encode :: {}.{
 		Ok(3) => Ok((Value(Ql.Value.Int(Encode.read_bits(bytes, at + 1, 8)?.to_u64_wrap().to_i64_wrap())), at + 9))
 		Ok(4) => Ok((Value(Ql.Value.Decimal(Dec.from_attos(Encode.read_bits(bytes, at + 1, 16)?.to_i128_wrap()))), at + 17))
 		Ok(5) => Ok((Value(Ql.Value.Float(F64.from_bits(Encode.read_bits(bytes, at + 1, 8)?.to_u64_wrap()))), at + 9))
+		Ok(10) => {
+			kind = bytes.get(at + 1).map_err(|_| BadBytes)?
+			Ok((Value(Encode.sized_value(kind, Encode.read_bits(bytes, at + 2, 8)?.to_u64_wrap())?), at + 10))
+		}
+		Ok(11) => Ok((Value(Ql.Value.F32(F32.from_bits(Encode.read_bits(bytes, at + 1, 4)?.to_u32_wrap()))), at + 5))
 		Ok(6) => {
 			(fields, next) = Encode.read_fields(bytes, at + 1, [])?
 			Ok((Fields(fields), next))
@@ -345,13 +369,13 @@ small = { a: -1, b: 255, c: -300, d: 65535, e: -70000, f: 4000000000, g: 1.5 }
 
 expect Encode.value_of(row_a).map_ok(Ql.literal) == Ok("{ id: 'o\\'neil', ok: true, pay: { kind: 'Card', last4: '4242' }, price: 1.5dec, qty: 3, ratio: 2f, tags: ['a', 'b'] }")
 expect Encode.value_of(row_b).map_ok(Ql.literal) == Ok("{ id: 'x', note: 'hi', ok: false, pay: 'Cash', price: 0.0dec, qty: -1, ratio: 0.5f, tags: [] }")
-expect Encode.value_of(small).map_ok(Ql.literal) == Ok("{ a: -1, b: 255, c: -300, d: 65535, e: -70000, f: 4000000000, g: 1.5f }")
+expect Encode.value_of(small).map_ok(Ql.literal) == Ok("{ a: -1i8, b: 255u8, c: -300i16, d: 65535u16, e: -70000i32, f: 4000000000u32, g: 1.5f32 }")
 
-# A `U64` is an `int`, or a decimal when an `int` cannot hold it.
+# A `U64` is a `u64`, all of its range.
 wide : { a : U64, b : U64, c : U64, d : U64 }
 wide = { a: 0, b: 9223372036854775807, c: 9223372036854775808, d: 18446744073709551615 }
 
-expect Encode.value_of(wide).map_ok(Ql.literal) == Ok("{ a: 0, b: 9223372036854775807, c: 9223372036854775808.0dec, d: 18446744073709551615.0dec }")
+expect Encode.value_of(wide).map_ok(Ql.literal) == Ok("{ a: 0u64, b: 9223372036854775807u64, c: 9223372036854775808u64, d: 18446744073709551615u64 }")
 
 pay_check : Row
 pay_check = { ..row_b, pay: Check(7) }

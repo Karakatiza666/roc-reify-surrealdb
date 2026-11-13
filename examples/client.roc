@@ -341,6 +341,36 @@ kinds_at = Surreal.from(kinds).filter_by(|p, k| k.at == p.at).select_value(|k| k
 kinds_before : Surreal.Prepared(List(Str))
 kinds_before = Surreal.from(kinds).filter(|k| k.day < Surreal.Date.from_days(0)).select_value(|k| k.id).ready()
 
+# ------------------------------------ sized numbers in a table with no schema
+
+## Each Roc number type. With no schema, the stored value has the type of
+## the literal: the package writes `5u8` for a `U8`.
+Loose : { id : Str, tiny : I8, small : U8, mid : I16, word : U16, wide : I32, dword : U32, n : I64, big : U64, f : F32, d : F64, dec : Dec }
+
+looses : Surreal.Table(Loose)
+looses = Surreal.table("loose")
+
+loose_row : Loose
+loose_row = { id: "l", tiny: -128, small: 255, mid: -300, word: 65535, wide: -70000, dword: 4000000000, n: -1, big: 18446744073709551615, f: 1.5, d: 0.25, dec: 2.5 }
+
+## The SurrealQL types of the stored values of a table, as text.
+types_of! : Run, Str, Str, List(Str) => Try(Run, Str)
+types_of! = |run, name, query, want| {
+	done = Surreal.Unchecked.query!(run.session, query).map_err(Str.inspect)?
+	got : Try({ result : List({ result : List(List(Str)) }) }, Surreal.Error)
+	got = Surreal.Unchecked.decode(done.reply)
+	match got.map_ok(|r| r.result.map(|s| s.result)) {
+		Ok([[types]]) if types == want => {
+			say!("ok   ${name}: ${Str.inspect(types)}")?
+			Ok({ ..run, session: done.session })
+		}
+		other => {
+			say!("FAIL ${name}: ${Str.inspect(other)}, Roc writes ${Str.inspect(want)}")?
+			Ok({ ..run, session: done.session, failures: run.failures + 1 })
+		}
+	}
+}
+
 # --------------------------------- a table with a union of nominal payloads
 
 ## A nominal of the app over a record: its payload is spread, as a record is.
@@ -947,6 +977,11 @@ run! = |record, over| {
 	$run = check!($run, "kinds_at", kinds_at, same_rows(["two"]))?
 	$run = check!($run, "kinds_before", kinds_before, same_rows(["two"]))?
 	$run = script!($run, "remove_kinds", Ok("REMOVE TABLE kinds;"))?
+	# A table with no schema keeps the type of each number that Roc writes.
+	$run = script!($run, "define_loose", Ok("DEFINE TABLE loose SCHEMALESS;"))?
+	$run = check!($run, "insert_loose", looses.insert([loose_row]), same_rows([loose_row]))?
+	$run = types_of!($run, "loose_types", "SELECT VALUE [type::of(tiny), type::of(small), type::of(mid), type::of(word), type::of(wide), type::of(dword), type::of(n), type::of(big), type::of(f), type::of(d), type::of(dec)] FROM loose", ["i8", "u8", "i16", "u16", "i32", "u32", "int", "u64", "f32", "float", "decimal"])?
+	$run = script!($run, "remove_loose", Ok("REMOVE TABLE loose;"))?
 	# A table of its own with a union of nominal payloads: each arm is
 	# written, read back, and written in a clause and as a parameter.
 	$run = script!($run, "define_places", place_schema)?

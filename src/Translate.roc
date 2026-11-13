@@ -965,8 +965,8 @@ Translate :: {}.{
 			}
 			Link => Err(Unsupported("a captured `Link` has no SurrealQL value; capture its `id()`"))
 			Duration => match Translate.captured(backing, inner)? {
-				Object(fields) => match fields.find_first(|f| f.name == "nanos") {
-					Ok({ value: Int(n), .. }) if n >= 0 => Ok(Ql.Value.Duration(n.to_u64_wrap()))
+				Object(fields) => match fields.find_first(|f| f.name == "nanos").map_ok(|f| Ql.int_of(f.value)) {
+					Ok(Ok(n)) if n >= 0 => Ok(Ql.Value.Duration(n.to_u64_wrap()))
 					_ => Err(Unsupported("a captured duration without its nanoseconds"))
 				}
 				_ => Err(Unsupported("a captured duration without its nanoseconds"))
@@ -983,14 +983,12 @@ Translate :: {}.{
 			Scalar(surql) => Translate.v2_scalar(surql, Translate.captured(backing, inner)?)
 			_ => Translate.captured(backing, inner)
 		}
-		(_, Int(n)) => match n.to_i64_try() {
-			Ok(i) => Ok(Ql.Value.Int(i))
+		(_, Int(n)) => Translate.captured_int(ty, n.to_i128())
+		(_, U128(n)) => match n.to_i128_try() {
+			Ok(i) => Translate.captured_int(ty, i)
 			Err(_) => Err(Unsupported("a captured integer outside the range of a SurrealDB int"))
 		}
-		(_, U128(n)) => match n.to_i64_try() {
-			Ok(i) => Ok(Ql.Value.Int(i))
-			Err(_) => Err(Unsupported("a captured integer outside the range of a SurrealDB int"))
-		}
+		(F32, Frac(f)) => Ok(Ql.Value.F32(f.to_f32_wrap()))
 		(_, Frac(f)) => Ok(Ql.Value.Float(f))
 		(_, Dec(d)) => Ok(Ql.Value.Decimal(d))
 		(_, Bool(b)) => Ok(Ql.Value.Bool(b))
@@ -1031,8 +1029,8 @@ Translate :: {}.{
 			Object(f) => f
 			_ => return Err(bad)
 		}
-		int = |name| match fields.find_first(|f| f.name == name) {
-			Ok({ value: Int(n), .. }) => Ok(n)
+		int = |name| match fields.find_first(|f| f.name == name).map_ok(|f| Ql.int_of(f.value)) {
+			Ok(Ok(n)) => n.to_i64_try().map_err(|_| bad)
 			_ => Err(bad)
 		}
 		match surql {
@@ -1043,6 +1041,23 @@ Translate :: {}.{
 			"timestamp" => Ok(Ql.Value.Timestamp({ secs: int("secs")?, nanos: int("nanos")?.to_u32_try().map_err(|_| bad)? }))
 			"interval" => Ok(Ql.Value.Interval({ months: int("months")?.to_i32_try().map_err(|_| bad)?, days: int("days")?.to_i32_try().map_err(|_| bad)?, micros: int("micros")? }))
 			_ => Err(bad)
+		}
+	}
+
+	## A captured integer as the value of its type: `5u8` for a `U8`, as
+	## `Encode.Format` writes it.
+	captured_int : Code.Ty, I128 -> Try(Ql.Value, Ql.Error)
+	captured_int = |ty, n| {
+		out = Unsupported("a captured integer outside the range of its type")
+		match ty {
+			I8 => n.to_i8_try().map_ok(|v| Ql.Value.I8(v)).map_err(|_| out)
+			U8 => n.to_u8_try().map_ok(|v| Ql.Value.U8(v)).map_err(|_| out)
+			I16 => n.to_i16_try().map_ok(|v| Ql.Value.I16(v)).map_err(|_| out)
+			U16 => n.to_u16_try().map_ok(|v| Ql.Value.U16(v)).map_err(|_| out)
+			I32 => n.to_i32_try().map_ok(|v| Ql.Value.I32(v)).map_err(|_| out)
+			U32 => n.to_u32_try().map_ok(|v| Ql.Value.U32(v)).map_err(|_| out)
+			U64 => n.to_u64_try().map_ok(|v| Ql.Value.U64(v)).map_err(|_| out)
+			_ => n.to_i64_try().map_ok(|v| Ql.Value.Int(v)).map_err(|_| Unsupported("a captured integer outside the range of a SurrealDB int"))
 		}
 	}
 
@@ -2594,6 +2609,8 @@ Translate :: {}.{
 				"is_positive" if whole or dec => Ok(Binding.Infix("${opd(n)?} > 0"))
 				"is_even" if whole => Ok(Binding.Infix("${opd(n)?} % 2 = 0"))
 				"is_odd" if whole => Ok(Binding.Infix("${opd(n)?} % 2 != 0"))
+				# `<string>5u8` is `'5u8'`: a sized integer is a `decimal` first.
+				"to_str" if whole and Translate.is_sized(owner) => Ok(Binding.Expr("<string><decimal>${opd(n)?}"))
 				"to_str" if whole => Ok(Binding.Expr("<string>${opd(n)?}"))
 				"to_str" if dec => Err(Unsupported("`to_str` on `Dec` prints differently: Roc `3.0`, SurrealDB `3`; compare the number"))
 				# SurrealDB `math::round` rounds a tie to even, and Roc rounds it away from zero.
@@ -2611,7 +2628,11 @@ Translate :: {}.{
 				"pow" if whole => Ok(Binding.Expr(Translate.call("math::pow", [sql(a)?, sql(b)?])))
 				"pow" if dec => Err(Unsupported("`pow` on `Dec` keeps 18 digits in Roc and 28 in SurrealDB; the two differ"))
 				# `mod_by` is the floored modulus: the sign of the divisor.
-				"mod_by" if whole => Ok(Binding.Expr("(((${opd(a)?} % ${opd(b)?}) + ${opd(b)?}) % ${opd(b)?})"))
+				"mod_by" if whole => {
+					x = Translate.whole_operand(owner, Bool.True, a, env)?
+					y = Translate.whole_operand(owner, Bool.True, b, env)?
+					Ok(Binding.Expr("(((${x} % ${y}) + ${y}) % ${y})"))
+				}
 				"is_multiple_of" if whole =>
 					if Translate.is_nonzero(b) {
 						Ok(Binding.Infix("${opd(a)?} % ${opd(b)?} = 0"))
@@ -3819,9 +3840,30 @@ Translate :: {}.{
 		mirrored = Translate.mirror(method)
 		flip = Translate.is_literal(lhs) and !Translate.is_literal(rhs) and !mirrored.is_empty()
 		symbol = Translate.operator(owner, if (flip) mirrored else method)?
-		left = Translate.arg(if (flip) rhs else lhs, env)?
-		right = Translate.arg(if (flip) lhs else rhs, env)?
+		arithmetic = ["plus", "minus", "times", "div_by", "div_trunc_by", "rem_by"].contains(method)
+		left = Translate.whole_operand(owner, arithmetic, if (flip) rhs else lhs, env)?
+		right = Translate.whole_operand(owner, arithmetic, if (flip) lhs else rhs, env)?
 		Ok(Binding.Infix("${left} ${symbol} ${right}"))
+	}
+
+	## Whether a Roc integer type is a sized type of SurrealDB (`u8`), not
+	## `int`.
+	is_sized : Str -> Bool
+	is_sized = |owner| ["Num.I8", "Num.U8", "Num.I16", "Num.U16", "Num.I32", "Num.U32", "Num.U64"].contains(owner)
+
+	## An operand of arithmetic on a sized integer type, as an `int`
+	## (`<int>age`). SurrealDB computes a sized type with an `int` in another
+	## type: `u64` and `int` give a `decimal`, so `7u64 / 2` is 3.5, and Roc's
+	## `7 // 2` is 3. With both as `int` the result is the one of 0.0.3. A
+	## literal is an `int` already.
+	whole_operand : Str, Bool, Code.Tree, Env -> Try(Str, Ql.Error)
+	whole_operand = |owner, arithmetic, tree, env| {
+		spelled = Translate.arg(tree, env)?
+		if arithmetic and Translate.is_sized(owner) and !Translate.is_literal(tree) {
+			Ok("<int>${spelled}")
+		} else {
+			Ok(spelled)
+		}
 	}
 
 	mirror : Str -> Str

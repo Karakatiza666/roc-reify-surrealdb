@@ -26,7 +26,7 @@ DEFINE FIELD OVERWRITE years ON vet TYPE u8;
 DEFINE FIELD OVERWRITE form ON medication TYPE string;
 DEFINE FIELD OVERWRITE label ON medication TYPE string VALUE $this.name + ' (' + $this.form + ')';
 DEFINE FIELD OVERWRITE name ON medication TYPE string;
-DEFINE FIELD OVERWRITE stock ON medication TYPE i32 DEFAULT 0;
+DEFINE FIELD OVERWRITE stock ON medication TYPE i32 DEFAULT 0i32;
 DEFINE FIELD OVERWRITE unit_price ON medication TYPE decimal;
 DEFINE FIELD OVERWRITE age ON patient TYPE u8;
 DEFINE FIELD OVERWRITE allergies ON patient TYPE array<record<medication>> DEFAULT [] REFERENCE ON DELETE UNSET ASSERT $value.all(|$e1| record::exists($e1));
@@ -71,7 +71,7 @@ DEFINE EVENT OVERWRITE visit_outcome_Referred_to_on_delete ON vet WHEN $event = 
 
 -- seed: vet
 BEGIN;
-INSERT INTO vet [{ contact: { email: 'ruth@paws.example', phone: '555-0101' }, id: 'ruth', license: 'VET-1001', name: 'Ruth Okafor', rate: 80.0dec, specialty: 'General', years: 12 }, { contact: { email: 'sam@paws.example', phone: '555-0102' }, id: 'sam', license: 'VET-1002', name: 'Sam Petrov', rate: 140.0dec, specialty: { kind: 'Surgery', board: 'ACVS' }, years: 8 }, { contact: { email: 'tia@paws.example', phone: '555-0103' }, id: 'tia', license: 'VET-1003', name: 'Tia Brandt', rate: 95.5dec, specialty: 'Dental', years: 3 }] RETURN AFTER;
+INSERT INTO vet [{ contact: { email: 'ruth@paws.example', phone: '555-0101' }, id: 'ruth', license: 'VET-1001', name: 'Ruth Okafor', rate: 80.0dec, specialty: 'General', years: 12u8 }, { contact: { email: 'sam@paws.example', phone: '555-0102' }, id: 'sam', license: 'VET-1002', name: 'Sam Petrov', rate: 140.0dec, specialty: { kind: 'Surgery', board: 'ACVS' }, years: 8u8 }, { contact: { email: 'tia@paws.example', phone: '555-0103' }, id: 'tia', license: 'VET-1003', name: 'Tia Brandt', rate: 95.5dec, specialty: 'Dental', years: 3u8 }] RETURN AFTER;
 COMMIT;
 
 -- seed: owner
@@ -81,17 +81,17 @@ COMMIT;
 
 -- seed: medication
 BEGIN;
-INSERT INTO medication [{ form: 'tablet', id: 'amoxicillin', label: 'Amoxicillin (tablet)', name: 'Amoxicillin', stock: 200, unit_price: 0.8dec }, { form: 'tablet', id: 'aspirin', label: 'Aspirin (tablet)', name: 'Aspirin', stock: 500, unit_price: 0.2dec }, { form: 'capsule', id: 'gabapentin', label: 'Gabapentin (capsule)', name: 'Gabapentin', stock: 40, unit_price: 1.4dec }, { form: 'injection', id: 'ivermectin', label: 'Ivermectin (injection)', name: 'Ivermectin', stock: 15, unit_price: 3.5dec }] RETURN AFTER;
+INSERT INTO medication [{ form: 'tablet', id: 'amoxicillin', label: 'Amoxicillin (tablet)', name: 'Amoxicillin', stock: 200i32, unit_price: 0.8dec }, { form: 'tablet', id: 'aspirin', label: 'Aspirin (tablet)', name: 'Aspirin', stock: 500i32, unit_price: 0.2dec }, { form: 'capsule', id: 'gabapentin', label: 'Gabapentin (capsule)', name: 'Gabapentin', stock: 40i32, unit_price: 1.4dec }, { form: 'injection', id: 'ivermectin', label: 'Ivermectin (injection)', name: 'Ivermectin', stock: 15i32, unit_price: 3.5dec }] RETURN AFTER;
 COMMIT;
 
 -- seed: patient
 BEGIN;
-INSERT INTO patient [{ age: 12, allergies: [], id: 'bo', name: 'Bo', owner: owner:⟨jon⟩, species: 'Dog', vaccines: [{ given: '2025-05-02', name: 'rabies', vet: vet:⟨ruth⟩ }], weight_kg: 31.5dec }, { age: 2, allergies: [], id: 'kiwi', name: 'Kiwi', owner: owner:⟨lena⟩, species: { kind: 'Bird', wingspan_cm: 25 }, vaccines: [], weight_kg: 0.4dec }, { age: 3, allergies: [medication:⟨aspirin⟩], chip: { code: '985-112', implanted_by: vet:⟨sam⟩ }, id: 'luna', name: 'Luna', owner: owner:⟨mara⟩, species: 'Cat', vaccines: [], weight_kg: 4.2dec }, { age: 9, allergies: [], id: 'mimi', name: 'Mimi', owner: owner:⟨noor⟩, species: 'Cat', vaccines: [], weight_kg: 5.1dec }, { age: 5, allergies: [medication:⟨aspirin⟩, medication:⟨amoxicillin⟩], chip: { code: '985-100', implanted_by: vet:⟨ruth⟩ }, id: 'rex', name: 'Rex', owner: owner:⟨mara⟩, species: 'Dog', vaccines: [{ given: '2025-06-11', name: 'rabies', vet: vet:⟨ruth⟩ }, { given: '2025-06-11', name: 'distemper', vet: vet:⟨sam⟩ }], weight_kg: 28.0dec }, { age: 4, allergies: [], id: 'zed', name: 'Zed', owner: owner:⟨noor⟩, species: { kind: 'Exotic', latin: 'gecko' }, vaccines: [], weight_kg: 0.1dec }] RETURN AFTER;
+INSERT INTO patient [{ age: 12u8, allergies: [], id: 'bo', name: 'Bo', owner: owner:⟨jon⟩, species: 'Dog', vaccines: [{ given: '2025-05-02', name: 'rabies', vet: vet:⟨ruth⟩ }], weight_kg: 31.5dec }, { age: 2u8, allergies: [], id: 'kiwi', name: 'Kiwi', owner: owner:⟨lena⟩, species: { kind: 'Bird', wingspan_cm: 25u8 }, vaccines: [], weight_kg: 0.4dec }, { age: 3u8, allergies: [medication:⟨aspirin⟩], chip: { code: '985-112', implanted_by: vet:⟨sam⟩ }, id: 'luna', name: 'Luna', owner: owner:⟨mara⟩, species: 'Cat', vaccines: [], weight_kg: 4.2dec }, { age: 9u8, allergies: [], id: 'mimi', name: 'Mimi', owner: owner:⟨noor⟩, species: 'Cat', vaccines: [], weight_kg: 5.1dec }, { age: 5u8, allergies: [medication:⟨aspirin⟩, medication:⟨amoxicillin⟩], chip: { code: '985-100', implanted_by: vet:⟨ruth⟩ }, id: 'rex', name: 'Rex', owner: owner:⟨mara⟩, species: 'Dog', vaccines: [{ given: '2025-06-11', name: 'rabies', vet: vet:⟨ruth⟩ }, { given: '2025-06-11', name: 'distemper', vet: vet:⟨sam⟩ }], weight_kg: 28.0dec }, { age: 4u8, allergies: [], id: 'zed', name: 'Zed', owner: owner:⟨noor⟩, species: { kind: 'Exotic', latin: 'gecko' }, vaccines: [], weight_kg: 0.1dec }] RETURN AFTER;
 COMMIT;
 
 -- seed: visit
 BEGIN;
-INSERT INTO visit [{ fee: 80.0dec, id: 'v1', items: [{ doses: 14, medication: medication:⟨amoxicillin⟩ }], outcome: 'Treated', patient: patient:⟨rex⟩, seen: d'2026-01-10T09:00:00Z', vet: vet:⟨ruth⟩ }, { fee: 140.0dec, id: 'v2', items: [], outcome: { kind: 'Followup', days: 14 }, patient: patient:⟨rex⟩, seen: d'2026-02-03T14:30:00Z', vet: vet:⟨sam⟩ }, { fee: 80.0dec, id: 'v3', items: [{ doses: 10, medication: medication:⟨gabapentin⟩ }], outcome: { kind: 'Referred', reason: 'dental scale', to: vet:⟨tia⟩ }, patient: patient:⟨luna⟩, seen: d'2026-02-20T10:15:00Z', vet: vet:⟨ruth⟩ }, { fee: 80.0dec, id: 'v4', items: [{ doses: 7, medication: medication:⟨amoxicillin⟩ }, { doses: 1, medication: medication:⟨ivermectin⟩ }], outcome: 'Treated', patient: patient:⟨bo⟩, seen: d'2026-03-05T11:00:00Z', vet: vet:⟨ruth⟩ }, { fee: 140.0dec, id: 'v5', items: [], outcome: 'Treated', patient: patient:⟨mimi⟩, seen: d'2026-03-18T16:45:00Z', vet: vet:⟨sam⟩ }, { fee: 40.0dec, id: 'v6', items: [{ doses: 1, medication: medication:⟨ivermectin⟩ }], outcome: { kind: 'Followup', days: 7 }, patient: patient:⟨kiwi⟩, seen: d'2026-04-02T08:30:00Z', vet: vet:⟨ruth⟩ }, { fee: 60.0dec, id: 'v7', items: [], outcome: 'Treated', patient: patient:⟨zed⟩, seen: d'2026-04-11T13:00:00Z', vet: vet:⟨sam⟩ }] RETURN AFTER;
+INSERT INTO visit [{ fee: 80.0dec, id: 'v1', items: [{ doses: 14, medication: medication:⟨amoxicillin⟩ }], outcome: 'Treated', patient: patient:⟨rex⟩, seen: d'2026-01-10T09:00:00Z', vet: vet:⟨ruth⟩ }, { fee: 140.0dec, id: 'v2', items: [], outcome: { kind: 'Followup', days: 14u8 }, patient: patient:⟨rex⟩, seen: d'2026-02-03T14:30:00Z', vet: vet:⟨sam⟩ }, { fee: 80.0dec, id: 'v3', items: [{ doses: 10, medication: medication:⟨gabapentin⟩ }], outcome: { kind: 'Referred', reason: 'dental scale', to: vet:⟨tia⟩ }, patient: patient:⟨luna⟩, seen: d'2026-02-20T10:15:00Z', vet: vet:⟨ruth⟩ }, { fee: 80.0dec, id: 'v4', items: [{ doses: 7, medication: medication:⟨amoxicillin⟩ }, { doses: 1, medication: medication:⟨ivermectin⟩ }], outcome: 'Treated', patient: patient:⟨bo⟩, seen: d'2026-03-05T11:00:00Z', vet: vet:⟨ruth⟩ }, { fee: 140.0dec, id: 'v5', items: [], outcome: 'Treated', patient: patient:⟨mimi⟩, seen: d'2026-03-18T16:45:00Z', vet: vet:⟨sam⟩ }, { fee: 40.0dec, id: 'v6', items: [{ doses: 1, medication: medication:⟨ivermectin⟩ }], outcome: { kind: 'Followup', days: 7u8 }, patient: patient:⟨kiwi⟩, seen: d'2026-04-02T08:30:00Z', vet: vet:⟨ruth⟩ }, { fee: 60.0dec, id: 'v7', items: [], outcome: 'Treated', patient: patient:⟨zed⟩, seen: d'2026-04-11T13:00:00Z', vet: vet:⟨sam⟩ }] RETURN AFTER;
 COMMIT;
 
 -- seed: treats
@@ -119,11 +119,11 @@ SELECT referred_by.name ?? 'nobody' AS by, record::id(id) AS id FROM owner WHERE
 SELECT record::id(id) AS id, (IF species.kind = 'Bird' THEN 'bird' ELSE IF species = 'Cat' THEN 'cat' ELSE IF species = 'Dog' THEN 'dog' ELSE species.latin END) AS kind, owner.name AS owner FROM patient ORDER BY id;
 
 -- query: vet_at_key
--- roc: [{ id: 'ruth', specialty: 'General', years: 12 }]
+-- roc: [{ id: 'ruth', specialty: 'General', years: 12u8 }]
 SELECT record::id(id) AS id, specialty AS specialty, years AS years FROM vet:⟨ruth⟩;
 
 -- query: vet_by_key
--- roc: [{ id: 'ruth', specialty: 'General', years: 12 }]
+-- roc: [{ id: 'ruth', specialty: 'General', years: 12u8 }]
 LET $key = 'ruth';
 SELECT record::id(id) AS id, specialty AS specialty, years AS years FROM vet WHERE id = type::record('vet', $key);
 
@@ -154,21 +154,21 @@ SELECT VALUE record::id(id) FROM visit WHERE seen < time::now();
 SELECT record::id(id) AS id, (IF outcome.kind = 'Followup' THEN 'follow-up' ELSE IF outcome.kind = 'Referred' THEN 'referred to ' + outcome.to.name ELSE 'treated' END) AS text FROM visit WHERE outcome != 'Treated';
 
 -- query: case_load
--- roc: [{ name: 'Ruth Okafor', patients: 4, primary: 4 }, { name: 'Sam Petrov', patients: 3, primary: 2 }, { name: 'Tia Brandt', patients: 1, primary: 0 }]
+-- roc: [{ name: 'Ruth Okafor', patients: 4u64, primary: 4u64 }, { name: 'Sam Petrov', patients: 3u64, primary: 2u64 }, { name: 'Tia Brandt', patients: 1u64, primary: 0u64 }]
 SELECT name AS name, ->treats.len() AS patients, ->treats[WHERE primary].len() AS primary FROM vet;
 
 -- query: teams
--- roc: [{ lead: ['Ruth Okafor'], name: 'Bo', team: 1 }, { lead: ['Ruth Okafor'], name: 'Kiwi', team: 1 }, { lead: ['Sam Petrov'], name: 'Luna', team: 2 }, { lead: ['Sam Petrov'], name: 'Mimi', team: 1 }, { lead: ['Ruth Okafor'], name: 'Rex', team: 2 }, { lead: ['Ruth Okafor'], name: 'Zed', team: 1 }]
+-- roc: [{ lead: ['Ruth Okafor'], name: 'Bo', team: 1u64 }, { lead: ['Ruth Okafor'], name: 'Kiwi', team: 1u64 }, { lead: ['Sam Petrov'], name: 'Luna', team: 2u64 }, { lead: ['Sam Petrov'], name: 'Mimi', team: 1u64 }, { lead: ['Ruth Okafor'], name: 'Rex', team: 2u64 }, { lead: ['Ruth Okafor'], name: 'Zed', team: 1u64 }]
 SELECT <-treats[WHERE primary]<-vet.name AS lead, name AS name, <-treats.len() AS team FROM patient;
 
 -- query: ledger
 -- ordered
--- roc: [{ avg_fee: 113.33333333333333f, revenue: 340.0dec, vet: 'Sam Petrov', visits: 3 }, { avg_fee: 70f, revenue: 280.0dec, vet: 'Ruth Okafor', visits: 4 }]
+-- roc: [{ avg_fee: 113.33333333333333f, revenue: 340.0dec, vet: 'Sam Petrov', visits: 3u64 }, { avg_fee: 70f, revenue: 280.0dec, vet: 'Ruth Okafor', visits: 4u64 }]
 SELECT math::mean(<float>fee) AS avg_fee, math::sum(fee) AS revenue, vet.name AS vet, count() AS visits FROM visit GROUP BY vet ORDER BY revenue DESC LIMIT 2;
 
 -- query: eldest
 -- ordered
--- roc: [{ age: 12, id: 'bo' }, { age: 9, id: 'mimi' }, { age: 5, id: 'rex' }]
+-- roc: [{ age: 12u8, id: 'bo' }, { age: 9u8, id: 'mimi' }, { age: 5u8, id: 'rex' }]
 SELECT age AS age, record::id(id) AS id FROM patient ORDER BY age DESC LIMIT 3;
 
 -- query: labels
@@ -177,7 +177,7 @@ SELECT age AS age, record::id(id) AS id FROM patient ORDER BY age DESC LIMIT 3;
 SELECT VALUE label FROM medication ORDER BY label;
 
 -- query: whole_vets
--- roc: [{ contact: { email: 'ruth@paws.example', phone: '555-0101' }, id: 'ruth', license: 'VET-1001', name: 'Ruth Okafor', rate: 80.0dec, specialty: 'General', years: 12 }, { contact: { email: 'sam@paws.example', phone: '555-0102' }, id: 'sam', license: 'VET-1002', name: 'Sam Petrov', rate: 140.0dec, specialty: { kind: 'Surgery', board: 'ACVS' }, years: 8 }, { contact: { email: 'tia@paws.example', phone: '555-0103' }, id: 'tia', license: 'VET-1003', name: 'Tia Brandt', rate: 95.5dec, specialty: 'Dental', years: 3 }]
+-- roc: [{ contact: { email: 'ruth@paws.example', phone: '555-0101' }, id: 'ruth', license: 'VET-1001', name: 'Ruth Okafor', rate: 80.0dec, specialty: 'General', years: 12u8 }, { contact: { email: 'sam@paws.example', phone: '555-0102' }, id: 'sam', license: 'VET-1002', name: 'Sam Petrov', rate: 140.0dec, specialty: { kind: 'Surgery', board: 'ACVS' }, years: 8u8 }, { contact: { email: 'tia@paws.example', phone: '555-0103' }, id: 'tia', license: 'VET-1003', name: 'Tia Brandt', rate: 95.5dec, specialty: 'Dental', years: 3u8 }]
 SELECT contact, record::id(id) AS id, license, name, rate, specialty, years FROM vet;
 
 -- query: second_page
@@ -190,11 +190,11 @@ SELECT record::id(id) AS id, (IF species.kind = 'Bird' THEN 'bird' ELSE IF speci
 SELECT owner.address.city AS city, record::id(id) AS id, vaccines.map(|$v1| $v1.vet.name) AS vets FROM patient;
 
 -- query: linked_rows
--- roc: [{ id: 'bo', owner: { address: { city: 'Oslo', line: 'Storgata 4', zip: '0155' }, email: 'jon@example.org', id: 'jon', name: 'Jon Berg', tags: ['new'] }, vets: [{ contact: { email: 'ruth@paws.example', phone: '555-0101' }, id: 'ruth', license: 'VET-1001', name: 'Ruth Okafor', rate: 80.0dec, specialty: 'General', years: 12 }] }, { id: 'kiwi', owner: { address: { city: 'Lyon', line: 'Rue Merciere 9' }, email: 'lena@example.org', id: 'lena', name: 'Lena Roux', phone: '555-0188', tags: [] }, vets: [] }, { id: 'luna', owner: { address: { city: 'Oslo', line: 'Akersgata 12', zip: '0158' }, email: 'mara@example.org', id: 'mara', name: 'Mara Ito', phone: '555-0142', tags: ['vip'] }, vets: [] }, { id: 'mimi', owner: { address: { city: 'Porto', line: 'Rua das Flores 7' }, email: 'noor@example.org', id: 'noor', name: 'Noor Haddad', referred_by: owner:⟨mara⟩, tags: ['vip', 'new'] }, vets: [] }, { id: 'rex', owner: { address: { city: 'Oslo', line: 'Akersgata 12', zip: '0158' }, email: 'mara@example.org', id: 'mara', name: 'Mara Ito', phone: '555-0142', tags: ['vip'] }, vets: [{ contact: { email: 'ruth@paws.example', phone: '555-0101' }, id: 'ruth', license: 'VET-1001', name: 'Ruth Okafor', rate: 80.0dec, specialty: 'General', years: 12 }, { contact: { email: 'sam@paws.example', phone: '555-0102' }, id: 'sam', license: 'VET-1002', name: 'Sam Petrov', rate: 140.0dec, specialty: { kind: 'Surgery', board: 'ACVS' }, years: 8 }] }, { id: 'zed', owner: { address: { city: 'Porto', line: 'Rua das Flores 7' }, email: 'noor@example.org', id: 'noor', name: 'Noor Haddad', referred_by: owner:⟨mara⟩, tags: ['vip', 'new'] }, vets: [] }]
+-- roc: [{ id: 'bo', owner: { address: { city: 'Oslo', line: 'Storgata 4', zip: '0155' }, email: 'jon@example.org', id: 'jon', name: 'Jon Berg', tags: ['new'] }, vets: [{ contact: { email: 'ruth@paws.example', phone: '555-0101' }, id: 'ruth', license: 'VET-1001', name: 'Ruth Okafor', rate: 80.0dec, specialty: 'General', years: 12u8 }] }, { id: 'kiwi', owner: { address: { city: 'Lyon', line: 'Rue Merciere 9' }, email: 'lena@example.org', id: 'lena', name: 'Lena Roux', phone: '555-0188', tags: [] }, vets: [] }, { id: 'luna', owner: { address: { city: 'Oslo', line: 'Akersgata 12', zip: '0158' }, email: 'mara@example.org', id: 'mara', name: 'Mara Ito', phone: '555-0142', tags: ['vip'] }, vets: [] }, { id: 'mimi', owner: { address: { city: 'Porto', line: 'Rua das Flores 7' }, email: 'noor@example.org', id: 'noor', name: 'Noor Haddad', referred_by: owner:⟨mara⟩, tags: ['vip', 'new'] }, vets: [] }, { id: 'rex', owner: { address: { city: 'Oslo', line: 'Akersgata 12', zip: '0158' }, email: 'mara@example.org', id: 'mara', name: 'Mara Ito', phone: '555-0142', tags: ['vip'] }, vets: [{ contact: { email: 'ruth@paws.example', phone: '555-0101' }, id: 'ruth', license: 'VET-1001', name: 'Ruth Okafor', rate: 80.0dec, specialty: 'General', years: 12u8 }, { contact: { email: 'sam@paws.example', phone: '555-0102' }, id: 'sam', license: 'VET-1002', name: 'Sam Petrov', rate: 140.0dec, specialty: { kind: 'Surgery', board: 'ACVS' }, years: 8u8 }] }, { id: 'zed', owner: { address: { city: 'Porto', line: 'Rua das Flores 7' }, email: 'noor@example.org', id: 'noor', name: 'Noor Haddad', referred_by: owner:⟨mara⟩, tags: ['vip', 'new'] }, vets: [] }]
 SELECT record::id(id) AS id, owner.{ address, email, id: record::id(id), name, phone, referred_by, tags } AS owner, vaccines.map(|$v1| $v1.vet.{ contact, id: record::id(id), license, name, rate, specialty, years }) AS vets FROM patient;
 
 -- query: cheaper_than
--- roc: [{ form: 'tablet', id: 'amoxicillin', label: 'Amoxicillin (tablet)', name: 'Amoxicillin', stock: 200, unit_price: 0.8dec }, { form: 'tablet', id: 'aspirin', label: 'Aspirin (tablet)', name: 'Aspirin', stock: 500, unit_price: 0.2dec }]
+-- roc: [{ form: 'tablet', id: 'amoxicillin', label: 'Amoxicillin (tablet)', name: 'Amoxicillin', stock: 200i32, unit_price: 0.8dec }, { form: 'tablet', id: 'aspirin', label: 'Aspirin (tablet)', name: 'Aspirin', stock: 500i32, unit_price: 0.2dec }]
 LET $_1 = 0.9dec;
 SELECT form, record::id(id) AS id, label, name, stock, unit_price FROM medication WHERE unit_price < $_1;
 
@@ -229,7 +229,7 @@ SELECT VALUE name FROM vet WHERE ->treats[WHERE primary]->patient.owner.address.
 
 -- rejects: check_as_assert
 -- error: field `weight_kg`
-CREATE patient:⟨bad⟩ CONTENT { age: 12, allergies: [], name: 'Featherweight', owner: owner:⟨jon⟩, species: 'Dog', vaccines: [{ given: '2025-05-02', name: 'rabies', vet: vet:⟨ruth⟩ }], weight_kg: 0.0dec } RETURN AFTER;
+CREATE patient:⟨bad⟩ CONTENT { age: 12u8, allergies: [], name: 'Featherweight', owner: owner:⟨jon⟩, species: 'Dog', vaccines: [{ given: '2025-05-02', name: 'rabies', vet: vet:⟨ruth⟩ }], weight_kg: 0.0dec } RETURN AFTER;
 
 -- rejects: check_over_two_fields
 -- error: field `fee`
@@ -245,15 +245,15 @@ CREATE owner:⟨bad⟩ CONTENT { address: { city: 'Nowhere', line: '2 Main St' }
 
 -- rejects: assert_on_nested_path
 -- error: field `contact.email`
-CREATE vet:⟨bad⟩ CONTENT { contact: { email: 'no-at-sign', phone: '1' }, license: 'VET-9001', name: 'Sam Petrov', rate: 140.0dec, specialty: { kind: 'Surgery', board: 'ACVS' }, years: 8 } RETURN AFTER;
+CREATE vet:⟨bad⟩ CONTENT { contact: { email: 'no-at-sign', phone: '1' }, license: 'VET-9001', name: 'Sam Petrov', rate: 140.0dec, specialty: { kind: 'Surgery', board: 'ACVS' }, years: 8u8 } RETURN AFTER;
 
 -- rejects: assert_on_union
 -- error: field `species`
-CREATE patient:⟨bad⟩ CONTENT { age: 2, allergies: [], name: 'Wingless', owner: owner:⟨lena⟩, species: { kind: 'Bird', wingspan_cm: 0 }, vaccines: [], weight_kg: 0.4dec } RETURN AFTER;
+CREATE patient:⟨bad⟩ CONTENT { age: 2u8, allergies: [], name: 'Wingless', owner: owner:⟨lena⟩, species: { kind: 'Bird', wingspan_cm: 0u8 }, vaccines: [], weight_kg: 0.4dec } RETURN AFTER;
 
 -- rejects: assert_on_outcome
 -- error: field `outcome`
-CREATE visit:⟨bad⟩ CONTENT { fee: 140.0dec, items: [], outcome: { kind: 'Followup', days: 0 }, patient: patient:⟨rex⟩, seen: d'2026-02-03T14:30:00Z', vet: vet:⟨sam⟩ } RETURN AFTER;
+CREATE visit:⟨bad⟩ CONTENT { fee: 140.0dec, items: [], outcome: { kind: 'Followup', days: 0u8 }, patient: patient:⟨rex⟩, seen: d'2026-02-03T14:30:00Z', vet: vet:⟨sam⟩ } RETURN AFTER;
 
 -- rejects: assert_each_tag
 -- error: field `tags`
@@ -265,15 +265,15 @@ CREATE visit:⟨bad⟩ CONTENT { fee: 80.0dec, items: [{ doses: 0, medication: m
 
 -- rejects: assert_each_vaccine
 -- error: field `vaccines.*.name`
-CREATE patient:⟨bad⟩ CONTENT { age: 12, allergies: [], name: 'Unnamed', owner: owner:⟨jon⟩, species: 'Dog', vaccines: [{ given: '2025-01-01', name: '', vet: vet:⟨ruth⟩ }], weight_kg: 31.5dec } RETURN AFTER;
+CREATE patient:⟨bad⟩ CONTENT { age: 12u8, allergies: [], name: 'Unnamed', owner: owner:⟨jon⟩, species: 'Dog', vaccines: [{ given: '2025-01-01', name: '', vet: vet:⟨ruth⟩ }], weight_kg: 31.5dec } RETURN AFTER;
 
 -- rejects: unique_nested_path
 -- error: already contains
-CREATE vet:⟨bad⟩ CONTENT { contact: { email: 'sam@paws.example', phone: '555-0102' }, license: 'VET-9001', name: 'Sam Petrov', rate: 140.0dec, specialty: { kind: 'Surgery', board: 'ACVS' }, years: 8 } RETURN AFTER;
+CREATE vet:⟨bad⟩ CONTENT { contact: { email: 'sam@paws.example', phone: '555-0102' }, license: 'VET-9001', name: 'Sam Petrov', rate: 140.0dec, specialty: { kind: 'Surgery', board: 'ACVS' }, years: 8u8 } RETURN AFTER;
 
 -- rejects: unique_composite_with_link
 -- error: already contains
-CREATE patient:⟨rex2⟩ CONTENT { age: 5, allergies: [medication:⟨aspirin⟩, medication:⟨amoxicillin⟩], chip: { code: '985-100', implanted_by: vet:⟨ruth⟩ }, name: 'Rex', owner: owner:⟨mara⟩, species: 'Dog', vaccines: [{ given: '2025-06-11', name: 'rabies', vet: vet:⟨ruth⟩ }, { given: '2025-06-11', name: 'distemper', vet: vet:⟨sam⟩ }], weight_kg: 28.0dec } RETURN AFTER;
+CREATE patient:⟨rex2⟩ CONTENT { age: 5u8, allergies: [medication:⟨aspirin⟩, medication:⟨amoxicillin⟩], chip: { code: '985-100', implanted_by: vet:⟨ruth⟩ }, name: 'Rex', owner: owner:⟨mara⟩, species: 'Dog', vaccines: [{ given: '2025-06-11', name: 'rabies', vet: vet:⟨ruth⟩ }, { given: '2025-06-11', name: 'distemper', vet: vet:⟨sam⟩ }], weight_kg: 28.0dec } RETURN AFTER;
 
 -- rejects: unique_composite_address
 -- error: already contains
@@ -297,7 +297,7 @@ UPDATE vet:⟨ruth⟩ SET license = 'VET-2000' RETURN AFTER;
 
 -- rejects: link_exists_root
 -- error: field `owner`
-CREATE patient:⟨bad⟩ CONTENT { age: 12, allergies: [], name: 'Stray', owner: owner:⟨nobody⟩, species: 'Dog', vaccines: [{ given: '2025-05-02', name: 'rabies', vet: vet:⟨ruth⟩ }], weight_kg: 31.5dec } RETURN AFTER;
+CREATE patient:⟨bad⟩ CONTENT { age: 12u8, allergies: [], name: 'Stray', owner: owner:⟨nobody⟩, species: 'Dog', vaccines: [{ given: '2025-05-02', name: 'rabies', vet: vet:⟨ruth⟩ }], weight_kg: 31.5dec } RETURN AFTER;
 
 -- rejects: link_exists_in_list_of_records
 -- error: field `items.*.medication`
@@ -305,7 +305,7 @@ CREATE visit:⟨bad⟩ CONTENT { fee: 80.0dec, items: [{ doses: 1, medication: m
 
 -- rejects: link_exists_in_optional_record
 -- error: field `chip.implanted_by`
-CREATE patient:⟨bad⟩ CONTENT { age: 12, allergies: [], chip: { code: '000-000', implanted_by: vet:⟨ghost⟩ }, name: 'Chipped', owner: owner:⟨jon⟩, species: 'Dog', vaccines: [{ given: '2025-05-02', name: 'rabies', vet: vet:⟨ruth⟩ }], weight_kg: 31.5dec } RETURN AFTER;
+CREATE patient:⟨bad⟩ CONTENT { age: 12u8, allergies: [], chip: { code: '000-000', implanted_by: vet:⟨ghost⟩ }, name: 'Chipped', owner: owner:⟨jon⟩, species: 'Dog', vaccines: [{ given: '2025-05-02', name: 'rabies', vet: vet:⟨ruth⟩ }], weight_kg: 31.5dec } RETURN AFTER;
 
 -- rejects: link_exists_in_union_arm
 -- error: field `outcome`
@@ -313,7 +313,7 @@ CREATE visit:⟨bad⟩ CONTENT { fee: 140.0dec, items: [], outcome: { kind: 'Ref
 
 -- rejects: link_exists_in_vaccines
 -- error: field `vaccines.*.vet`
-CREATE patient:⟨bad⟩ CONTENT { age: 12, allergies: [], name: 'Jabbed', owner: owner:⟨jon⟩, species: 'Dog', vaccines: [{ given: '2025-01-01', name: 'rabies', vet: vet:⟨ghost⟩ }], weight_kg: 31.5dec } RETURN AFTER;
+CREATE patient:⟨bad⟩ CONTENT { age: 12u8, allergies: [], name: 'Jabbed', owner: owner:⟨jon⟩, species: 'Dog', vaccines: [{ given: '2025-01-01', name: 'rabies', vet: vet:⟨ghost⟩ }], weight_kg: 31.5dec } RETURN AFTER;
 
 -- rejects: delete_vet_with_visits
 -- error: ON DELETE REJECT
@@ -330,27 +330,27 @@ DELETE medication:⟨amoxicillin⟩ RETURN BEFORE;
 -- write: admit_patient
 -- ordered
 -- roc: [{ id: 'bo', kind: 'dog', owner: 'Jon Berg' }, { id: 'kiwi', kind: 'bird', owner: 'Lena Roux' }, { id: 'luna', kind: 'cat', owner: 'Mara Ito' }, { id: 'mimi', kind: 'cat', owner: 'Noor Haddad' }, { id: 'pip', kind: 'dog', owner: 'Jon Berg' }, { id: 'rex', kind: 'dog', owner: 'Mara Ito' }, { id: 'zed', kind: 'gecko', owner: 'Noor Haddad' }]
-CREATE patient:⟨pip⟩ CONTENT { age: 1, allergies: [], name: 'Pip', owner: owner:⟨jon⟩, species: 'Dog', vaccines: [], weight_kg: 6.5dec } RETURN AFTER;
+CREATE patient:⟨pip⟩ CONTENT { age: 1u8, allergies: [], name: 'Pip', owner: owner:⟨jon⟩, species: 'Dog', vaccines: [], weight_kg: 6.5dec } RETURN AFTER;
 SELECT record::id(id) AS id, (IF species.kind = 'Bird' THEN 'bird' ELSE IF species = 'Cat' THEN 'cat' ELSE IF species = 'Dog' THEN 'dog' ELSE species.latin END) AS kind, owner.name AS owner FROM patient ORDER BY id;
 
 -- write: add_medication
 -- ordered
--- roc: [{ id: 'amoxicillin', label: 'Amoxicillin (tablet)', stock: 200 }, { id: 'aspirin', label: 'Aspirin (tablet)', stock: 500 }, { id: 'gabapentin', label: 'Gabapentin (capsule)', stock: 40 }, { id: 'ivermectin', label: 'Ivermectin (injection)', stock: 15 }, { id: 'meloxicam', label: 'Meloxicam (liquid)', stock: 0 }]
+-- roc: [{ id: 'amoxicillin', label: 'Amoxicillin (tablet)', stock: 200i32 }, { id: 'aspirin', label: 'Aspirin (tablet)', stock: 500i32 }, { id: 'gabapentin', label: 'Gabapentin (capsule)', stock: 40i32 }, { id: 'ivermectin', label: 'Ivermectin (injection)', stock: 15i32 }, { id: 'meloxicam', label: 'Meloxicam (liquid)', stock: 0i32 }]
 CREATE medication:⟨meloxicam⟩ CONTENT { form: 'liquid', name: 'Meloxicam', unit_price: 2.5dec } RETURN AFTER;
 SELECT record::id(id) AS id, label AS label, stock AS stock FROM medication ORDER BY id;
 
 -- write: restock
 -- ordered
--- roc: [{ id: 'amoxicillin', label: 'Amoxicillin (tablet)', stock: 200 }, { id: 'aspirin', label: 'Aspirin (tablet)', stock: 500 }, { id: 'gabapentin', label: 'Gabapentin (capsule)', stock: 140 }, { id: 'ivermectin', label: 'Ivermectin (injection)', stock: 115 }, { id: 'meloxicam', label: 'Meloxicam (liquid)', stock: 100 }]
-LET $add = 100;
-LET $floor = 60;
-UPDATE medication SET stock = stock + $add WHERE stock < $floor RETURN AFTER;
+-- roc: [{ id: 'amoxicillin', label: 'Amoxicillin (tablet)', stock: 200i32 }, { id: 'aspirin', label: 'Aspirin (tablet)', stock: 500i32 }, { id: 'gabapentin', label: 'Gabapentin (capsule)', stock: 140i32 }, { id: 'ivermectin', label: 'Ivermectin (injection)', stock: 115i32 }, { id: 'meloxicam', label: 'Meloxicam (liquid)', stock: 100i32 }]
+LET $add = 100i32;
+LET $floor = 60i32;
+UPDATE medication SET stock = <int>stock + <int>$add WHERE stock < $floor RETURN AFTER;
 SELECT record::id(id) AS id, label AS label, stock AS stock FROM medication ORDER BY id;
 
 -- write: certify_vet
 -- ordered
--- roc: [{ id: 'ruth', specialty: 'General', years: 12 }, { id: 'sam', specialty: { kind: 'Surgery', board: 'ACVS' }, years: 8 }, { id: 'tia', specialty: { kind: 'Surgery', board: 'ECVS' }, years: 4 }]
-UPDATE vet:⟨tia⟩ SET specialty = { kind: 'Surgery', board: 'ECVS' }, years = years + 1 RETURN AFTER;
+-- roc: [{ id: 'ruth', specialty: 'General', years: 12u8 }, { id: 'sam', specialty: { kind: 'Surgery', board: 'ACVS' }, years: 8u8 }, { id: 'tia', specialty: { kind: 'Surgery', board: 'ECVS' }, years: 4u8 }]
+UPDATE vet:⟨tia⟩ SET specialty = { kind: 'Surgery', board: 'ECVS' }, years = <int>years + 1 RETURN AFTER;
 SELECT record::id(id) AS id, specialty AS specialty, years AS years FROM vet ORDER BY id;
 
 -- write: rename_owner
@@ -408,9 +408,9 @@ COMMIT;
 SELECT text AS text, vet.name AS vet FROM note;
 
 -- query: visit_totals
--- roc: [{ avg_fee: 66.66666666666667f, revenue: 200.0dec, visits: 3 }]
+-- roc: [{ avg_fee: 66.66666666666667f, revenue: 200.0dec, visits: 3u64 }]
 SELECT math::mean(<float>fee) AS avg_fee, math::sum(fee) AS revenue, count() AS visits FROM visit GROUP ALL;
 
 -- query: no_visit_totals
--- roc: [{ visits: 0 }]
+-- roc: [{ visits: 0u64 }]
 SELECT count() AS visits FROM visit WHERE fee > 1000.0dec GROUP ALL;

@@ -506,31 +506,31 @@ needs_follow_up : Visit -> Bool
 needs_follow_up = |stay| stay.outcome != Treated
 
 ## Edges leaving a vet: how many patients, and how many are the vet's own.
-CaseLoad : { name : Str, patients : I64, primary : I64 }
+CaseLoad : { name : Str, patients : U64, primary : U64 }
 
 case_load : Vet, List(Treats) -> CaseLoad
 case_load = |doc, links| {
-	own = links.keep_if(|link| link.primary).len().to_i64_wrap()
-	all = links.len().to_i64_wrap()
+	own = links.keep_if(|link| link.primary).len()
+	all = links.len()
 	{ primary: own, patients: all, name: doc.name }
 }
 
 ## Edges arriving at a patient: the lead vet, if any.
-TeamLine : { name : Str, team : I64, lead : List(Str) }
+TeamLine : { name : Str, team : U64, lead : List(Str) }
 
 team_line : Patient, List(Treats) -> TeamLine
 team_line = |pet, links| {
 	lead = links.keep_if(|link| link.primary).map(|link| link.from.get().name)
-	{ team: links.len().to_i64_wrap(), name: pet.name, lead }
+	{ team: links.len(), name: pet.name, lead }
 }
 
-Ledger : { vet : Str, visits : I64, revenue : Dec, avg_fee : F64 }
+Ledger : { vet : Str, visits : U64, revenue : Dec, avg_fee : F64 }
 
 ledger_line : Str, List(Visit) -> Ledger
 ledger_line = |who, stays| {
 	revenue = stays.map(|stay| stay.fee).sum()
 	avg_fee = Surreal.Math.mean_dec(stays.map(|stay| stay.fee))
-	{ visits: stays.len().to_i64_wrap(), vet: who, revenue, avg_fee }
+	{ visits: stays.len(), vet: who, revenue, avg_fee }
 }
 
 PatientAge : { id : Str, age : U8 }
@@ -1166,12 +1166,12 @@ main! = |_args| {
 
 # ------------------------------------------- GROUP ALL, after the writes
 
-VisitTotals : { visits : I64, revenue : Dec, avg_fee : F64 }
+VisitTotals : { visits : U64, revenue : Dec, avg_fee : F64 }
 
 visit_totals : List(Visit) -> VisitTotals
 visit_totals = |rows| {
 	fees = rows.map(|v| v.fee)
-	{ visits: rows.len().to_i64_wrap(), revenue: fees.sum(), avg_fee: Surreal.Math.mean(rows.map(|v| v.fee.to_f64())) }
+	{ visits: rows.len(), revenue: fees.sum(), avg_fee: Surreal.Math.mean(rows.map(|v| v.fee.to_f64())) }
 }
 
 totals_blocks : List(Str)
@@ -1188,7 +1188,7 @@ totals_blocks = {
 		block(
 			"-- query: no_visit_totals",
 			[],
-			costly.totals(|rows| { visits: rows.len().to_i64_wrap() }).prepare({}),
+			costly.totals(|rows| { visits: rows.len() }).prepare({}),
 			Surreal.Mirror.literal([{ visits: visit_totals([]).visits }]),
 		),
 	]

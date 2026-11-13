@@ -82,7 +82,7 @@ expect rename_any(Surreal.Unchecked.id("vet", "jon"), "Jo").checked().is_err()
 first_page : U64, U64 -> Surreal.Prepared(List(Medication))
 first_page = |skip, size| Surreal.from(medications).select(|m| m).order_by(|m| m.name, Asc).start(skip).limit(size).ready()
 
-expect script(first_page(20, 10)) == "LET $_1 = 20;\nLET $_2 = 10;\nSELECT record::id(id) AS id, name, stock, unit_price FROM medication ORDER BY name LIMIT $_2 START $_1;"
+expect script(first_page(20, 10)) == "LET $_1 = 20u64;\nLET $_2 = 10u64;\nSELECT record::id(id) AS id, name, stock, unit_price FROM medication ORDER BY name LIMIT <int>$_2 START <int>$_1;"
 
 # A count the program fixes is a literal.
 expect script(Surreal.from(medications).select(|m| m).limit(3).ready()) == "SELECT record::id(id) AS id, name, stock, unit_price FROM medication ORDER BY id LIMIT 3;"
@@ -126,5 +126,5 @@ paid_with = |pay| Surreal.from(orders).filter(|o| o.pay == pay).ready()
 # Verified on SurrealDB 3.3.4: with rows of each variant, `Points(3)`
 # finds only the row of `Points(3)`, `Cash` the row of `Cash`, and a
 # voucher the row of its code.
-expect script(paid_with(Points(3))) == "LET $_1 = { kind: 'Points', value: 3 };\nSELECT record::id(id) AS id, pay FROM order WHERE (IF pay.kind = 'Card' THEN (IF $_1.kind = 'Card' THEN pay.value = $_1.value ELSE false END) ELSE IF pay = 'Cash' THEN $_1 = 'Cash' ELSE IF pay.kind = 'Points' THEN (IF $_1.kind = 'Points' THEN pay.value = $_1.value ELSE false END) ELSE (IF $_1.kind = 'Voucher' THEN pay.code = $_1.code ELSE false END) END);"
+expect script(paid_with(Points(3))) == "LET $_1 = { kind: 'Points', value: 3u64 };\nSELECT record::id(id) AS id, pay FROM order WHERE (IF pay.kind = 'Card' THEN (IF $_1.kind = 'Card' THEN pay.value = $_1.value ELSE false END) ELSE IF pay = 'Cash' THEN $_1 = 'Cash' ELSE IF pay.kind = 'Points' THEN (IF $_1.kind = 'Points' THEN pay.value = $_1.value ELSE false END) ELSE (IF $_1.kind = 'Voucher' THEN pay.code = $_1.code ELSE false END) END);"
 expect script(paid_with(Cash)) == "LET $_1 = 'Cash';\nSELECT record::id(id) AS id, pay FROM order WHERE (IF pay.kind = 'Card' THEN (IF $_1.kind = 'Card' THEN pay.value = $_1.value ELSE false END) ELSE IF pay = 'Cash' THEN $_1 = 'Cash' ELSE IF pay.kind = 'Points' THEN (IF $_1.kind = 'Points' THEN pay.value = $_1.value ELSE false END) ELSE (IF $_1.kind = 'Voucher' THEN pay.code = $_1.code ELSE false END) END);"

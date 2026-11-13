@@ -5002,8 +5002,14 @@ selected_of = |q, shape, results, groups, rows| Selected.(
 )
 
 ## The count of `limit` or `start`: its literal, or the mark of its slot.
+## The count of a `LIMIT` or a `START`. A count that is not a literal is
+## a `U64`, which the server has as a `u64`, and `LIMIT` takes only an
+## `int` (verified on 4.0.1): so it is cast, `<int>$_1`.
 count_text : Code(U64) -> Try(Str, Error)
-count_text = |count| within_clause("the count", Translate.render(own, count.graph(), [], spelled(count, Translate.variable)))
+count_text = |count| {
+	text = within_clause("the count", Translate.render(own, count.graph(), [], spelled(count, Translate.variable)))?
+	Ok(if (text.to_utf8().all(|b| b >= '0' and b <= '9')) text else "<int>${text}")
+}
 
 is_unlimited : [Unlimited, Limit(Try(Str, Error))] -> Bool
 is_unlimited = |limit| match limit {
@@ -6539,7 +6545,7 @@ expect placed(Since(holder.at)) == Ok("{ id: 'p', place: { kind: 'Since', value:
 expect placed(Shelved(Shelf.({ aisle: "b", bin: 4 }))) == Ok("{ id: 'p', place: { kind: 'Shelved', aisle: 'b', bin: 4 } }")
 expect placed(Box({ w: 2 })) == Ok("{ id: 'p', place: { kind: 'Box', w: 2 } }")
 
-expect Surreal.Mirror.literal([{ id: "a", n: 2.U8 }, { id: "b", n: 3 }]) == Ok("[{ id: 'a', n: 2 }, { id: 'b', n: 3 }]")
+expect Surreal.Mirror.literal([{ id: "a", n: 2.U8 }, { id: "b", n: 3 }]) == Ok("[{ id: 'a', n: 2u8 }, { id: 'b', n: 3u8 }]")
 
 # Datetimes: one shape in, one text out.
 iso_of : Str -> Str

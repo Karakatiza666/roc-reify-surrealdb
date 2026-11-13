@@ -686,7 +686,7 @@ expect where_(TranslateTest.describe1(samples, |s| Surreal.Time.round(s.at, Surr
 expect where_(TranslateTest.describe1(samples, |s| Surreal.Time.floor(s.at, Surreal.Time.mins(90)) < s.at)) == Ok("time::floor(at, 1h30m) < at")
 expect where_(TranslateTest.describe1(samples, |s| Surreal.Time.floor(s.at, Surreal.Time.nanos(7)) < s.at)) == Ok("time::floor(at, 7ns) < at")
 expect where_(TranslateTest.describe1(samples, |s| Surreal.Time.floor(s.at, Surreal.Time.weeks(1)) < s.at)) == Ok("time::floor(at, 1w) < at")
-expect where_(TranslateTest.describe1(samples, |s| Surreal.Time.floor(s.at, Surreal.Time.hours(s.nums.len())) < s.at)) == Ok("time::floor(at, duration::from_nanos(nums.len() * 3600000000000)) < at")
+expect where_(TranslateTest.describe1(samples, |s| Surreal.Time.floor(s.at, Surreal.Time.hours(s.nums.len())) < s.at)) == Ok("time::floor(at, duration::from_nanos(<int>nums.len() * 3600000000000)) < at")
 expect where_(TranslateTest.describe1(samples, |s| Surreal.Time.group(s.at, Year) < s.at)) == Ok("time::group(at, 'year') < at")
 expect where_(TranslateTest.describe1(samples, |s| Surreal.Time.group(s.at, Month) < s.at)) == Ok("time::group(at, 'month') < at")
 expect where_(TranslateTest.describe1(samples, |s| Surreal.Time.group(s.at, Day) < s.at)) == Ok("time::group(at, 'day') < at")

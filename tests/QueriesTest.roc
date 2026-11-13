@@ -113,8 +113,8 @@ expect Surreal.from(orders).filter(|o| o.total > 10).totals(|rows| { big: rows.k
 expect Surreal.from(orders).totals(|rows| { mid: Surreal.Math.median(rows.map(|o| o.total.to_f64())) }).to_surql() == Err(Unsupported("in `totals`: `math::median` of no rows is `NONE`, not a number, and `totals` always gives one row; take the median per group with `group_by`"))
 expect Surreal.from(orders).filter_by(|p, o| o.total > p.least).totals(|rows| { n: rows.len() }).prepare({ least: 2 }).request() == Ok("LET $least = 2.0dec;\nSELECT count() AS n FROM order WHERE total > $least GROUP ALL;")
 # A `U64` parameter: an `int`, or a decimal above the range of an `int`.
-expect Surreal.from(orders).filter_by(|p, o| o.items.len() >= p.least).select_value(|o| o.id).prepare({ least: 2 }).request() == Ok("LET $least = 2;\nSELECT VALUE record::id(id) FROM order WHERE $least <= items.len();")
-expect Surreal.from(orders).filter_by(|p, o| o.items.len() >= p.least).select_value(|o| o.id).prepare({ least: 18446744073709551615 }).request() == Ok("LET $least = 18446744073709551615.0dec;\nSELECT VALUE record::id(id) FROM order WHERE $least <= items.len();")
+expect Surreal.from(orders).filter_by(|p, o| o.items.len() >= p.least).select_value(|o| o.id).prepare({ least: 2 }).request() == Ok("LET $least = 2u64;\nSELECT VALUE record::id(id) FROM order WHERE $least <= items.len();")
+expect Surreal.from(orders).filter_by(|p, o| o.items.len() >= p.least).select_value(|o| o.id).prepare({ least: 18446744073709551615 }).request() == Ok("LET $least = 18446744073709551615u64;\nSELECT VALUE record::id(id) FROM order WHERE $least <= items.len();")
 
 # ------------------------------------------------------ query fragments
 
@@ -967,7 +967,7 @@ kinds = Surreal.table("kinds")
 kinds_on : Surreal.Date -> Try(Str, Surreal.Error)
 kinds_on = |day| Surreal.from(kinds).filter(|k| k.day == day).select_value(|k| k.id).ready().request()
 
-expect kinds_on(Surreal.Date.from_days(5)) == Ok("LET $_1 = 5;\nSELECT VALUE record::id(id) FROM kinds WHERE (day - <date>'1970-01-01') = $_1;")
+expect kinds_on(Surreal.Date.from_days(5)) == Ok("LET $_1 = 5i32;\nSELECT VALUE record::id(id) FROM kinds WHERE (day - <date>'1970-01-01') = $_1;")
 expect Surreal.from(kinds).filter(|k| k.day < Surreal.Date.from_days(0)).select_value(|k| k.id).ready().request() == Ok("SELECT VALUE record::id(id) FROM kinds WHERE (day - <date>'1970-01-01') < 0;")
 expect Surreal.from(kinds).filter_by(|p, k| k.at == p.at).select_value(|k| k.id).prepare({ at: Surreal.TimeOfDay.from_nanos(1) ?? crash "valid" }).request() == Ok("LET $at = <time>'00:00:00.000000001';\nSELECT VALUE record::id(id) FROM kinds WHERE duration::nanos(<duration>at) = duration::nanos(<duration>$at);")
 expect Surreal.from(kinds).filter_by(|p, k| k.span == p.span).select_value(|k| k.id).prepare({ span: Surreal.Interval.from_parts({ months: 1, days: 0, micros: 0 }) }).request() == Err(Unsupported("in `filter_by`: a `interval` in a clause has no SurrealQL form for its parts; compare it in Roc after the read"))

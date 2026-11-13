@@ -178,6 +178,20 @@ Ql :: {}.{
 		Interval(i) => "<interval>'${Ql.interval_text(i)}'"
 	}
 
+	## The integer of an `Int` or of a sized integer value.
+	int_of : Value -> Try(I128, [NotInt])
+	int_of = |value| match value {
+		Int(n) => Ok(n.to_i128())
+		I8(n) => Ok(n.to_i128())
+		U8(n) => Ok(n.to_i128())
+		I16(n) => Ok(n.to_i128())
+		U16(n) => Ok(n.to_i128())
+		I32(n) => Ok(n.to_i128())
+		U32(n) => Ok(n.to_i128())
+		U64(n) => Ok(n.to_i128())
+		_ => Err(NotInt)
+	}
+
 	## A float of a sized type with its suffix (`1.5f32`). The non-finite
 	## values have no literal, so they are a cast: `<f32>NaN`.
 	sized_float : F32, Str -> Str

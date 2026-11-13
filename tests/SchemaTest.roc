@@ -139,7 +139,7 @@ expect script_of([customer_def, product_def, order_def, purchased_def]) == [
 	"DEFINE FIELD OVERWRITE tags ON customer TYPE array<string> DEFAULT ['new'] ASSERT $value.all(|$item| $item != '');",
 	"DEFINE FIELD OVERWRITE label ON product TYPE string VALUE $this.title + '!';",
 	"DEFINE FIELD OVERWRITE price ON product TYPE decimal;",
-	"DEFINE FIELD OVERWRITE stock ON product TYPE i32 DEFAULT 0;",
+	"DEFINE FIELD OVERWRITE stock ON product TYPE i32 DEFAULT 0i32;",
 	"DEFINE FIELD OVERWRITE title ON product TYPE string READONLY;",
 	"DEFINE FIELD OVERWRITE created ON order TYPE datetime VALUE time::now() READONLY;",
 	"DEFINE FIELD OVERWRITE customer ON order TYPE record<customer> REFERENCE ON DELETE CASCADE ASSERT record::exists($value);",
@@ -490,7 +490,7 @@ expect script_of([Surreal.function(|_| hot_fn), product_def, reading_def, daily.
 	"DEFINE TABLE OVERWRITE reading_daily TYPE NORMAL AS SELECT time::floor(record::id(id)[1], 1d) AS day, count(fn::hot(level)) AS hot, record::id(id)[0] AS product, count() AS readings FROM reading GROUP BY day, product;",
 	"DEFINE FIELD OVERWRITE label ON product TYPE string VALUE $this.title + '!';",
 	"DEFINE FIELD OVERWRITE price ON product TYPE decimal;",
-	"DEFINE FIELD OVERWRITE stock ON product TYPE i32 DEFAULT 0;",
+	"DEFINE FIELD OVERWRITE stock ON product TYPE i32 DEFAULT 0i32;",
 	"DEFINE FIELD OVERWRITE title ON product TYPE string READONLY;",
 	"DEFINE FIELD OVERWRITE id ON reading TYPE [record<product>, datetime];",
 	"DEFINE FIELD OVERWRITE level ON reading TYPE int;",
@@ -725,7 +725,7 @@ expect script_of([packs.define().done()]) == [
 	"DEFINE FIELD OVERWRITE size ON pack TYPE object;",
 	"DEFINE FIELD OVERWRITE size.label ON pack TYPE string DEFAULT 'crate';",
 	"DEFINE FIELD OVERWRITE size.w ON pack TYPE int DEFAULT 1;",
-	"DEFINE FIELD OVERWRITE stock ON pack TYPE i32 DEFAULT 0;",
+	"DEFINE FIELD OVERWRITE stock ON pack TYPE i32 DEFAULT 0i32;",
 	"DEFINE FIELD OVERWRITE tags ON pack TYPE array<string> DEFAULT ['new'];",
 ]
 
