@@ -380,6 +380,30 @@ expect {
 	row.map_ok(|r| r.?gone) == Ok(Err(MissingField))
 }
 
+# CBOR v2 puts a tag on a sized number: 180 to 188 (`i8` to `f32`). The tag
+# is skipped, so the number reads into a Roc type that holds it, and the
+# range of the Roc type still applies.
+expect read(Cbor.Value.Tag(181, int(5))) == Ok(5.U8)
+expect read(Cbor.Value.Tag(180, int(-3))) == Ok(-3.I8)
+expect read(Cbor.Value.Tag(185, int(4000000000))) == Ok(4000000000.U32)
+expect read(Cbor.Value.Tag(181, int(5))) == Ok(5.I64)
+expect {
+	big : Try(U64, Surreal.Error)
+	big = read(Cbor.Value.Tag(186, Cbor.Value.Int(Cbor.IntValue.from_u64(18446744073709551615))))
+	big == Ok(18446744073709551615)
+}
+expect read(Cbor.Value.Tag(188, Cbor.Value.Float(1.5))) == Ok(1.5.F32)
+expect {
+	wide : Try(U8, Surreal.Error)
+	wide = read(Cbor.Value.Tag(183, int(300)))
+	wide.is_err()
+}
+expect {
+	row : Try({ n : U8, f : F64 }, Surreal.Error)
+	row = read(Diff.vmap([(Cbor.Value.Text("n"), Cbor.Value.Tag(181, int(7))), (Cbor.Value.Text("f"), Cbor.Value.Tag(188, Cbor.Value.Float(0.5)))]))
+	row == Ok({ n: 7, f: 0.5 })
+}
+
 # The bytes that SurrealDB sent for geometries: each point is a tag 88 of f16 floats.
 expect {
 	point : Try(Surreal.Point, Surreal.Error)

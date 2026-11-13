@@ -91,7 +91,12 @@ Conn : List(Step)
 ## The adapter over a script. `receive!` waits with no end, which a script
 ## cannot do: at a silence or at its end it gives `Closing`. `receive_within!`
 ## gives `TimedOut` at a silence and at its end, and only for 50 ms.
-connect_over = |steps| { connect!: |_| Ok({ conn: steps, protocol: "cbor", extensions: NotReported }) }
+## The adapter offers only the subprotocol `cbor.2` (CBOR v2): an other offer
+## is refused.
+connect_over = |steps| { connect!: |req| if req.?protocols == Ok(["cbor.2"]) Ok({ conn: steps, protocol: "cbor.2", extensions: NotReported }) else Err(Closing) }
+
+## A server that chooses the subprotocol `cbor` (CBOR v1) of an offer.
+connect_v1 = |steps| { connect!: |_| Ok({ conn: steps, protocol: "cbor", extensions: NotReported }) }
 
 ops = {
 	send!: |c, _| Ok(c),
@@ -171,6 +176,13 @@ plain_checks! = |{}| {
 	])
 }
 
+## A server that chooses `cbor`, not `cbor.2`: `Session.open!` refuses it.
+v1_checks! : {} => Try(List(Verdict), Surreal.Error)
+v1_checks! = |{}| {
+	opened = Surreal.Session.open!(Surreal.Transport.websocket(connect_v1(opening), ops, "ws://scripted"), login)
+	Ok([verdict("a server that chooses cbor is refused", text_of(opened) == Str.inspect(Wire("the server did not choose the WebSocket subprotocol `cbor.2`")), text_of(opened))])
+}
+
 text_of : Try(a, Surreal.Error) -> Str
 text_of = |got| match got {
 	Err(e) => Str.inspect(e)
@@ -191,9 +203,9 @@ shown_next = |got| match got.next {
 }
 
 main! = |_args| {
-	checks = match (timed_checks!({}), plain_checks!({})) {
-		(Ok(a), Ok(b)) => a.concat(b)
-		(Err(e), _) | (_, Err(e)) => [verdict("the session runs", Bool.False, Str.inspect(e))]
+	checks = match (timed_checks!({}), plain_checks!({}), v1_checks!({})) {
+		(Ok(a), Ok(b), Ok(c)) => a.concat(b).concat(c)
+		(Err(e), _, _) | (_, Err(e), _) | (_, _, Err(e)) => [verdict("the session runs", Bool.False, Str.inspect(e))]
 	}
 	for check in checks {
 		echo!("${if (check.agrees) "ok  " else "FAIL"} ${check.name}: ${check.text}\n")

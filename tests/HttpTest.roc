@@ -42,7 +42,7 @@ message : List(U8)
 message = [161, 98, 105, 100, 1]
 
 cbor_headers : List({ name : Str, value : Str })
-cbor_headers = [{ name: "Content-Type", value: "application/cbor" }, { name: "Accept", value: "application/cbor" }]
+cbor_headers = [{ name: "Content-Type", value: "application/cbor; v=2" }, { name: "Accept", value: "application/cbor; v=2" }]
 
 expect HttpRpc.post(url, root, message).uri == "http://127.0.0.1:8000/rpc"
 expect HttpRpc.post("https://db.example/", root, message).uri == "https://db.example/rpc"

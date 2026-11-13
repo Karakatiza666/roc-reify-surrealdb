@@ -3285,7 +3285,7 @@ Surreal :: {}.{
 	Transport :: { connect! : {} => Try(Connection, Error) }.{
 
 		## A WebSocket on `/rpc` of `url` (`ws://127.0.0.1:8000`), with the
-		## subprotocol `cbor`, through an adapter of roc-websocket:
+		## subprotocol `cbor.2` (CBOR v2), through an adapter of roc-websocket:
 		## `connect` opens the connection (`Ws.Connect`, such as
 		## `WsClient.connect`), and `ops` sends and receives on it (any
 		## record with `send!` and `receive!`, such as `WsClient.ops`).
@@ -3523,7 +3523,7 @@ Surreal :: {}.{
 	Ticket(out) :: { id : Try(U64, Error) }
 
 	## A session of SurrealDB's RPC on `/rpc`, over a `Transport`: a
-	## WebSocket with the subprotocol `cbor` (`Transport.websocket`), or
+	## WebSocket with the subprotocol `cbor.2` (`Transport.websocket`), or
 	## HTTP (`Transport.http`). The id of a request is a count, so each id is
 	## unique: SurrealDB does not check (verified). The session puts each
 	## reply and notice into its `Inbox`, and a call that waits reads one
@@ -5534,11 +5534,13 @@ live_block = |header, roles, directives, request, writes| {
 ## before `null` is no value, a `Dec` reads the text of a tag 10
 ## (`'4E+1'` is 40), and a tag union reads the form that `Encode`
 ## writes: `'Cash'`, `{ kind: 'Card', last4: .. }`, `{ kind: 'Check',
-## value: 7 }`, `{ kind: 'Wire', value: ['eu', 9] }`. The other lenient
-## reads are the ones of roc-cbor 0.4 (`Cbor.sql_rows`): a `null` is no
-## value too, as `undefined` is.
+## value: 7 }`, `{ kind: 'Wire', value: ['eu', 9] }`. The tags 180 to
+## 188 of CBOR v2 (`u8` is `181(5)`) are skipped, so a sized number of
+## SurrealDB reads into any Roc number type that holds it. The other
+## lenient reads are the ones of roc-cbor 0.4 (`Cbor.sql_rows`): a `null`
+## is no value too, as `undefined` is.
 read_options : Cbor.Options
-read_options = { ignore_tags: [6, 10], allow: [DecFromText, BoolFromInt, FloatToInt, NullAsAbsent, UndefinedAsNull, BytesFromArray], unions: Internal({ tag: "kind", content: "value" }) }
+read_options = { ignore_tags: [6, 10, 180, 181, 182, 183, 184, 185, 186, 187, 188], allow: [DecFromText, BoolFromInt, FloatToInt, NullAsAbsent, UndefinedAsNull, BytesFromArray], unions: Internal({ tag: "kind", content: "value" }) }
 
 ## A value of the type `a` from CBOR bytes of the server.
 read_cbor : List(U8) -> Try(a, Error) where [a.Cbor.Readable(errs)]
@@ -6145,13 +6147,13 @@ http_connection = |client, url| Connection.({
 })
 
 ## The WebSocket of `Transport.websocket` and `Transport.websocket_timed`:
-## opens it on `/rpc` with the subprotocol `cbor`, which the server must
+## opens it on `/rpc` with the subprotocol `cbor.2`, which the server must
 ## choose, and makes the `Connection` of the opened value with `wrap`.
 websocket! : Ws.Connect(c, e, a), Str, (c -> Connection) => Try(Connection, Error)
 websocket! = |connect, url, wrap| {
-	opened = (connect.connect!)({ url: "${url.drop_suffix("/")}/rpc", protocols: ["cbor"] }).map_err(ws_error)?
-	if opened.protocol != "cbor" {
-		return Err(Wire("the server did not choose the WebSocket subprotocol `cbor`"))
+	opened = (connect.connect!)({ url: "${url.drop_suffix("/")}/rpc", protocols: ["cbor.2"] }).map_err(ws_error)?
+	if opened.protocol != "cbor.2" {
+		return Err(Wire("the server did not choose the WebSocket subprotocol `cbor.2`"))
 	}
 	Ok(wrap(opened.conn))
 }
@@ -6211,12 +6213,12 @@ websocket_within! = |ops, conn, ms| {
 	}
 }
 
-## The bytes of a message of a session with the subprotocol `cbor`: a
+## The bytes of a message of a session with the subprotocol `cbor.2`: a
 ## `Binary` one.
 binary_of : Ws.Message -> Try(List(U8), Error)
 binary_of = |message| match message {
 	Binary(bytes) => Ok(bytes)
-	Text(_) => Err(Wire("a text message on a session with the subprotocol `cbor`"))
+	Text(_) => Err(Wire("a text message on a session with the subprotocol `cbor.2`"))
 }
 
 ## An error of the WebSocket adapter. `Closed` and `Closing`, the tags
@@ -6370,9 +6372,9 @@ expect {
 	ws_error(refused) == WebSocket(Adapter("Refused(\"HTTP/1.1 403 Forbidden\")"))
 }
 
-# The message of a session with the subprotocol `cbor` is a `Binary` one.
+# The message of a session with the subprotocol `cbor.2` is a `Binary` one.
 expect binary_of(Binary([1, 2])) == Ok([1, 2])
-expect binary_of(Text("a")) == Err(Wire("a text message on a session with the subprotocol `cbor`"))
+expect binary_of(Text("a")) == Err(Wire("a text message on a session with the subprotocol `cbor.2`"))
 
 # `Session.next_within!` needs a connection with a deadline, and is an
 # `Unsupported` error before it reads on any other: on a connection that

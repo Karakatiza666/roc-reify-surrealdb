@@ -79,10 +79,10 @@ class Server:
     def run(self, text, db=DB):
         """One HTTP request. Returns (statements, None) or (None, error text).
 
-        The reply is CBOR, not JSON: JSON prints a decimal as a string, so
+        The reply is CBOR v2, not JSON: JSON prints a decimal as a string, so
         it cannot tell the decimal 42 from the string "42". CBOR tags it.
         """
-        headers = {"Accept": "application/cbor", "Content-Type": "text/plain",
+        headers = {"Accept": "application/cbor; v=2", "Content-Type": "text/plain",
                    "Authorization": self.auth, "surreal-ns": NS}
         if db:
             headers["surreal-db"] = db
@@ -138,6 +138,8 @@ def cbor_item(data, at):
             return {"$decimal": "0" if number == 0 else str(number)}, at
         if arg == 6:  # NONE
             return None, at
+        if 180 <= arg <= 188:  # a sized number of CBOR v2 (u8 is 181): the number, as the package reads it
+            return inner, at
         return {"$tag": arg, "value": inner}, at
     return {20: False, 21: True, 22: None, 23: None}[arg], at
 
@@ -178,7 +180,7 @@ class Tagged:
 
 
 class Session:
-    """A WebSocket RPC session on `/rpc`, subprotocol `cbor`, for live queries."""
+    """A WebSocket RPC session on `/rpc`, subprotocol `cbor.2` (CBOR v2), for live queries."""
 
     def __init__(self, url, user, password, db=DB, login=None):
         parsed = urllib.parse.urlparse(url)
@@ -187,13 +189,15 @@ class Session:
         key = base64.b64encode(os.urandom(16)).decode()
         self.sock.sendall((f"GET /rpc HTTP/1.1\r\nHost: {host}:{port}\r\nUpgrade: websocket\r\n"
                            f"Connection: Upgrade\r\nSec-WebSocket-Key: {key}\r\nSec-WebSocket-Version: 13\r\n"
-                           f"Sec-WebSocket-Protocol: cbor\r\n\r\n").encode())
+                           f"Sec-WebSocket-Protocol: cbor.2\r\n\r\n").encode())
         data = b""
         while b"\r\n\r\n" not in data:
             data += self.sock.recv(4096)
         head, self.rest = data.split(b"\r\n\r\n", 1)
         if b" 101 " not in head.split(b"\r\n")[0]:
             raise ConnectionError(head.decode(errors="replace"))
+        if b"sec-websocket-protocol: cbor.2" not in head.lower():
+            raise ConnectionError("the server did not choose the subprotocol cbor.2: " + head.decode(errors="replace"))
         self.next_id = 0
         self.notices = []
         self.recorded = None

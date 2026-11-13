@@ -21,8 +21,8 @@ HttpRpc :: {}.{
 	Post : { uri : Str, headers : List({ name : Str, value : Str }), body : List(U8) }
 
 	## The post of one RPC message to `url`, the base of the server, such
-	## as `http://127.0.0.1:8000`: CBOR both ways, the authentication of
-	## `auth`, and its namespace and database.
+	## as `http://127.0.0.1:8000`: CBOR v2 (`application/cbor; v=2`) both
+	## ways, the authentication of `auth`, and its namespace and database.
 	post : Str, Auth, List(U8) -> Post
 	post = |url, auth, message| {
 		who = match auth.who {
@@ -36,7 +36,7 @@ HttpRpc :: {}.{
 		}
 		{
 			uri: "${url.drop_suffix("/")}/rpc",
-			headers: [{ name: "Content-Type", value: "application/cbor" }, { name: "Accept", value: "application/cbor" }].concat(who).concat(scope),
+			headers: [{ name: "Content-Type", value: "application/cbor; v=2" }, { name: "Accept", value: "application/cbor; v=2" }].concat(who).concat(scope),
 			body: message,
 		}
 	}
