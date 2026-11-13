@@ -1095,31 +1095,35 @@ Translate :: {}.{
 			Err(_) => Err(Unsupported("a captured `${name}` without its `${key}`"))
 		}
 		coordinates = |v| match v {
-			Object(fields) => field(fields, "coordinates")
+			Object(fields) | Geometry(Object(fields)) => field(fields, "coordinates")
 			_ => Err(Unsupported("a captured `${name}` whose parts are not geometries"))
 		}
 		all = |v| match v {
 			Array(items) => items.map_try(coordinates).map_ok(|xs| Ql.Value.Array(xs))
 			_ => Err(Unsupported("a captured `${name}` that is not a list"))
 		}
-		match (name, value) {
-			("Surreal.Point", Object(fields)) => Ok(shaped("Point", Ql.Value.Array([field(fields, "lon")?, field(fields, "lat")?])))
-			("Surreal.Line", _) => Ok(shaped("LineString", all(value)?))
-			("Surreal.Polygon", Object(fields)) => {
-				exterior = all(field(fields, "exterior")?)?
-				holes = match field(fields, "holes")? {
-					Array(rings) => rings.map_try(all)?
-					_ => []
+		geometry = |v| Try.map_ok(v, |g| Ql.Value.Geometry(g))
+		geometry(
+			match (name, value) {
+				("Surreal.Point", Object(fields)) => Ok(shaped("Point", Ql.Value.Array([field(fields, "lon")?, field(fields, "lat")?])))
+				("Surreal.Line", _) => Ok(shaped("LineString", all(value)?))
+				("Surreal.Polygon", Object(fields)) => {
+					exterior = all(field(fields, "exterior")?)?
+					holes = match field(fields, "holes")? {
+						Array(rings) => rings.map_try(all)?
+						_ => []
+					}
+					Ok(shaped("Polygon", Ql.Value.Array(List.concat([exterior], holes))))
 				}
-				Ok(shaped("Polygon", Ql.Value.Array(List.concat([exterior], holes))))
-			}
-			("Surreal.MultiPoint", _) => Ok(shaped("MultiPoint", all(value)?))
-			("Surreal.MultiLine", _) => Ok(shaped("MultiLineString", all(value)?))
-			("Surreal.MultiPolygon", _) => Ok(shaped("MultiPolygon", all(value)?))
-			("Surreal.Collection", Array(items)) => Ok(Ql.Value.Object([{ name: "type", value: Ql.Value.Str("GeometryCollection") }, { name: "geometries", value: Ql.Value.Array(items) }]))
-			("Surreal.Geometry", _) => Ok(value)
-			_ => Err(Translate.geometry_parameter(name))
-		}
+				("Surreal.MultiPoint", _) => Ok(shaped("MultiPoint", all(value)?))
+				("Surreal.MultiLine", _) => Ok(shaped("MultiLineString", all(value)?))
+				("Surreal.MultiPolygon", _) => Ok(shaped("MultiPolygon", all(value)?))
+				("Surreal.Collection", Array(items)) => Ok(Ql.Value.Object([{ name: "type", value: Ql.Value.Str("GeometryCollection") }, { name: "geometries", value: Ql.Value.Array(items) }]))
+				("Surreal.Geometry", Geometry(g)) => Ok(g)
+				("Surreal.Geometry", _) => Ok(value)
+				_ => Err(Translate.geometry_parameter(name))
+			},
+		)
 	}
 
 	named_str : List({ name : Str, value : Ql.Value }), Str -> Try(Str, [Missing])

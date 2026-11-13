@@ -1,5 +1,7 @@
 # SurrealQL text: the value type every module shares, and the quoting rules
-# that turn a value, a name or a record id into source text.
+# that turn a value, a name or a record id into source text, and the
+# printer of a value as CBOR, for the `vars` of a request.
+import cbor.Cbor
 import ws.Ws
 
 Ql :: {}.{
@@ -110,7 +112,11 @@ Ql :: {}.{
 	## their text, `Date` (100) the days since 1970-01-01, `Time` (189) the
 	## nanoseconds since midnight, `Timestamp` (190) the seconds and
 	## nanoseconds since 1970 with no time zone, and `Interval` (191) the
-	## months, the days and the microseconds.
+	## months, the days and the microseconds. `Geometry` holds the GeoJSON
+	## object of a geometry (`{ type: 'Point', coordinates: [1f, 2f] }`):
+	## its literal is that object, which SurrealDB reads as a geometry, and
+	## its CBOR is the geometry tag (88 to 94), since a plain object in a
+	## var stays an object (verified on 4.0.1).
 	Value := [
 		None,
 		Bool(Bool),
@@ -139,6 +145,7 @@ Ql :: {}.{
 		Time(U64),
 		Timestamp({ secs : I64, nanos : U32 }),
 		Interval({ months : I32, days : I32, micros : I64 }),
+		Geometry(Value),
 	]
 
 	## The value as source text: `'it\'s'`, `20dec`, `customer:⟨ada⟩`, `{ a: 1 }`.
@@ -176,6 +183,169 @@ Ql :: {}.{
 			"<timestamp>'${Ql.date_text(days)}T${Ql.clock_text(nanos)}'"
 		}
 		Interval(i) => "<interval>'${Ql.interval_text(i)}'"
+		Geometry(geojson) => Ql.literal(geojson)
+	}
+
+	## The value as CBOR, as a request of SurrealDB 4 takes it in its
+	## `vars`: the second printer of a value, next to `literal`, and equal
+	## to it on the server by value and by `type::of`. NONE is tag 6, a
+	## decimal tag 10 and its text, a datetime tag 12 and `[secs, nanos]`,
+	## a duration tag 14, a record id tag 8, a geometry tags 88 to 94, and
+	## each type of CBOR v2 its tag (180 to 193, 100). A decimal of more
+	## than 28 significant digits is refused: SurrealDB rounds such a var,
+	## and refuses such a literal. An object with a name twice is refused,
+	## as the server refuses a map with a key twice.
+	cbor : Value -> Try(Cbor.Value, Error)
+	cbor = |value| match value {
+		None => Ok(Cbor.Value.Tag(6, Cbor.Value.Null))
+		Bool(b) => Ok(Cbor.Value.Bool(b))
+		Int(n) => Ok(Cbor.Value.Int(Cbor.IntValue.from_i64(n)))
+		Float(f) => Ok(Cbor.Value.Float(f))
+		Decimal(d) => Ql.cbor_decimal(d)
+		Str(s) => Ok(Cbor.Value.Text(s))
+		Datetime(iso) => Ql.cbor_datetime(iso)
+		Duration(nanos) => Ok(Cbor.Value.Tag(14, Cbor.Value.Array([Ql.cbor_u64(nanos // 1000000000), Ql.cbor_u64(nanos % 1000000000)])))
+		Record(r) => Ok(Cbor.Value.Tag(8, Cbor.Value.Array([Cbor.Value.Text(r.table), Cbor.Value.Text(r.key)])))
+		Ref(r) => Ok(Cbor.Value.Tag(8, Cbor.Value.Array([Cbor.Value.Text(r.table), Ql.cbor(r.key)?])))
+		Array(items) => Ok(Cbor.Value.Array(items.map_try(Ql.cbor)?))
+		Object(fields) => {
+			pairs = fields.map_try(|f| Ok((Cbor.Value.Text(f.name), Ql.cbor(f.value)?)))?
+			match Cbor.ValueMap.from_list(pairs) {
+				Ok(m) => Ok(Cbor.Value.Map(m))
+				Err(DuplicateKey(key)) => Err(Unsupported("an object with the name ${Str.inspect(key)} twice"))
+			}
+		}
+		I8(n) => Ok(Cbor.Value.Tag(180, Cbor.Value.Int(Cbor.IntValue.from_i64(n.to_i64()))))
+		U8(n) => Ok(Cbor.Value.Tag(181, Ql.cbor_u64(n.to_u64())))
+		I16(n) => Ok(Cbor.Value.Tag(182, Cbor.Value.Int(Cbor.IntValue.from_i64(n.to_i64()))))
+		U16(n) => Ok(Cbor.Value.Tag(183, Ql.cbor_u64(n.to_u64())))
+		I32(n) => Ok(Cbor.Value.Tag(184, Cbor.Value.Int(Cbor.IntValue.from_i64(n.to_i64()))))
+		U32(n) => Ok(Cbor.Value.Tag(185, Ql.cbor_u64(n.to_u64())))
+		U64(n) => Ok(Cbor.Value.Tag(186, Ql.cbor_u64(n)))
+		F16(f) => Ok(Cbor.Value.Tag(187, Cbor.Value.Float(f.to_f64())))
+		F32(f) => Ok(Cbor.Value.Tag(188, Cbor.Value.Float(f.to_f64())))
+		Regex(pattern) => Ok(Cbor.Value.Tag(193, Cbor.Value.Text(pattern)))
+		BigDecimal(text) => Ok(Cbor.Value.Tag(192, Cbor.Value.Text(text)))
+		Date(days) => Ok(Cbor.Value.Tag(100, Cbor.Value.Int(Cbor.IntValue.from_i64(days.to_i64()))))
+		Time(nanos) => Ok(Cbor.Value.Tag(189, Ql.cbor_u64(nanos)))
+		Timestamp(t) => Ok(Cbor.Value.Tag(190, Cbor.Value.Array([Cbor.Value.Int(Cbor.IntValue.from_i64(t.secs)), Ql.cbor_u64(t.nanos.to_u64())])))
+		Interval(i) => Ok(Cbor.Value.Tag(191, Cbor.Value.Array([Cbor.Value.Int(Cbor.IntValue.from_i64(i.months.to_i64())), Cbor.Value.Int(Cbor.IntValue.from_i64(i.days.to_i64())), Cbor.Value.Int(Cbor.IntValue.from_i64(i.micros))])))
+		Geometry(geojson) => Ql.cbor_geometry(geojson)
+	}
+
+	## The `vars` map of a request: one entry per name, each value as
+	## `cbor` prints it.
+	vars : List({ name : Str, value : Value }) -> Try(Cbor.Value, Error)
+	vars = |named| Ql.cbor(Object(named))
+
+	cbor_u64 : U64 -> Cbor.Value
+	cbor_u64 = |n| Cbor.Value.Int(Cbor.IntValue.from_u64(n))
+
+	## Tag 10 and the text of the decimal. Leading zeros are not
+	## significant; the trailing zero of `Dec.to_str` (`20.0`) is counted,
+	## which only makes the check stricter.
+	cbor_decimal : Dec -> Try(Cbor.Value, Error)
+	cbor_decimal = |d| {
+		text = d.to_str()
+		var $digits = text.to_utf8().keep_if(|b| b >= 48 and b <= 57)
+		while $digits.first() == Ok(48) {
+			$digits = $digits.drop_first(1)
+		}
+		if $digits.len() > 28 {
+			Err(Unsupported("the decimal ${text} has more than 28 significant digits, which SurrealDB does not keep"))
+		} else {
+			Ok(Cbor.Value.Tag(10, Cbor.Value.Text(text)))
+		}
+	}
+
+	## Tag 12 and `[secs, nanos]` of a datetime in the one form that
+	## `Surreal.Datetime` holds: `YYYY-MM-DDTHH:MM:SS`, a fraction of one to
+	## nine digits, and `Z`.
+	cbor_datetime : Str -> Try(Cbor.Value, Error)
+	cbor_datetime = |iso| {
+		bad = Unsupported("the datetime `${iso}` is not in the form YYYY-MM-DDTHH:MM:SS[.f]Z")
+		bytes = iso.to_utf8()
+		is_digit = |b| b >= 48 and b <= 57
+		number = |start, len| {
+			part = bytes.sublist({ start, len })
+			if part.len() == len and part.all(is_digit) Ok(part.fold(0.I128, |acc, b| acc * 10 + (b - 48).to_i128())) else Err(bad)
+		}
+		separators = [(4, 45), (7, 45), (10, 84), (13, 58), (16, 58)]
+		if !separators.all(|(at, b)| bytes.get(at) == Ok(b)) or bytes.last() != Ok(90) {
+			return Err(bad)
+		}
+		fraction = bytes.drop_first(19).drop_last(1)
+		nanos = match fraction {
+			[] => 0
+			[46, .. as digits] if digits.len() >= 1 and digits.len() <= 9 and digits.all(is_digit) =>
+				digits.concat(List.repeat(48, 9 - digits.len())).fold(0.I128, |acc, b| acc * 10 + (b - 48).to_i128())
+			_ => return Err(bad)
+		}
+		days = Ql.days_from_civil(number(0, 4)?, number(5, 2)?, number(8, 2)?)
+		secs = days * 86400 + number(11, 2)? * 3600 + number(14, 2)? * 60 + number(17, 2)?
+		match (secs.to_i64_try(), nanos.to_i64_try()) {
+			(Ok(s), Ok(n)) => Ok(Cbor.Value.Tag(12, Cbor.Value.Array([Cbor.Value.Int(Cbor.IntValue.from_i64(s)), Cbor.Value.Int(Cbor.IntValue.from_i64(n))])))
+			_ => Err(bad)
+		}
+	}
+
+	## The day number of a date, counting from 1970-01-01.
+	days_from_civil : I128, I128, I128 -> I128
+	days_from_civil = |year, month, day| {
+		shifted = if (month <= 2) year - 1 else year
+		era = shifted.div_floor_by(400)
+		year_of_era = shifted - era * 400
+		day_of_year = (153 * (if (month > 2) month - 3 else month + 9) + 2) // 5 + day - 1
+		era * 146097 + year_of_era * 365 + year_of_era // 4 - year_of_era // 100 + day_of_year - 719468
+	}
+
+	## The geometry tag of a GeoJSON object: 88 a point `[x, y]`, 89 a line
+	## of points, 90 a polygon of lines, 91 to 93 the multi forms, 94 a
+	## collection.
+	cbor_geometry : Value -> Try(Cbor.Value, Error)
+	cbor_geometry = |geojson| {
+		bad = Unsupported("a geometry that is not a GeoJSON object: ${Ql.literal(geojson)}")
+		fields = match geojson {
+			Object(f) => f
+			Geometry(inner) => return Ql.cbor_geometry(inner)
+			_ => return Err(bad)
+		}
+		field = |name| match fields.find_first(|f| f.name == name) {
+			Ok(f) => Ok(f.value)
+			Err(_) => Err(bad)
+		}
+		number = |v| match v {
+			Float(f) => Ok(Cbor.Value.Float(f))
+			Int(n) => Ok(Cbor.Value.Float(n.to_f64()))
+			Decimal(d) => Ok(Cbor.Value.Float(d.to_f64()))
+			_ => Err(bad)
+		}
+		point = |v| match v {
+			Array([x, y]) => Ok(Cbor.Value.Tag(88, Cbor.Value.Array([number(x)?, number(y)?])))
+			_ => Err(bad)
+		}
+		line = |v| match v {
+			Array(points) => Ok(Cbor.Value.Tag(89, Cbor.Value.Array(points.map_try(point)?)))
+			_ => Err(bad)
+		}
+		polygon = |v| match v {
+			Array(rings) => Ok(Cbor.Value.Tag(90, Cbor.Value.Array(rings.map_try(line)?)))
+			_ => Err(bad)
+		}
+		many = |tag, v, one| match v {
+			Array(items) => Ok(Cbor.Value.Tag(tag, Cbor.Value.Array(items.map_try(one)?)))
+			_ => Err(bad)
+		}
+		match field("type")? {
+			Str("Point") => point(field("coordinates")?)
+			Str("LineString") => line(field("coordinates")?)
+			Str("Polygon") => polygon(field("coordinates")?)
+			Str("MultiPoint") => many(91, field("coordinates")?, point)
+			Str("MultiLineString") => many(92, field("coordinates")?, line)
+			Str("MultiPolygon") => many(93, field("coordinates")?, polygon)
+			Str("GeometryCollection") => many(94, field("geometries")?, Ql.cbor_geometry)
+			_ => Err(bad)
+		}
 	}
 
 	## The integer of an `Int` or of a sized integer value.
@@ -491,3 +661,54 @@ expect Ql.literal(Value.Timestamp({ secs: -1, nanos: 500000000 })) == "<timestam
 expect Ql.literal(Value.Interval({ months: 1, days: 2, micros: 3000000 })) == "<interval>'P1M2DT3S'"
 expect Ql.literal(Value.Interval({ months: 1, days: -2, micros: -1000001 })) == "<interval>'P1M-2DT-1.000001S'"
 expect Ql.literal(Value.Interval({ months: 0, days: 0, micros: 0 })) == "<interval>'P0M0DT0S'"
+
+# The CBOR printer (`Ql.cbor`): the form of each value in `vars`. Each
+# form was checked on SurrealDB 4.0.1 against the literal of the value.
+expect Ql.cbor(Value.None) == Ok(Cbor.Value.Tag(6, Cbor.Value.Null))
+expect Ql.cbor(Value.Int(-5)) == Ok(Cbor.Value.Int(-5))
+expect Ql.cbor(Value.Float(-0.0)) == Ok(Cbor.Value.Float(-0.0))
+expect Ql.cbor(Value.Decimal(20)) == Ok(Cbor.Value.Tag(10, Cbor.Value.Text("20.0")))
+expect Ql.cbor(Value.Decimal(-1.5)) == Ok(Cbor.Value.Tag(10, Cbor.Value.Text("-1.5")))
+expect Ql.cbor(Value.Decimal(0.000000000000000001)) == Ok(Cbor.Value.Tag(10, Cbor.Value.Text("0.000000000000000001")))
+# 28 significant digits are kept; 29 are refused, as the literal is.
+expect Ql.cbor(Value.Decimal(1234567890.123456789012345678)).is_ok()
+expect Ql.cbor(Value.Decimal(12345678901.123456789012345678)).is_err()
+expect Ql.cbor(Value.Str("it's ⟩ \\ \n")) == Ok(Cbor.Value.Text("it's ⟩ \\ \n"))
+expect Ql.cbor(Value.Datetime("2026-10-28T04:53:59Z")) == Ok(Cbor.Value.Tag(12, Cbor.Value.Array([Cbor.Value.Int(1793163239), Cbor.Value.Int(0)])))
+expect Ql.cbor(Value.Datetime("2024-01-02T03:04:05.000000005Z")) == Ok(Cbor.Value.Tag(12, Cbor.Value.Array([Cbor.Value.Int(1704164645), Cbor.Value.Int(5)])))
+expect Ql.cbor(Value.Datetime("1969-12-31T23:59:59.5Z")) == Ok(Cbor.Value.Tag(12, Cbor.Value.Array([Cbor.Value.Int(-1), Cbor.Value.Int(500000000)])))
+expect Ql.cbor(Value.Datetime("2026-10-28")).is_err()
+expect Ql.cbor(Value.Datetime("2026-10-28T04:53:59.Z")).is_err()
+expect Ql.cbor(Value.Duration(0)) == Ok(Cbor.Value.Tag(14, Cbor.Value.Array([Cbor.Value.Int(0), Cbor.Value.Int(0)])))
+expect Ql.cbor(Value.Duration(18446744073709551615)) == Ok(Cbor.Value.Tag(14, Cbor.Value.Array([Cbor.Value.Int(18446744073), Cbor.Value.Int(709551615)])))
+expect Ql.cbor(Value.Record({ table: "customer", key: "o'neil⟩" })) == Ok(Cbor.Value.Tag(8, Cbor.Value.Array([Cbor.Value.Text("customer"), Cbor.Value.Text("o'neil⟩")])))
+expect Ql.cbor(Value.Ref({ table: "vital", key: Value.Array([Value.Record({ table: "kennel", key: "a" }), Value.Int(1)]) })) == Ok(Cbor.Value.Tag(8, Cbor.Value.Array([Cbor.Value.Text("vital"), Cbor.Value.Array([Cbor.Value.Tag(8, Cbor.Value.Array([Cbor.Value.Text("kennel"), Cbor.Value.Text("a")])), Cbor.Value.Int(1)])])))
+expect Ql.cbor(Value.Object([{ name: "a", value: Value.Int(1) }, { name: "a", value: Value.Int(2) }])).is_err()
+expect Ql.vars([{ name: "p", value: Value.Bool(Bool.True) }]).map_ok(Cbor.encode) == Ok([0xa1, 0x61, 0x70, 0xf5])
+expect Ql.vars([]).map_ok(Cbor.encode) == Ok([0xa0])
+# Sized numbers and the other types of CBOR v2 keep their tags.
+expect Ql.cbor(Value.U8(5)) == Ok(Cbor.Value.Tag(181, Cbor.Value.Int(5)))
+expect Ql.cbor(Value.I8(-128)) == Ok(Cbor.Value.Tag(180, Cbor.Value.Int(-128)))
+expect Ql.cbor(Value.U64(18446744073709551615)).map_ok(Cbor.encode) == Ok([0xd8, 0xba, 0x1b, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff])
+expect Ql.cbor(Value.F32(1.5)) == Ok(Cbor.Value.Tag(188, Cbor.Value.Float(1.5)))
+expect Ql.cbor(Value.Date(-1)) == Ok(Cbor.Value.Tag(100, Cbor.Value.Int(-1)))
+expect Ql.cbor(Value.Time(45000500000000)) == Ok(Cbor.Value.Tag(189, Cbor.Value.Int(45000500000000)))
+expect Ql.cbor(Value.Timestamp({ secs: -1, nanos: 500000000 })) == Ok(Cbor.Value.Tag(190, Cbor.Value.Array([Cbor.Value.Int(-1), Cbor.Value.Int(500000000)])))
+expect Ql.cbor(Value.Interval({ months: 1, days: -2, micros: 3 })) == Ok(Cbor.Value.Tag(191, Cbor.Value.Array([Cbor.Value.Int(1), Cbor.Value.Int(-2), Cbor.Value.Int(3)])))
+expect Ql.cbor(Value.Regex("a/b")) == Ok(Cbor.Value.Tag(193, Cbor.Value.Text("a/b")))
+expect Ql.cbor(Value.BigDecimal("1.50")) == Ok(Cbor.Value.Tag(192, Cbor.Value.Text("1.50")))
+
+# A geometry is its tag; its literal is the GeoJSON object.
+point_of : F64, F64 -> Value
+point_of = |x, y| Value.Object([{ name: "type", value: Value.Str("Point") }, { name: "coordinates", value: Value.Array([Value.Float(x), Value.Float(y)]) }])
+
+cbor_point : F64, F64 -> Cbor.Value
+cbor_point = |x, y| Cbor.Value.Tag(88, Cbor.Value.Array([Cbor.Value.Float(x), Cbor.Value.Float(y)]))
+
+expect Ql.literal(Value.Geometry(point_of(1.0, 2.0))) == "{ type: 'Point', coordinates: [1f, 2f] }"
+expect Ql.cbor(Value.Geometry(point_of(1.0, 2.0))) == Ok(cbor_point(1.0, 2.0))
+expect Ql.cbor(Value.Geometry(Value.Object([{ name: "type", value: Value.Str("LineString") }, { name: "coordinates", value: Value.Array([Value.Array([Value.Float(1.0), Value.Float(2.0)]), Value.Array([Value.Float(3.0), Value.Float(4.0)])]) }]))) == Ok(Cbor.Value.Tag(89, Cbor.Value.Array([cbor_point(1.0, 2.0), cbor_point(3.0, 4.0)])))
+expect Ql.cbor(Value.Geometry(Value.Object([{ name: "type", value: Value.Str("Polygon") }, { name: "coordinates", value: Value.Array([Value.Array([Value.Array([Value.Float(0.0), Value.Float(0.0)]), Value.Array([Value.Float(1.0), Value.Float(0.0)]), Value.Array([Value.Float(0.0), Value.Float(0.0)])])]) }]))) == Ok(Cbor.Value.Tag(90, Cbor.Value.Array([Cbor.Value.Tag(89, Cbor.Value.Array([cbor_point(0.0, 0.0), cbor_point(1.0, 0.0), cbor_point(0.0, 0.0)]))])))
+expect Ql.cbor(Value.Geometry(Value.Object([{ name: "type", value: Value.Str("MultiPoint") }, { name: "coordinates", value: Value.Array([Value.Array([Value.Float(1.0), Value.Float(2.0)])]) }]))) == Ok(Cbor.Value.Tag(91, Cbor.Value.Array([cbor_point(1.0, 2.0)])))
+expect Ql.cbor(Value.Geometry(Value.Object([{ name: "type", value: Value.Str("GeometryCollection") }, { name: "geometries", value: Value.Array([point_of(1.0, 2.0)]) }]))) == Ok(Cbor.Value.Tag(94, Cbor.Value.Array([cbor_point(1.0, 2.0)])))
+expect Ql.cbor(Value.Geometry(Value.Object([{ name: "type", value: Value.Str("Circle") }]))).is_err()

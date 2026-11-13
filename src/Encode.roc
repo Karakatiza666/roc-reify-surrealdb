@@ -84,9 +84,11 @@ Encode :: {}.{
 		encode_datetime = |iso, state| Ok(state.append(Value(Ql.Value.Datetime(iso))))
 
 		## A geometry as its GeoJSON object, written by the encoders of the
-		## geometry types of `Surreal`. SurrealDB reads the object as a geometry.
+		## geometry types of `Surreal`: a `Geometry`, whose literal is the
+		## object, which SurrealDB reads as a geometry, and whose CBOR is the
+		## geometry tag.
 		encode_geometry : Ql.Value, Encode.State -> Try(Encode.State, [])
-		encode_geometry = |geojson, state| Ok(state.append(Value(geojson)))
+		encode_geometry = |geojson, state| Ok(state.append(Value(Ql.Value.Geometry(geojson))))
 
 		## A value of a SurrealDB type that has no Roc type, written by the
 		## encoders of `Surreal.Regex`, `Surreal.Date` and the like.

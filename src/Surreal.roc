@@ -5876,9 +5876,37 @@ value_of = |value| match value {
 			(Ok(m), Ok(d), Ok(us)) => Ok(Ql.Value.Interval({ months: m, days: d, micros: us }))
 			_ => Err(NoValue("an interval outside its range"))
 		}
+	Tag(tag, _) if tag >= 88 and tag <= 94 => geojson_of(value).map_ok(|g| Ql.Value.Geometry(g))
 	Tag(number, _) => Err(NoValue("a value of the tag ${number.to_str()}"))
 	Bytes(_) => Err(NoValue("bytes"))
 	Simple(n) => Err(NoValue("the simple value ${Str.inspect(n)}"))
+}
+
+## The GeoJSON object of a geometry of the server (tags 88 to 94), as
+## `geojson` writes it, so a patch that writes it back writes the same
+## geometry.
+geojson_of : Cbor.Value -> Try(Ql.Value, [NoValue(Str)])
+geojson_of = |value| {
+	bad = NoValue("a geometry that is not of the form of SurrealDB")
+	coordinates = geo_coordinates
+	match value {
+		Tag(88, _) => Ok(shaped("Point", coordinates(value)?))
+		Tag(89, _) => Ok(shaped("LineString", coordinates(value)?))
+		Tag(90, _) => Ok(shaped("Polygon", coordinates(value)?))
+		Tag(91, _) => Ok(shaped("MultiPoint", coordinates(value)?))
+		Tag(92, _) => Ok(shaped("MultiLineString", coordinates(value)?))
+		Tag(93, _) => Ok(shaped("MultiPolygon", coordinates(value)?))
+		Tag(94, Array(items)) => Ok(Ql.Value.Object([{ name: "type", value: Ql.Value.Str("GeometryCollection") }, { name: "geometries", value: Ql.Value.Array(items.map_try(geojson_of)?) }]))
+		_ => Err(bad)
+	}
+}
+
+## The GeoJSON `coordinates` of a geometry tag other than 94.
+geo_coordinates : Cbor.Value -> Try(Ql.Value, [NoValue(Str)])
+geo_coordinates = |v| match v {
+	Tag(88, Array([Float(x), Float(y)])) => Ok(Ql.Value.Array([Ql.Value.Float(x), Ql.Value.Float(y)]))
+	Tag(89, Array(parts)) | Tag(90, Array(parts)) | Tag(91, Array(parts)) | Tag(92, Array(parts)) | Tag(93, Array(parts)) => parts.map_try(geo_coordinates).map_ok(|xs| Ql.Value.Array(xs))
+	_ => Err(NoValue("a geometry that is not of the form of SurrealDB"))
 }
 
 ## The integer of a tag of CBOR v2, in the range of its type.
@@ -6608,6 +6636,26 @@ expect Surreal.Def.source(people.define()).row_ty == Record([{ name: "id", ty: S
 
 # A record id of the server as a value of the ORM.
 expect value_of(Cbor.Value.Tag(8, Cbor.Value.Array([Cbor.Value.Text("t"), Cbor.Value.Int(5)]))).map_ok(Ql.literal) == Ok("t:5")
+
+# A geometry of the server reads as its GeoJSON object, and the CBOR
+# printer writes it back as the same tag.
+geometry_back : Geometry -> Bool
+geometry_back = |g| {
+	value = Ql.Value.Geometry(geojson(g))
+	match Ql.cbor(value) {
+		Ok(c) => value_of(c).map_ok(Ql.literal) == Ok(Ql.literal(value)) and value_of(c).map_ok(|v| Ql.cbor(v)) == Ok(Ok(c))
+		Err(_) => Bool.False
+	}
+}
+
+expect geometry_back(Geometry.Point(Point.({ lon: 1.5, lat: -2.0 })))
+expect geometry_back(Geometry.Line(Line.([Point.({ lon: 0.0, lat: 0.0 }), Point.({ lon: 1.0, lat: 1.0 })])))
+expect geometry_back(Geometry.Polygon(Polygon.({ exterior: [Point.({ lon: 0.0, lat: 0.0 }), Point.({ lon: 1.0, lat: 0.0 }), Point.({ lon: 0.0, lat: 0.0 })], holes: [] })))
+expect geometry_back(Geometry.MultiPoint(MultiPoint.([Point.({ lon: 3.0, lat: 4.0 })])))
+expect geometry_back(Geometry.MultiLine(MultiLine.([Line.([Point.({ lon: 0.0, lat: 0.0 }), Point.({ lon: 1.0, lat: 1.0 })])])))
+expect geometry_back(Geometry.MultiPolygon(MultiPolygon.([Polygon.({ exterior: [Point.({ lon: 0.0, lat: 0.0 }), Point.({ lon: 1.0, lat: 0.0 }), Point.({ lon: 0.0, lat: 0.0 })], holes: [] })])))
+expect geometry_back(Geometry.Collection(Collection.([Geometry.Point(Point.({ lon: 1.0, lat: 2.0 }))])))
+expect value_of(Cbor.Value.Tag(88, Cbor.Value.Array([Cbor.Value.Float(1.0), Cbor.Value.Float(2.0)]))).map_ok(Ql.literal) == Ok("{ type: 'Point', coordinates: [1f, 2f] }")
 
 # The part of a statement: the `BEGIN` is 0, and the `COMMIT` the count of the parts.
 expect [0, 1, 2, 3, 4, 5].map(|k| part_at([1, 3], k)) == [0, 0, 1, 1, 1, 2]
