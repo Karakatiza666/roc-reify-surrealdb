@@ -79,7 +79,7 @@ basic-webserver" for the rest of an app):
 app [main!] {
 	pf: platform "https://github.com/roc-lang/basic-cli/releases/download/0.27.0/9yjxqdGTP4xSpSEmDazwTmRsehfRZzA19pwEKkR6fj1g.tar.zst",
 	cli_ws: "https://github.com/Karakatiza666/roc-basic-cli-websocket/releases/download/0.0.4/B5j45zNdyW8Qxq6GpQ6ZVNmcPC5hwx3TxPRW4cq8wiLV.tar.zst",
-	surreal: "https://github.com/Karakatiza666/roc-reify-surrealdb/releases/download/0.0.3/BKEfdkfK5Ldm4qnzBG7UhXH5pJ8ne2AskQvotvndrQWV.tar.zst",
+	surreal: "https://github.com/Karakatiza666/roc-reify-surrealdb/releases/download/0.0.4/CkLUeGcqAc6kNLaDf5rMbQEaZAE7nxapCE4EsHnqh5HY.tar.zst",
 }
 
 import pf.Stdout
@@ -87,9 +87,9 @@ import surreal.Surreal
 ```
 
 The app must be compiled with the compiler of the next section. The release
-URL (`<hash>` in `.../releases/download/0.0.3/<hash>.tar.zst`) is in the notes
+URL (`<hash>` in `.../releases/download/0.0.4/<hash>.tar.zst`) is in the notes
 of each [release](https://github.com/Karakatiza666/roc-reify-surrealdb/releases),
-and `scripts/bundle.sh 0.0.3` prints it.
+and `scripts/bundle.sh 0.0.4` prints it.
 
 ## Requirements
 
@@ -171,7 +171,7 @@ The app names basic-cli and the WebSocket adapter
 app [main!] {
 	pf: platform "https://github.com/roc-lang/basic-cli/releases/download/0.27.0/9yjxqdGTP4xSpSEmDazwTmRsehfRZzA19pwEKkR6fj1g.tar.zst",
 	cli_ws: "https://github.com/Karakatiza666/roc-basic-cli-websocket/releases/download/0.0.4/B5j45zNdyW8Qxq6GpQ6ZVNmcPC5hwx3TxPRW4cq8wiLV.tar.zst",
-	surreal: "https://github.com/Karakatiza666/roc-reify-surrealdb/releases/download/0.0.3/BKEfdkfK5Ldm4qnzBG7UhXH5pJ8ne2AskQvotvndrQWV.tar.zst",
+	surreal: "https://github.com/Karakatiza666/roc-reify-surrealdb/releases/download/0.0.4/CkLUeGcqAc6kNLaDf5rMbQEaZAE7nxapCE4EsHnqh5HY.tar.zst",
 }
 
 import pf.OsStr
@@ -238,7 +238,7 @@ app [Context, program] {
 	http: "https://github.com/roc-lang/http/releases/download/1.0.0/6ZUwqYhCS8PU9Mo6MF7oV82ET2o7KYb57CLKDq4cq4sS.tar.zst",
 	pf: platform "https://github.com/roc-lang/basic-webserver/releases/download/0.21.0/4viZsnWjdYsyH4Q87ESFAwM5c55Hnc15nAGW1UwzWpFU.tar.zst",
 	bws_ws: "https://github.com/Karakatiza666/roc-basic-webserver-websocket/releases/download/0.0.3/BjBcDpMFYd2ybt1xpiKiSHf2AgrnRnT6qRdFe2bQ2fgL.tar.zst",
-	surreal: "https://github.com/Karakatiza666/roc-reify-surrealdb/releases/download/0.0.3/BKEfdkfK5Ldm4qnzBG7UhXH5pJ8ne2AskQvotvndrQWV.tar.zst",
+	surreal: "https://github.com/Karakatiza666/roc-reify-surrealdb/releases/download/0.0.4/CkLUeGcqAc6kNLaDf5rMbQEaZAE7nxapCE4EsHnqh5HY.tar.zst",
 }
 
 import pf.Server
@@ -386,7 +386,7 @@ server with `docker stop surreal-roc`.
 The release bundle has its own scripts:
 
 ```sh
-ROC=/path/to/fork/zig-out/bin/roc scripts/bundle.sh 0.0.3  # dist/<hash>.tar.zst, its file list and its release URL
+ROC=/path/to/fork/zig-out/bin/roc scripts/bundle.sh 0.0.4  # dist/<hash>.tar.zst, its file list and its release URL
 ROC=/path/to/fork/zig-out/bin/roc scripts/test_bundle.sh   # checks the examples against the bundle
 ```
 
@@ -2655,6 +2655,57 @@ The cost of a new feature is small and local:
   and its `??`, and each query uses functions that the application also calls.
 
 ## Changes
+
+### 0.0.4
+
+SurrealDB 4.0.1 or later only; SurrealDB 3.x is not supported. Same compiler
+pin as 0.0.3 (`76ed44249a`, `nightly-reify-2026-11-07-76ed442`). roc-cbor
+0.5.0. Most items below are breaking.
+
+- SurrealDB 4. CI and the docs use `surrealdb/surrealdb:v4.0.1`. A type error
+  of kind `Validation` is `Server(Type(..))`. DIFF paths and `patch_ops_at`
+  follow RFC 6901 (`~1` for `/`, `~0` for `~`). A query with `limit` or
+  `start` and no `order_by` gets `ORDER BY id`, and `find_first` over
+  `rows()` always does. `alter` and `overwrite` are quoted as names. The
+  `IF id != NONE` guard of `insert_or_update` is removed.
+- Migrations for compatibility level 4 only. Removed:
+  `Surreal.MigrationTarget`, `Migration.target`, `Surreal.raise_compatibility`,
+  `Applied.server`, `MigrationProblem.Target` and the `V3` plans.
+  `Surreal.plan(from, to)` takes no target. The header keeps `target V4`, so
+  files of 0.0.2 and 0.0.3 keep their checksums. A `target V3` file is
+  `Legacy`: squash with 0.0.3 first (docs/schema.md, "Upgrade from 0.0.x").
+  `migrate!` refuses a database below level 4 with `Level({ found })`.
+- CBOR v2 only. The WebSocket offers `cbor.2` and HTTP RPC sends
+  `application/cbor; v=2`; there is no v1 fallback. An app that names
+  roc-cbor in its header must name 0.5.0 (`Cbor.State` is `Cbor.Reader`,
+  maps hold a `Cbor.ValueMap`, integers a `Cbor.IntValue`).
+  `Surreal.read_options` uses `allow: [DecFromText, ..]`.
+- Sized numbers. `I8` .. `U64` and `F32` are the field types `i8` .. `u64`
+  and `f32` (before: `int` with a range `ASSERT`, and `float`). The first plan
+  after the upgrade migrates such fields with `USING <u8> $value FALLBACK ..`.
+  Values keep their sized type on the wire and in `SCHEMALESS` tables. A key
+  `kt:[5u8, 1]` is not equal to `kt:[5, 1]`.
+- New types `Surreal.Regex`, `BigDecimal`, `Date`, `TimeOfDay`, `Timestamp`
+  and `Interval`, with their field types. In a clause, `Date` and `TimeOfDay`
+  compare; the other four are `Unsupported`.
+- Values as `vars`. Every parameter, captured value, written row and key,
+  patch, search term, KNN probe and time range goes in the `vars` of the RPC
+  `query` method, not as `LET` text. DEFINE statements keep literals.
+  New `Surreal.Request` (`query()`, `vars()`, `to_script()`,
+  `Request.with_vars`). The `request()` of `Prepared`, `Watch`, `RawWatch`
+  and `DiffWatch` gives a `Request`: use the new `Unchecked.send!` in place of
+  `Unchecked.query!(session, prepared.request()?)`. `Statement.lets` is
+  `Statement.vars`. `to_script()` gives the readable `LET` form for logs.
+- A plain GeoJSON-shaped record that is not a geometry type now stays an
+  object. A `Dec` with more than 28 significant digits is `Unsupported`.
+- `Access.sign_up` and `sign_in` take `Encode.Format` records, so a `Dec`
+  field works. `RecordLogin.vars` is a `Try`. The names `this`, `parent`,
+  `before`, `after`, `input`, `event` and `value` are refused for parameters
+  and access variables.
+- A subquery of `t.rows()` reads one plain outer field as `$parent.<path>` in
+  place of `chain`: about 15 times faster on 4.0.1 (measured, not documented
+  by SurrealDB). `chain` stays for wrapped values, two or more values,
+  closures, time series ranges, and GROUP and view columns.
 
 ### 0.0.3
 
