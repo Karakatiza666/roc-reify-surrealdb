@@ -192,9 +192,10 @@ Ql :: {}.{
 	}
 
 	## Names SurrealQL does not accept bare as a table or a field. Found by
-	## running each candidate word against SurrealDB 3.3.4.
+	## running each candidate word against SurrealDB 4.0.1.
 	keywords : List(Str)
 	keywords = [
+		"alter",
 		"break",
 		"continue",
 		"create",
@@ -212,6 +213,7 @@ Ql :: {}.{
 		"none",
 		"null",
 		"only",
+		"overwrite",
 		"rebuild",
 		"relate",
 		"remove",
@@ -301,6 +303,8 @@ expect Ql.quote("é☃") == "'é☃'"
 expect Ql.ident("name") == "name"
 expect Ql.ident("x y") == "⟨x y⟩"
 expect Ql.ident("select") == "⟨select⟩"
+expect Ql.ident("alter") == "⟨alter⟩"
+expect Ql.ident("overwrite") == "⟨overwrite⟩"
 expect Ql.ident("9lives") == "⟨9lives⟩"
 expect Ql.ident("") == "⟨⟩"
 expect Ql.record_id("customer", "ada") == "customer:⟨ada⟩"

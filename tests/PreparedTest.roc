@@ -667,7 +667,7 @@ four = { id: "t4", label: "Four", hits: 12, meta: { a: 3, b: 4 }, tags: ["new"] 
 patch_ops : List(Surreal.Op)
 patch_ops = [Replace(["label"], Cbor.Value.Text("Patched")), Add(["tags", "-"], Cbor.Value.Text("p")), Replace(["meta", "b"], Cbor.Value.Int(7))]
 
-expect request_of(tallies.insert_or_update(incoming, bump)) == Ok("BEGIN;\nINSERT INTO tally [{ hits: 5, id: 't1', label: 'Uno', meta: { a: 1, b: 2 }, tags: [] }, { hits: 3, id: 't3', label: 'Three', meta: { a: 1, b: 2 }, tags: [] }] ON DUPLICATE KEY UPDATE hits = IF id != NONE { hits + $input.hits }, label = IF id != NONE { $input.label } RETURN AFTER;\nCOMMIT;")
+expect request_of(tallies.insert_or_update(incoming, bump)) == Ok("BEGIN;\nINSERT INTO tally [{ hits: 5, id: 't1', label: 'Uno', meta: { a: 1, b: 2 }, tags: [] }, { hits: 3, id: 't3', label: 'Three', meta: { a: 1, b: 2 }, tags: [] }] ON DUPLICATE KEY UPDATE hits = hits + $input.hits, label = $input.label RETURN AFTER;\nCOMMIT;")
 expect request_of(tallies.merge_at(tallies.id("t1"), { label: "Merged", meta: { a: 9.I64 } })) == Ok("UPDATE tally:⟨t1⟩ MERGE { label: 'Merged', meta: { a: 9 } } RETURN AFTER;")
 expect request_of(tallies.upsert_merge_at(tallies.id("t4"), { label: four.label, hits: four.hits, meta: four.meta, tags: four.tags })) == Ok("UPSERT tally:⟨t4⟩ MERGE { hits: 12, label: 'Four', meta: { a: 3, b: 4 }, tags: ['new'] } RETURN AFTER;")
 expect request_of(tallies.merge(|t| t.hits > 10, { tags: ["hot"] })) == Ok("UPDATE tally MERGE { tags: ['hot'] } WHERE hits > 10 RETURN AFTER;")

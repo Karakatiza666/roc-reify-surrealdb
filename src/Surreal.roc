@@ -1321,12 +1321,9 @@ Surreal :: {}.{
 		## ..old, visits: old.visits + new.visits }`, and is translated as
 		## the patch of `update` is: each changed field is an item, and the
 		## new row is `$input`. One transaction, as `insert` is. The result
-		## is the rows as stored. SurrealDB 3.3.4 takes a duplicate to be the
+		## is the rows as stored. SurrealDB 4.0.1 takes a duplicate to be the
 		## same record key; a row that only repeats the value of a unique
-		## index is refused (`Unique`). It evaluates the clause once with no
-		## stored row before it reads one, and then `old.visits + 1` is an
-		## error, so each item is guarded with `IF id != NONE` (verified). A
-		## relation table is refused.
+		## index is refused (`Unique`). A relation table is refused.
 		insert_or_update : Table(row), List(row), Code((row, row -> row)) -> Prepared(List(row)) where [row.encoder_for : Encode.Format -> (row, Encode.State -> Try(Encode.State, [])), row.Cbor.Readable(errs)]
 		insert_or_update = |Table.(t), new_rows, patch| {
 			built = |{}| {
@@ -1336,8 +1333,7 @@ Surreal :: {}.{
 				}
 				new = Translate.Binding.Row({ at: "$input", of: Doc(Of(t.name)), edge: Bool.False })
 				sets = within_clause("the patch of `insert_or_update`", Translate.assignments(own, patch.graph(), [new, Translate.table_row(t.name, Bool.False)], spelled(patch, Translate.variable)))?
-				guarded = sets.map(|s| { ..s, surql: "IF id != NONE { ${s.surql} }" })
-				statement = insert_body(t, new_rows, " ON DUPLICATE KEY UPDATE ${set_list(guarded)}${return_clause(After)}")?
+				statement = insert_body(t, new_rows, " ON DUPLICATE KEY UPDATE ${set_list(sets)}${return_clause(After)}")?
 				Ok({ statement, slots: slots_of(patch), count: 1, atomic: Whole, read: read_stored(0, Bool.False) })
 			}
 			prepared_of(built({}))
@@ -1508,9 +1504,8 @@ Surreal :: {}.{
 		}
 
 		## [Table.update] of the row with this key: `UPDATE vet:⟨tia⟩ SET ..`.
-		## SurrealDB writes the one record, where a condition on the key
-		## reads every row of the table (verified with `EXPLAIN`). A key
-		## with no row changes nothing.
+		## The key is a typed `Id` of this table. A key with no row changes
+		## nothing.
 		update_at : Table(row), Code(Id(row)), Code(row -> row) -> Write(p, row)
 		update_at = |Table.(t), row_id, patch| update_key(t, row_id, slots_of(patch), |row, param| within_clause("the patch of `update_at`", Translate.assignments(own, patch.graph(), [row], spelled(patch, param))))
 
