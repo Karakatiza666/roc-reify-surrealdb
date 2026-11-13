@@ -5778,9 +5778,18 @@ return_clause = |gives| match gives {
 	Before => " RETURN BEFORE"
 }
 
-## Fields a statement cannot take as a `LET`: SurrealDB sets them itself.
+## Fields a statement cannot take as a var: SurrealDB refuses the whole
+## request (verified on 4.0.1).
 protected : List(Str)
 protected = ["session", "auth", "token", "access"]
+
+## Names that SurrealDB binds itself in some places: in a subquery, a
+## closure, an event or a write (`$this`, `$parent`, `$before`, `$after`,
+## `$input`, `$event`, `$value`). A var of such a name is read at the top
+## of a statement and not there (verified on 4.0.1), and the library uses
+## `$this`, `$parent`, `$before`, `$after` and `$input` in its own text.
+bound_by_server : List(Str)
+bound_by_server = ["this", "parent", "before", "after", "input", "event", "value"]
 
 ## A statement over the parameter record: its text with names, the `LET`
 ## of each field, and its text with the values written in.
@@ -5803,7 +5812,11 @@ lets_of = |params| {
 	lets = object_of(params)?
 	match lets.find_first(|l| protected.contains(l.name)) {
 		Ok(l) => Err(Unsupported("`$${l.name}` is a protected variable in SurrealDB; name the parameter otherwise"))
-		Err(_) => Ok(lets)
+		Err(_) =>
+			match lets.find_first(|l| bound_by_server.contains(l.name)) {
+				Ok(l) => Err(Unsupported("`$${l.name}` is a name that SurrealDB binds itself in a subquery, a closure or a write, where it would not read the parameter; name the parameter otherwise"))
+				Err(_) => Ok(lets)
+			}
 	}
 }
 

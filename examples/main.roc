@@ -566,7 +566,7 @@ EdgeLine : { id : Str, vet : Str, patient : Str }
 edge_line : Treats -> EdgeLine
 edge_line = |e| { id: e.id, vet: e.from.get().name, patient: e.to.get().name }
 
-RetentionParam : { before : Surreal.Datetime }
+RetentionParam : { cutoff : Surreal.Datetime }
 
 # ------------------- the reference results: the seed rows, filtered in Roc
 
@@ -1053,10 +1053,10 @@ writes = [
 		"-- write: retention",
 		["-- ordered"],
 		then_read(
-			visits.delete_by(Clinic.too_old).prepare({ before: cutoff }),
+			visits.delete_by(Clinic.too_old).prepare({ cutoff: cutoff }),
 			Surreal.from(visits).select(|v| { id: v.id }).order_by(|r| r.id, Asc).ready(),
 		),
-		Surreal.Mirror.literal(visits_now.keep_if(|v| !Clinic.too_old({ before: cutoff }, v)).map(|v| { id: v.id })),
+		Surreal.Mirror.literal(visits_now.keep_if(|v| !Clinic.too_old({ cutoff: cutoff }, v)).map(|v| { id: v.id })),
 	),
 	block(
 		"-- write: add_notes",
@@ -1113,7 +1113,7 @@ totals_blocks = [
 		"-- query: visit_totals",
 		[],
 		Surreal.from(visits).totals(visit_totals).ready(),
-		Surreal.Mirror.literal([visit_totals(visits_now.keep_if(|v| !Clinic.too_old({ before: cutoff }, v)))]),
+		Surreal.Mirror.literal([visit_totals(visits_now.keep_if(|v| !Clinic.too_old({ cutoff: cutoff }, v)))]),
 	),
 	block(
 		"-- query: no_visit_totals",

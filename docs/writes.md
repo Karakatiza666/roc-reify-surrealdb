@@ -336,7 +336,7 @@ A duplicate is the same key. A row that repeats only the value of a unique index
 ```roc
 # Fragment: uses `owners` and `visits` of examples/main.roc.
 gone = owners.delete_at(owners.id("jon")).ready()
-too_old = visits.delete_by(|p, v| v.seen < p.before).prepare({ before: cutoff })
+too_old = visits.delete_by(|p, v| v.seen < p.cutoff).prepare({ cutoff: cutoff })
 ```
 
 ```surql

@@ -629,10 +629,10 @@ EdgeLine : { id : Str, vet : Str, patient : Str }
 edge_line : Treats -> EdgeLine
 edge_line = |link| { patient: link.to.get().name, vet: link.from.get().name, id: link.id }
 
-RetentionParam : { before : Surreal.Datetime }
+RetentionParam : { cutoff : Surreal.Datetime }
 
 too_old : RetentionParam, Visit -> Bool
-too_old = |param, stay| stay.seen < param.before
+too_old = |param, stay| stay.seen < param.cutoff
 
 # ------------------- the reference results: the seed rows, filtered in Roc
 
@@ -1119,10 +1119,10 @@ writes = [
 		"-- write: retention",
 		["-- ordered"],
 		then_read(
-			visits.delete_by(too_old).prepare({ before: cutoff }),
+			visits.delete_by(too_old).prepare({ cutoff: cutoff }),
 			Surreal.from(visits).select(|v| { id: v.id }).order_by(|r| r.id, Asc).prepare({}),
 		),
-		Surreal.Mirror.literal(visits_now.keep_if(|v| !too_old({ before: cutoff }, v)).map(|v| { id: v.id })),
+		Surreal.Mirror.literal(visits_now.keep_if(|v| !too_old({ cutoff: cutoff }, v)).map(|v| { id: v.id })),
 	),
 	block(
 		"-- write: add_notes",
@@ -1176,7 +1176,7 @@ visit_totals = |rows| {
 
 totals_blocks : List(Str)
 totals_blocks = {
-	kept = visits_now.keep_if(|v| !too_old({ before: cutoff }, v))
+	kept = visits_now.keep_if(|v| !too_old({ cutoff: cutoff }, v))
 	costly = Surreal.from(visits).filter(|v| v.fee > 1000)
 	[
 		block(

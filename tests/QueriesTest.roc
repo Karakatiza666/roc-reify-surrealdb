@@ -289,6 +289,11 @@ expect orders_over(5, Surreal.Unchecked.id("product", "pen")).request().map_ok(|
 # The app's own text with a parameter record.
 expect Surreal.Request.with_vars("SELECT * FROM order WHERE total > $least", { least: 2.5 }).map_ok(|r| (r.query(), r.vars(), r.to_script())) == Ok(("SELECT * FROM order WHERE total > $least", Diff.vmap([(Text("least"), Tag(10, Text("2.5")))]), "LET $least = 2.5dec;\nSELECT * FROM order WHERE total > $least"))
 expect Surreal.Request.with_vars("RETURN $auth", { auth: "x" }).map_ok(|r| r.query()) == Err(Unsupported("`$auth` is a protected variable in SurrealDB; name the parameter otherwise"))
+# A name that SurrealDB binds itself in a subquery, a closure or a write
+# is refused too: there it would not read the parameter.
+expect Surreal.Request.with_vars("RETURN $before", { before: 1 }).map_ok(|r| r.query()) == Err(Unsupported("`$before` is a name that SurrealDB binds itself in a subquery, a closure or a write, where it would not read the parameter; name the parameter otherwise"))
+expect Surreal.from(orders).filter_by(|p, o| o.total > p.value).select_value(|o| o.id).prepare({ value: 2 }).request().is_err()
+expect [Surreal.Request.with_vars("", { this: 1 }), Surreal.Request.with_vars("", { parent: 1 }), Surreal.Request.with_vars("", { after: 1 }), Surreal.Request.with_vars("", { input: 1 }), Surreal.Request.with_vars("", { event: 1 })].all(|r| r.is_err())
 
 # A parameter that is a record, a list or an id is bound whole.
 Window : { lo : Dec, tags : List(Str), who : Surreal.Id(Product) }
@@ -532,8 +537,8 @@ expect readings.upsert(morning).statement().map_ok(|st| st.inlined) == Ok("UPSER
 expect Surreal.from(readings).between(pen_id, moment("2026-03-01T00:00:00Z"), moment("2026-03-02T00:00:00Z")).select(|r| { at: r.id.time(), level: r.level }).to_surql() == Ok("SELECT record::id(id)[1] AS at, level AS level FROM reading:[product:⟨pen⟩, d'2026-03-01T00:00:00Z']..[product:⟨pen⟩, d'2026-03-02T00:00:00Z']")
 expect Surreal.from(readings).between(pen_id, moment("2026-03-01T00:00:00Z"), moment("2026-03-02T00:00:00Z")).filter(|r| r.level > 2).select(|r| r).to_surql() == Ok("SELECT record::id(id) AS id, level FROM reading:[product:⟨pen⟩, d'2026-03-01T00:00:00Z']..[product:⟨pen⟩, d'2026-03-02T00:00:00Z'] WHERE level > 2")
 expect Surreal.from(readings).between(pen_id, moment("2026-03-01T00:00:00Z"), moment("2026-03-02T00:00:00Z")).between(pen_id, moment("2026-03-01T00:00:00Z"), moment("2026-03-02T00:00:00Z")).select(|r| r).to_surql() == Err(Unsupported("a query takes one `between`"))
-expect Surreal.from(readings).filter_by(|p, r| r.id.time() < p.before).select_value(|r| r.id.series()).prepare({ before: moment("2026-03-02T00:00:00Z") }).statement().map_ok(|st| st.inlined) == Ok("SELECT VALUE record::id(id)[0] FROM reading WHERE record::id(id)[1] < d'2026-03-02T00:00:00Z'")
-expect readings.delete_by(|p, r| r.id.time() < p.before).to_surql() == Ok("DELETE reading WHERE record::id(id)[1] < $before")
+expect Surreal.from(readings).filter_by(|p, r| r.id.time() < p.cutoff).select_value(|r| r.id.series()).prepare({ cutoff: moment("2026-03-02T00:00:00Z") }).statement().map_ok(|st| st.inlined) == Ok("SELECT VALUE record::id(id)[0] FROM reading WHERE record::id(id)[1] < d'2026-03-02T00:00:00Z'")
+expect readings.delete_by(|p, r| r.id.time() < p.cutoff).to_surql() == Ok("DELETE reading WHERE record::id(id)[1] < $cutoff")
 
 # A key part that a column projects is grouped by the column's alias, so a
 # call is never after `GROUP BY` ("Missing group idiom").

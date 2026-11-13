@@ -445,8 +445,8 @@ SELECT record::id(id) AS id, out.name AS patient, in.name AS vet FROM treats ORD
 -- write: retention
 -- ordered
 -- roc: [{ id: 'v3' }, { id: 'v4' }, { id: 'v6' }]
--- vars: a1666265666f7265cc821a69910c8000
-DELETE visit WHERE seen < $before RETURN BEFORE;
+-- vars: a1666375746f6666cc821a69910c8000
+DELETE visit WHERE seen < $cutoff RETURN BEFORE;
 SELECT record::id(id) AS id FROM visit ORDER BY id;
 
 -- write: add_notes

@@ -417,7 +417,7 @@ queries = [
 	"-- query: changefeed\n-- roc: true\nRETURN string::contains((INFO FOR DB).tables.vital, 'CHANGEFEED 1w');",
 	block(
 		"-- write: vital_retention",
-		then_read(vitals.delete_by(|p, v| v.id.time() < p.before).prepare({ before: day_start }), Surreal.from(vitals).select(vital_line).ready()),
+		then_read(vitals.delete_by(|p, v| v.id.time() < p.cutoff).prepare({ cutoff: day_start }), Surreal.from(vitals).select(vital_line).ready()),
 		Surreal.Mirror.literal(seed_vitals.keep_if(|v| v.id.time() >= day_start).map(vital_line)),
 	),
 	block("-- query: site_lat", Surreal.from(sites).select(site_lat).ready(), Surreal.Mirror.literal(seed_sites.map(site_lat))),

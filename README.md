@@ -577,7 +577,7 @@ Roc tag unions with `match` in a query.
 | Bucket by day | `.group_by(day_of)` with `Surreal.Time.floor(v.id.time(), Surreal.Time.days(1))` | `time::floor(record::id(id)[1], ..) AS day, record::id(id)[0] AS kennel .. GROUP BY day, kennel` | `examples/monitoring.roc:147` |
 | A view | `daily.define_as(Surreal.from(vitals).group_by(day_of), day_line)` | `DEFINE TABLE OVERWRITE vital_daily TYPE NORMAL AS SELECT .. count(fn::fever(temp_c, pulse)) AS fevers .. GROUP BY day, kennel` | `examples/monitoring.roc:159` |
 | A changefeed | `vitals.define().changefeed(Surreal.Time.days(7))` | `DEFINE TABLE OVERWRITE vital SCHEMAFULL CHANGEFEED 1w` | `examples/monitoring.roc:138` |
-| Retention by time | `vitals.delete_by(\|p, v\| v.id.time() < p.before)` | `DELETE vital WHERE record::id(id)[1] < $before RETURN BEFORE` | `examples/monitoring.roc:420` |
+| Retention by time | `vitals.delete_by(\|p, v\| v.id.time() < p.cutoff)` | `DELETE vital WHERE record::id(id)[1] < $cutoff RETURN BEFORE` | `examples/monitoring.roc:420` |
 | Geometry fields | `location : Surreal.Point`, `area : Surreal.Polygon` | `location ON site TYPE geometry<point> ASSERT geo::is_valid($value)` | `examples/monitoring.roc:43` |
 | The coordinates of a point | `s.location.lat()` | `location.coordinates[1]` | `examples/monitoring.roc:423` |
 | A geometry parameter in a relation | `filter_by(\|p, s\| Surreal.Geo.inside(p.here.to_geometry(), s.area.to_geometry()))`, `.prepare({ here: here })` | `LET $here = { type: 'Point', coordinates: [10.75f, 59.91f] }; .. WHERE $here INSIDE area` | `examples/monitoring.roc:427` |
