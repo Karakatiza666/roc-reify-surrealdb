@@ -10,6 +10,9 @@ Line 1 of a block is its header, then directive lines, then SurrealQL:
        the package names: the `-- roc:` literal may leave out these columns,
        and no other; a column it leaves out is not compared)
   -- rejects: N  with `-- error: <substring>`  some statement must be ERR
+  -- same: N  with `-- vars: <hex>` and `RETURN [$v == <literal>, type::of($v)
+       == type::of(<literal>), ..]`: the server must give true twice, so the
+       var that Roc printed as CBOR equals the literal that Roc printed
   -- live: N  with `-- roles: <role>, ..` (one per LIVE statement: node, edge,
        read, raw or diff; a read statement sends a list of rows, each one
        notice), an optional
@@ -92,6 +95,23 @@ class Server:
         except urllib.error.HTTPError as e:
             return None, f"HTTP {e.code} {e.read().decode()}"
 
+    def rpc(self, text, variables=None, db=DB):
+        """One RPC `query` over HTTP (`POST /rpc`, CBOR v2), with the text and,
+        when given, the CBOR bytes of its vars, sent as they are. Returns
+        (statements, None) or (None, error text), as `run`."""
+        headers = {"Accept": "application/cbor; v=2", "Content-Type": "application/cbor; v=2",
+                   "Authorization": self.auth, "surreal-ns": NS, "surreal-db": db}
+        params = [text] if variables is None else [text, Raw(variables)]
+        body = cbor_encode({"id": 1, "method": "query", "params": params})
+        request = urllib.request.Request(self.url + "/rpc", body, headers)
+        try:
+            reply = cbor(urllib.request.urlopen(request).read())
+        except urllib.error.HTTPError as e:
+            return None, f"HTTP {e.code} {e.read().decode(errors='replace')}"
+        if "error" in reply:
+            return None, f"RPC error {reply['error']}"
+        return reply["result"], None
+
 
 def cbor(data):
     """Decodes one CBOR value. Only what SurrealDB sends is supported."""
@@ -166,10 +186,19 @@ def cbor_encode(value):
         return head(4, len(value)) + b"".join(cbor_encode(v) for v in value)
     if isinstance(value, dict):
         return head(5, len(value)) + b"".join(cbor_encode(k) + cbor_encode(v) for k, v in value.items())
+    if isinstance(value, Raw):
+        return value.data
     if isinstance(value, Tagged):
         raw = value.value
         return head(6, value.tag) + head(2, len(raw)) + raw
     raise TypeError(value)
+
+
+class Raw:
+    """CBOR bytes that go into a request as they are: the vars that Roc printed."""
+
+    def __init__(self, data):
+        self.data = data
 
 
 class Tagged:
@@ -413,6 +442,8 @@ def split_block(block):
             directives["roles"] = line.removeprefix("-- roles: ")
         elif line.startswith("-- intrinsic: "):
             directives["intrinsic"] = line.removeprefix("-- intrinsic: ").split(", ")
+        elif line.startswith("-- vars: "):
+            directives["vars"] = bytes.fromhex(line.removeprefix("-- vars: "))
         elif line.startswith("-- snapshot: "):
             directives["snapshot"] = line.removeprefix("-- snapshot: ")
         else:
@@ -445,6 +476,16 @@ def check_block(server, header, directives, body, args):
     if kind == "live":
         record = args.record and str(pathlib.Path(args.record) / name)
         return check_live(server, args.url, args.user, args.password, directives, body, record)
+    if kind == "same":
+        statements, error = server.rpc(body, directives.get("vars"))
+        if error:
+            return error
+        if statements[-1]["status"] != "OK":
+            return f"database error: {statements[-1]['result']}"
+        result = statements[-1]["result"]
+        if result[:2] != [True, True]:
+            return f"the var and the literal differ: {result}"
+        return None
     if kind not in ("schema", "seed", "query", "write", "rejects", "accepts"):
         return "unknown block header"
     statements, error = server.run(body)

@@ -1144,8 +1144,91 @@ queries = [
 	block("-- query: list_try", Surreal.from(samples).select(list_line).prepare({}), Surreal.Mirror.literal(seed_samples.map(list_line))),
 ]
 
+# ------------------------------------------------------ the two printers
+
+## A row with a field of each kind and a union payload of each form.
+Mixed : { id : Str, qty : I64, price : Dec, ratio : F64, ok : Bool, tags : List(Str), note ?: Str, pay : [Cash, Card({ last4 : Str }), Check(I64), Wire(Str, I64)] }
+
+mixed : [Cash, Card({ last4 : Str }), Check(I64), Wire(Str, I64)] -> Mixed
+mixed = |pay| { id: "w", qty: 0, price: 0, ratio: 0, ok: Bool.False, tags: [], pay }
+
+no_ints : List(I64)
+no_ints = []
+
+corner : F64, F64 -> Surreal.Point
+corner = |x, y| Surreal.point(x, y)
+
+ring : List(Surreal.Point)
+ring = [corner(0, 0), corner(1, 0), corner(1, 1), corner(0, 0)]
+
+at : Str -> Surreal.Datetime
+at = |text| match Surreal.datetime(text) {
+	Ok(d) => d
+	Err(_) => crash "a datetime of the corpus"
+}
+
+## Each value as the var `$v` and as its literal (`Mirror.same`): the
+## server must find them equal, by value and by type. `check.py` sends
+## the var as the CBOR that the session would send.
+same_blocks : List(Str)
+same_blocks = [
+	Surreal.Mirror.same("str", "it's ⟩ \\ \n\t é ☃"),
+	Surreal.Mirror.same("str_empty", ""),
+	Surreal.Mirror.same("str_id_like", "person:ada"),
+	Surreal.Mirror.same("int", -5.I64),
+	Surreal.Mirror.same("int_max", I64.highest),
+	Surreal.Mirror.same("int_min", I64.lowest),
+	Surreal.Mirror.same("float", 2.0.F64),
+	Surreal.Mirror.same("float_small", 0.00001.F64),
+	Surreal.Mirror.same("float_negative_zero", -0.0.F64),
+	Surreal.Mirror.same("float_infinity", F64.infinity),
+	Surreal.Mirror.same("float_nan", F64.nan),
+	Surreal.Mirror.same("dec", 1.5.Dec),
+	Surreal.Mirror.same("dec_whole", 20.Dec),
+	Surreal.Mirror.same("dec_28_digits", 1234567890.123456789012345678.Dec),
+	Surreal.Mirror.same("dec_attos", -0.000000000000000001.Dec),
+	Surreal.Mirror.same("bool", Bool.True),
+	Surreal.Mirror.same("list", ["a", "b"]),
+	Surreal.Mirror.same("list_empty", no_ints),
+	Surreal.Mirror.same("datetime", at("2026-10-28T04:53:59Z")),
+	Surreal.Mirror.same("datetime_nanos", at("2024-01-02T03:04:05.000000005Z")),
+	Surreal.Mirror.same("datetime_before_1970", at("1969-12-31T23:59:59.5Z")),
+	Surreal.Mirror.same("id", samples.id("o'neil⟩ \\")),
+	Surreal.Mirror.same("time_key", Surreal.time_key(samples.id("a"), at("2026-03-01T08:00:00Z"))),
+	Surreal.Mirror.same("record", { id: "o'neil", qty: 3, price: 1.5, ratio: 2.0, ok: Bool.True, tags: ["a", "b"], pay: Card({ last4: "4242" }) }),
+	Surreal.Mirror.same("union_bare", { ..mixed(Cash), note: "n" }),
+	Surreal.Mirror.same("union_one", mixed(Check(7))),
+	Surreal.Mirror.same("union_many", mixed(Wire("x", 2))),
+	Surreal.Mirror.same("point", corner(10.75, 59.95)),
+	Surreal.Mirror.same("line", Surreal.Line.([corner(0, 0), corner(1, 1)])),
+	Surreal.Mirror.same("polygon", Surreal.Polygon.({ exterior: ring, holes: [] })),
+	Surreal.Mirror.same("polygon_hole", Surreal.Polygon.({ exterior: [corner(0, 0), corner(4, 0), corner(4, 4), corner(0, 0)], holes: [ring] })),
+	Surreal.Mirror.same("multi_point", Surreal.MultiPoint.([corner(1, 2), corner(3, 4)])),
+	Surreal.Mirror.same("multi_line", Surreal.MultiLine.([Surreal.Line.([corner(0, 0), corner(1, 1)])])),
+	Surreal.Mirror.same("multi_polygon", Surreal.MultiPolygon.([Surreal.Polygon.({ exterior: ring, holes: [] })])),
+	Surreal.Mirror.same("collection", Surreal.Collection.([Surreal.Geometry.Point(corner(1, 2)), Surreal.Geometry.Line(Surreal.Line.([corner(0, 0), corner(1, 1)]))])),
+	Surreal.Mirror.same("geometry", Surreal.Geometry.Polygon(Surreal.Polygon.({ exterior: ring, holes: [] }))),
+	Surreal.Mirror.same("geometry_in_record", { at: corner(1, 2), name: "p" }),
+	Surreal.Mirror.same("i8", -128.I8),
+	Surreal.Mirror.same("u8", 255.U8),
+	Surreal.Mirror.same("i16", -300.I16),
+	Surreal.Mirror.same("u16", 65535.U16),
+	Surreal.Mirror.same("i32", -70000.I32),
+	Surreal.Mirror.same("u32", 4000000000.U32),
+	Surreal.Mirror.same("u64", U64.highest),
+	Surreal.Mirror.same("u64_small", 5.U64),
+	Surreal.Mirror.same("f32", 1.5.F32),
+	Surreal.Mirror.same("f32_tenth", 0.1.F32),
+	Surreal.Mirror.same("regex", Surreal.Regex.from_pattern("a'b/c")),
+	Surreal.Mirror.same("bigdecimal", Surreal.BigDecimal.from_dec(1.5)),
+	Surreal.Mirror.same("date", Surreal.Date.from_days(-1)),
+	Surreal.Mirror.same("time", Surreal.TimeOfDay.from_nanos(45000500000000) ?? crash "a time of the corpus"),
+	Surreal.Mirror.same("timestamp", Surreal.Timestamp.from_parts({ secs: -1, nanos: 500000000 }) ?? crash "a timestamp of the corpus"),
+	Surreal.Mirror.same("interval", Surreal.Interval.from_parts({ months: 1, days: -2, micros: -1000001 })),
+]
+
 script : Str
-script = Str.join_with([schema_block].concat(seed_blocks).concat(queries).concat(package_queries), "\n\n")
+script = Str.join_with([schema_block].concat(seed_blocks).concat(queries).concat(package_queries).concat(same_blocks), "\n\n")
 
 main! = |_args| {
 	echo!("${script}\n")

@@ -4003,6 +4003,22 @@ Surreal :: {}.{
 		literal : a -> Try(Str, Error) where [a.encoder_for : Encode.Format -> (a, Encode.State -> Try(Encode.State, []))]
 		literal = |value| Encode.value_of(value).map_ok(Ql.literal)
 
+		## A `-- same:` block for `check.py`: the value as the var `$v`
+		## (`-- vars:`, the hex of the CBOR map that a request sends) and as
+		## its literal. The server must find them equal, by value and by
+		## `type::of`: the two printers of a value agree.
+		same : Str, a -> Str where [a.encoder_for : Encode.Format -> (a, Encode.State -> Try(Encode.State, []))]
+		same = |name, value| {
+			printed = Encode.value_of(value).map_ok(|v| (v, Ql.vars([{ name: "v", value: v }])))
+			match printed {
+				Ok((v, Ok(vars))) => {
+					text = Ql.literal(v)
+					"-- same: ${name}\n-- vars: ${Str.join_with(Cbor.encode(vars).map(Rpc.hex_byte), "")}\nRETURN [$v == ${text}, type::of($v) == type::of(${text}), type::of($v)];"
+				}
+				Ok((_, Err(e))) | Err(e) => "-- unsupported same: ${name}: ${Str.inspect(e)}"
+			}
+		}
+
 		## The expected notices of a `-- live:` block, one list for each write,
 		## as the `-- roc:` literal that `check.py` compares.
 		notices_literal : List(List(Notice(out))) -> Try(Str, Error) where [out.encoder_for : Encode.Format -> (out, Encode.State -> Try(Encode.State, []))]
