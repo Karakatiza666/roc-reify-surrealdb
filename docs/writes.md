@@ -274,7 +274,7 @@ On a tally with `meta: { a: 1, b: 2 }`, the merge stored `meta: { a: 9, b: 2 }`.
 
 ## Apply JSON Patch ops
 
-A client can replay what another client saw. `patch_at(id, patches)` takes the `Patch` values of a `live_diff` watch. `patch_ops_at(id, ops)` takes `Op` values that your app made. Both write `UPDATE .. PATCH [..]` on the one row.
+A client can replay what another client saw. `patch_at(id, patches)` takes the `Patch` values of a `live_diff` watch. `patch_ops_at(id, ops)` takes `Op` values that your app made. Both write `UPDATE .. PATCH [..]` on the one row. A `/` in a key is written as `~1` and a `~` as `~0` (RFC 6901), as SurrealDB 4.0.1 reads them: the key `a/b` of `meta` is `/meta/a~1b`.
 
 ```roc
 # Fragment: uses `tallies` of examples/client.roc and `import cbor.Cbor`.
@@ -315,11 +315,11 @@ counted = tallies.insert_or_update([tally("t1", "Uno", 5), tally("t3", "Three", 
 
 ```surql
 BEGIN;
-INSERT INTO tally [{ hits: 5, id: 't1', label: 'Uno', meta: { a: 1, b: 2 }, tags: [] }, { hits: 3, id: 't3', label: 'Three', meta: { a: 1, b: 2 }, tags: [] }] ON DUPLICATE KEY UPDATE hits = IF id != NONE { hits + $input.hits }, label = IF id != NONE { $input.label } RETURN AFTER;
+INSERT INTO tally [{ hits: 5, id: 't1', label: 'Uno', meta: { a: 1, b: 2 }, tags: [] }, { hits: 3, id: 't3', label: 'Three', meta: { a: 1, b: 2 }, tags: [] }] ON DUPLICATE KEY UPDATE hits = hits + $input.hits, label = $input.label RETURN AFTER;
 COMMIT;
 ```
 
-In the patch, the new row is `$input`. Each item has the guard `IF id != NONE`. SurrealDB 3.3.4 runs the clause once with no stored row, and `hits + 1` is an error then. The call is one transaction, as `insert` is. With a stored `t1` of 1 hit and no `t3`, the result was `t1` with 6 hits and the label `Uno`, and `t3` with 3 hits.
+In the patch, the new row is `$input`. SurrealDB 4.0.1 runs the clause only for a row that is stored. The call is one transaction, as `insert` is. With a stored `t1` of 1 hit and no `t3`, the result was `t1` with 6 hits and the label `Uno`, and `t3` with 3 hits.
 
 A duplicate is the same key. A row that repeats only the value of a unique index gives the error `Index` or `Unique`, as for `insert`. A relation table is refused: ``Unsupported("`insert_or_update` is not defined for the relation table `treats`")``.
 
@@ -368,7 +368,7 @@ out = session.run!(built)
 
 To run several writes as one unit, join them with `begin` and `then`, or give a list of them to `Surreal.transaction`. See [Transactions](sessions.md#transactions).
 
-Update and delete by a condition scan the table. SurrealDB 3.3.4 plans `UPDATE t SET .. WHERE id = t:⟨k⟩` as `Iterate Table` and `UPDATE t:⟨k⟩ SET ..` as `Iterate Record` (checked with `EXPLAIN`). Use the `_at` calls to write one row by its key.
+To write one row by its key, use the `_at` calls. They take a typed `Id` of the table.
 
 ## Random values in writes
 
@@ -391,7 +391,6 @@ The functions of `Rand` are in [Rand and where it is allowed](functions.md#rand-
 | The fields of a `merge` record are checked by the server | Prefer `set_at` when a typo must be a build error |
 | A merged union keeps the keys of its old arm | Change a union with `set_at` or `update` |
 | An update patch that branches around the whole row is refused | Branch inside the field: `{ ..o, f: if c x else o.f }` |
-| `update`, `set`, `merge` and `delete` with a condition scan the table, also when the condition reads the key | Use `update_at`, `set_at`, `merge_at` and `delete_at` with an `Id` |
 | `_at` calls take an `Id(row)`, and an `Id` holds a text key | Delete a row with a `TimeKey` through `edit(Delete(row))` |
 | `create_new` and `insert_new` need a row type with `id : Str`. A row with a `TimeKey` key is a type error | Give the row type a text key, or write the key yourself |
 | The README says a nominal row is refused by `create_new`. The compiler `local-reify-2026-11-03-1708298` accepts it, and no test covers it | Use an alias row with `id : Str` to stay in the tested path |

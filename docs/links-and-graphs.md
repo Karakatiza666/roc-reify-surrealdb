@@ -399,9 +399,9 @@ SELECT VALUE { name: name, kennels: id.chain(|$v1_0| (SELECT VALUE id FROM kenne
 | `keep_if` | `(SELECT VALUE id FROM t WHERE ..)`, with `ORDER BY id` when a test is not `==` (the order of the table) |
 | `count_if`, `keep_if(..).len()` | `(SELECT VALUE id FROM t WHERE ..).len()` |
 | `any` | `(SELECT VALUE id FROM t WHERE .. LIMIT 1) != []` |
-| `find_first` | `(SELECT VALUE id FROM t WHERE .. LIMIT 1)[0]` |
+| `find_first` | `(SELECT VALUE id FROM t WHERE .. ORDER BY id LIMIT 1)[0]`: the first row by key, as the Roc `find_first` over the rows in key order |
 
-Measured with 30 sites and 30000 kennels, the count above: 6.7 s with `.filter(..)` and 0.11 s with the `WHERE` on SurrealDB 3.3.5 (`EXPLAIN`: the index of `site`); 4.4 s and 0.6 s on 4.0.0, which scans the table (`TableScan`) in a correlated subquery. `$parent.id` in place of `chain` is not used: it is a `TableScan` on both, and on 3.3.5 it is `NONE` in an `UPDATE .. WHERE` and in a view. With `visits.rows()` and `x.vet.get().id == v.id` the test is `record::id(vet) = $v1_0`, which no index serves.
+Measured on SurrealDB 4.0.1 with 30 sites and 30000 kennels and an index on `site`, the count above: 5.7 s with `.filter(..)` and 0.82 to 0.88 s with the `WHERE` in `chain`. The same subquery with `$parent.id` in place of `chain` took 0.06 to 0.07 s. The package does not use `$parent.id`: on 3.3.5 it was `NONE` in an `UPDATE .. WHERE` and in a view (not re-tested on 4.0.1). With `visits.rows()` and `x.vet.get().id == v.id` the test is `record::id(vet) = $v1_0`, which no index serves.
 
 A `rows()` with no test of the row reads the whole table for each row of the query. Prefer a link or an edge when the rows are linked. A live query that reads `rows()` sends a notice, on a write to the other table, for each row of the result that the written row is related to, such as the kennel of a reading. With no such relation, it sends one for each row of the result (see [Live queries](live-queries.md#only-the-rows-that-a-write-reaches)).
 

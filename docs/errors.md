@@ -13,7 +13,7 @@ The words clause, intrinsic and prepared statement are in [Words used in these p
 | Know what a broken connection gives | [Connection errors](#connection-errors) |
 | Read the error of a transaction | [Errors in transactions](#errors-in-transactions) |
 
-The examples are `examples/client.roc` (basic-cli) and `examples/main.roc`. The row types in this page are `Owner` and `Pet` of a scratch app: `Owner` is `{ id : Str, email : Str, age : I64, city : Str }`, with a unique `email` and `assert` on `age >= 0`. `Pet` has `owner : Surreal.Link(Owner)`. Every error text in this page is from a real run on SurrealDB 3.3.4.
+The examples are `examples/client.roc` (basic-cli) and `examples/main.roc`. The row types in this page are `Owner` and `Pet` of a scratch app: `Owner` is `{ id : Str, email : Str, age : I64, city : Str }`, with a unique `email` and `assert` on `age >= 0`. `Pet` has `owner : Surreal.Link(Owner)`. Every error text in this page is from a real run on SurrealDB 4.0.1.
 
 ## One error type
 
@@ -29,7 +29,7 @@ The examples are `examples/client.roc` (basic-cli) and `examples/main.roc`. The 
 | `Wire(why)` | `Str` | A message is not what the protocol says | [Decode and Wire](#decode-and-wire) |
 | `Transport(why)` | `Str` | The platform could not post over HTTP | [Connection errors](#connection-errors) |
 | `WebSocket(why)` | `Closed(closure)`, `Closing` or `Adapter(Str)` | The WebSocket adapter failed | [Connection errors](#connection-errors) |
-| `Migration({ name, problem })` | The file, and `Changed`, `OutOfOrder`, `Edit`, `Text(why)`, `Target({ file, server })` or `Unplanned(statements)` | `Surreal.migration`, `Surreal.check` or `session.migrate!` refuses a file or a history | [Migrations](schema.md#what-migrate-does) |
+| `Migration({ name, problem })` | The file ("" for `Surreal.check` and `Level`), and `Changed`, `OutOfOrder`, `Edit`, `Text(why)`, `Legacy` (a `target V3` file), `Level({ found })` (a database below compatibility level 4) or `Unplanned(statements)` | `Surreal.migration`, `Surreal.check` or `session.migrate!` refuses a file or a history | [Migrations](schema.md#what-migrate-does) |
 
 The tags come in three phases:
 
@@ -81,7 +81,7 @@ Use the function in a clause, or see [Functions in clauses](functions.md#mirror-
 
 ## Server errors
 
-`Server(error)` holds a `Surreal.ServerError`. The package reads the `kind` that SurrealDB sends with each error, and for the kind `Internal` it reads the text of the message. Every tag keeps the message of the server. `error.message()` gives it for any tag.
+`Server(error)` holds a `Surreal.ServerError`. The package reads the `kind` that SurrealDB sends with each error, and for the kind `Internal` it reads the text of the message. SurrealDB 4.0.1 sends a type error with the kind `Validation` and the details `{ kind: 'InvalidRequest' }` (3.3.4 sent it as `Internal`, with the same text). The package reads its message too, and gives `Type`. Every tag keeps the message of the server. `error.message()` gives it for any tag.
 
 | Tag | Fields besides `message` | When |
 | --- | --- | --- |
@@ -248,7 +248,7 @@ When a transaction is a side of `then`, its `Aborted` is the error of that side 
 | Limit | What to do instead |
 | --- | --- |
 | A refusal is a value, not a compile error at the line of the clause | Put an `expect` with `to_surql().is_ok()` in the module for each query |
-| The server messages are the server's text, from SurrealDB 3.3.4 | Match on the tag and its fields, not on the text |
+| The server messages are the server's text, from SurrealDB 4.0.1 | Match on the tag and its fields, not on the text |
 | The package reads only the message forms that it writes or that the server writes the same way each time. Another `Internal` message is `Other` | Match `Other({ kind, .. })` and read `message()` |
 | `Unique` needs the schema. Without it the tag is `Index` | Open the session with `session.knowing(defs)` |
 | `Parse`, `Invalid`, `Thrown` and `Timeout` come in practice only from raw text or an event of your own | Use `Surreal.Unchecked.query!` if you need to test them |

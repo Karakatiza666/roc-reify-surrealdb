@@ -2,10 +2,10 @@
 
 Run each one from the repository root. `roc` is the fork's compiler.
 
-SurrealDB 3.3.4 for the apps that talk to a server:
+SurrealDB 4.0.1 for the apps that talk to a server:
 
 ```sh
-docker run --rm -d --name surreal-roc -p 8000:8000 surrealdb/surrealdb:v3.3.4 start --user root --pass root memory
+docker run --rm -d --name surreal-roc -p 8000:8000 surrealdb/surrealdb:v4.0.1 start --user root --pass root memory
 ```
 
 | File | Platform | What it shows | How to run it |
@@ -16,7 +16,7 @@ docker run --rm -d --name surreal-roc -p 8000:8000 surrealdb/surrealdb:v3.3.4 st
 | `search.roc` | none | Full-text and vector search: an analyzer, a full-text index, a vector index, scores, highlights and nearest-neighbour queries. | `roc examples/search.roc` prints the script. No server needed. |
 | `client.roc` | basic-cli | Connecting to SurrealDB, over a WebSocket (`Transport.websocket_timed`, through roc-basic-cli-websocket 0.0.3) or, with `-- --http`, over HTTP. Plain queries and writes, each result read as a Roc type. Sign-up and sign-in of record users. | `roc examples/client.roc`, or `roc examples/client.roc -- --http`. SurrealDB must run on 127.0.0.1:8000, with the tables of `monitoring.roc` loaded (see below). |
 | `watch.roc` | basic-cli | Live queries on a session (`Transport.websocket_timed`). Starting a watch, making writes, reading the changes with `next_within!` and a limit of 60 s (a change that does not come is a `FAIL`), and comparing them with what the Roc Mirror predicts. | `roc examples/watch.roc`. Same requirements as `client.roc`. |
-| `migrate.roc` | basic-cli | Migrations: the dev tool to copy into an app. `plan NAME` writes the next migration file from the snapshot `db/schema.surql` and the Roc schema, `check` compares them, `squash NAME` writes one file in place of all, `up` applies the files with `session.migrate!`. `db/` holds the snapshot and the files it wrote. | `roc examples/migrate.roc -- plan 0003_name`, `-- check`, `-- up 127.0.0.1:8000`. `up` needs SurrealDB 4.0 for the `V4` files (`db_target`). `roc test examples/migrate.roc` checks that the snapshot is the schema. |
+| `migrate.roc` | basic-cli | Migrations: the dev tool to copy into an app. `plan NAME` writes the next migration file from the snapshot `db/schema.surql` and the Roc schema, `check` compares them, `squash NAME` writes one file in place of all, `up` applies the files with `session.migrate!`. `db/` holds the snapshot and the files it wrote. | `roc examples/migrate.roc -- plan 0003_name`, `-- check`, `-- up 127.0.0.1:8000`. `up` needs a database at compatibility level 4. `roc test examples/migrate.roc` checks that the snapshot is the schema. |
 | `server.roc` | basic-webserver | A web server that runs a typed query on SurrealDB for each request, over a WebSocket (`Transport.websocket`, through roc-basic-webserver-websocket 0.0.2, which has no `receive_within!`). `GET /readings?min_pulse=N`. | `roc examples/server.roc &`, then `curl 'http://127.0.0.1:8001/readings?min_pulse=120'`. Same requirements as `client.roc`. It listens on port 8001. |
 
 ## Start here

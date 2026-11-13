@@ -80,7 +80,7 @@ DEFINE INDEX OVERWRITE treats_in_out_unique ON treats FIELDS in, out UNIQUE;
 DEFINE EVENT OVERWRITE patient_vaccines_vet_on_delete ON vet WHEN $event = 'DELETE' THEN { IF (SELECT VALUE id FROM patient WHERE $before.id IN vaccines[*].vet LIMIT 1) != [] { THROW <string>$before.id + ' is referenced by patient.vaccines[*].vet' } };
 ```
 
-Each statement has `OVERWRITE`, so you can load the script again on a database that has the tables. `OVERWRITE` does not remove what the new schema leaves out, and on SurrealDB 3.x it builds each index again. To set up and update a database, use [migrations](#migrations).
+Each statement has `OVERWRITE`, so you can load the script again on a database that has the tables. `OVERWRITE` does not remove what the new schema leaves out, and on SurrealDB 4.0.1 it fills each view again. To set up and update a database, use [migrations](#migrations).
 
 `done()` never fails. A clause that has no SurrealQL form, or a wrong definition, is kept. `Surreal.schema` gives the first one as `Err(Unsupported(..))` or `Err(BadSchema(..))`. See [Errors](errors.md#build-time-errors).
 
@@ -402,12 +402,12 @@ A full-text index and a vector index are clauses of `define()` too: `Def.text_in
 
 The Roc schema is the source of truth. A migration is a `.surql` file that `Surreal.plan` writes, that you review and commit, and that the app applies one time with `session.migrate!`. The first setup of a database and each update take the same path.
 
-Do not run `Surreal.schema` at each start of the app. Run `session.migrate!(migrations)`. On SurrealDB 3.x, a `DEFINE INDEX OVERWRITE` of an index that did not change builds the index again: 1 to 1.7 s for each index on 200k rows, and 0.4 s for a view. A migration file has only the statements that changed, and it runs one time.
+Do not run `Surreal.schema` at each start of the app. Run `session.migrate!(migrations)`. On SurrealDB 4.0.1, a `DEFINE TABLE OVERWRITE` of a view that did not change fills the view again: 0.16 to 0.26 s for a view over 20000 rows. An index that did not change is not built again on 4.0.1 (on SurrealDB 3.x it was: 1 to 1.7 s for each index on 200k rows). A migration file has only the statements that changed, and it runs one time.
 
 | Part | What it is | Where it is |
 | --- | --- | --- |
 | Schema | `List(Surreal.Defined)`, as for `Surreal.schema` | A module of the app |
-| Target | `V4` (SurrealDB 4 at compatibility level 4) or `V3` (SurrealDB 3.3, and SurrealDB 4 at level 3): a constant of the app, `Surreal.MigrationTarget` | The app, and the header of each file |
+| Server | SurrealDB 4 with the database at compatibility level 4. Each file header says `target V4` | The header of each file |
 | Snapshot | The text of `Surreal.schema` that the migrations make | `db/schema.surql`, committed |
 | Migration file | A header, warnings as comments, and sections. Each section is one transaction | `db/migrations/0002_bin_size.surql`, committed, embedded with `import` |
 | History | One record for each file, with its checksum and the count of its sections that ran | The table `_reify_migration` in the database |
@@ -417,7 +417,7 @@ Do not run `Surreal.schema` at each start of the app. Run `session.migrate!(migr
 | Stage | What you do |
 | --- | --- |
 | Dev | Change the schema. Run `roc examples/migrate.roc -- plan 0002_bin_size` (copy `examples/migrate.roc` into your app). It writes the file and the new snapshot. Read the warnings. Write each value that a `-- reify: edit` line asks for, and remove the line. Add the `import` line and the file to `migrations` |
-| CI | `roc test` runs `expect Surreal.check(snapshot, schema).is_ok()`: it fails when the schema has a change that no file has. Then apply all files to an empty database of each server version that you support |
+| CI | `roc test` runs `expect Surreal.check(snapshot, schema).is_ok()`: it fails when the schema has a change that no file has. Then apply all files to an empty database |
 | Deploy, and the first setup | The app runs `session.migrate!(migrations)` at start. A fresh database runs every file; a database with history runs only the new ones |
 
 ```roc
@@ -425,9 +425,6 @@ Do not run `Surreal.schema` at each start of the app. Run `session.migrate!(migr
 import "db/schema.surql" as snapshot : Str
 import "db/migrations/0001_init.surql" as m0001_init : Str
 import "db/migrations/0002_bin_size.surql" as m0002_bin_size : Str
-
-db_target : Surreal.MigrationTarget
-db_target = V4
 
 migrations : Try(List(Surreal.Migration), Surreal.Error)
 migrations = [("0001_init", m0001_init), ("0002_bin_size", m0002_bin_size)].map_try(|(name, text)| Surreal.migration(name, text))
@@ -443,7 +440,7 @@ done = session.migrate!(migrations?)?
 
 ### A migration file
 
-`Surreal.plan(snapshot, schema, V4).to_file("0002_bin_size", KeepData)`, when `bin` gets a field `size` with the default 1 and an index on it (`examples/db/migrations/0002_bin_size.surql`):
+`Surreal.plan(snapshot, schema).to_file("0002_bin_size", KeepData)`, when `bin` gets a field `size` with the default 1 and an index on it (`examples/db/migrations/0002_bin_size.surql`):
 
 ```surql
 -- reify-surrealdb migration 0002_bin_size target V4 from c2cc81affaaa4cba5d88661913e404a736ddc7f2de38392a34861a60e857f4e7
@@ -452,34 +449,32 @@ DEFINE FIELD OVERWRITE size ON bin TYPE int DEFAULT 1 MIGRATE EXISTING ROWS AS m
 DEFINE INDEX OVERWRITE bin_size_index ON bin FIELDS size;
 ```
 
-With `V3`, section 1 is `DEFINE FIELD OVERWRITE size ON bin TYPE int DEFAULT 1;` and `UPDATE bin SET size = 1 WHERE size IS NONE RETURN NONE;`.
-
 | Line | Meaning |
 | --- | --- |
-| `-- reify-surrealdb migration <name> target <V3\|V4> from <hash> [replaces <name> ..]` | The header. `name` must be the name that the app gives. `from` is the SHA-256 of the snapshot that the plan started from. `replaces` is in a squashed file only |
+| `-- reify-surrealdb migration <name> target V4 from <hash> [replaces <name> ..]` | The header. `name` must be the name that the app gives. `target V4` is the only target; the word stays for a later target. A file with `target V3` (0.0.3 and before) is `Legacy`, and a header with no `target V4` is a `Text` error. `from` is the SHA-256 of the snapshot that the plan started from. `replaces` is in a squashed file only |
 | `-- warning: ..` | A change to read before the file runs |
 | `-- reify: commit` | The end of a section. Each section is one transaction |
 | `-- reify: edit ..` | The plan cannot pick a value. Write it in place of the placeholder on the next line, and remove this line. `migrate!` and `Surreal.migration` refuse a file that has one |
 
-A file has no `BEGIN`, `COMMIT` or `CANCEL`: the runner makes each section a transaction. You can add your own statements, for example to copy data. On `V4`, keep a write to a table and a `DEFINE INDEX` on that table in different sections: SurrealDB 4 refuses them in one transaction, and `Surreal.migration` refuses that file.
+A file has no `BEGIN`, `COMMIT` or `CANCEL`: the runner makes each section a transaction. You can add your own statements, for example to copy data. Keep a write to a table and a `DEFINE INDEX` on that table in different sections: SurrealDB 4 refuses them in one transaction, and `Surreal.migration` refuses that file.
 
 ### What a plan writes
 
-| Change | `V3` | `V4` | Section |
-| --- | --- | --- | --- |
-| A definition that did not change | Nothing | Nothing | |
-| A new or changed table, field, event, function, analyzer, access method | `DEFINE .. OVERWRITE` | `DEFINE .. OVERWRITE` | 1 |
-| An index, event, function, analyzer, access method or view that the schema removed | `REMOVE .. IF EXISTS` | `REMOVE .. IF EXISTS` | 1 |
-| A new field that is not optional, on a table that was there | `DEFINE FIELD`, then `UPDATE t SET f = <default> WHERE f IS NONE` | `DEFINE FIELD .. MIGRATE EXISTING ROWS AS .. USING <default>` | 1 |
-| A field type that does not take every old value (`string` to `int`) | `DEFINE FIELD`, then `UPDATE t SET f = <int> f` | `MIGRATE EXISTING ROWS .. USING <int> $value FALLBACK <default>` | 1 |
-| A wider field type (`int` to `option<int>`, `int` to `int \| string`) | `DEFINE FIELD OVERWRITE` | `DEFINE FIELD OVERWRITE` | 1 |
-| A field that the schema removed, with `DropData` | `REMOVE FIELD`, then `UPDATE t UNSET f` | `REMOVE FIELD` (level 4 clears the old values) | 1 |
-| A table that the schema removed, with `DropData` | `REMOVE TABLE` | `REMOVE TABLE` | 1 |
-| A new or changed index on a table that section 1 writes to or migrates | `DEFINE INDEX OVERWRITE` | `DEFINE INDEX OVERWRITE` | 2 |
-| A view over a table that section 1 migrates | Nothing | `REMOVE TABLE` of the view, then its `DEFINE TABLE` in section 2 | 1 and 2 |
-| A changed analyzer | `DEFINE ANALYZER OVERWRITE`, then `REBUILD INDEX` of each full-text index that uses it | The same | 1 and 2 |
+| Change | Statement | Section |
+| --- | --- | --- |
+| A definition that did not change | Nothing | |
+| A new or changed table, field, event, function, analyzer, access method | `DEFINE .. OVERWRITE` | 1 |
+| An index, event, function, analyzer, access method or view that the schema removed | `REMOVE .. IF EXISTS` | 1 |
+| A new field that is not optional, on a table that was there | `DEFINE FIELD .. MIGRATE EXISTING ROWS AS .. USING <default>` | 1 |
+| A field type that does not take every old value (`string` to `int`) | `MIGRATE EXISTING ROWS .. USING <int> $value FALLBACK <default>` | 1 |
+| A wider field type (`int` to `option<int>`, `int` to `int \| string`) | `DEFINE FIELD OVERWRITE` | 1 |
+| A field that the schema removed, with `DropData` | `REMOVE FIELD` (level 4 clears the old values) | 1 |
+| A table that the schema removed, with `DropData` | `REMOVE TABLE` | 1 |
+| A new or changed index on a table that section 1 writes to or migrates | `DEFINE INDEX OVERWRITE` | 2 |
+| A view over a table that section 1 migrates | `REMOVE TABLE` of the view, then its `DEFINE TABLE` in section 2 | 1 and 2 |
+| A changed analyzer | `DEFINE ANALYZER OVERWRITE`, then `REBUILD INDEX` of each full-text index that uses it | 1 and 2 |
 
-A value that the plan cannot pick gets a `-- reify: edit` line: a new required field with no default, a type with no cast (a record, a list), a value that does not cast with no default, and on `V4` a `REFERENCE` field (SurrealDB 4 refuses `MIGRATE EXISTING ROWS` on it).
+A value that the plan cannot pick gets a `-- reify: edit` line: a new required field with no default, a type with no cast (a record, a list), a value that does not cast with no default, and a `REFERENCE` field (SurrealDB 4 refuses `MIGRATE EXISTING ROWS` on it).
 
 `mode` is `KeepData` or `DropData`. With `KeepData`, a table or a field that the schema removed stays in the database and in the snapshot, so a later file can drop it. Drop data one release after the code stops using it.
 
@@ -487,7 +482,7 @@ A value that the plan cannot pick gets a `-- reify: edit` line: a new required f
 
 | Call | Gives |
 | --- | --- |
-| `Surreal.plan(snapshot, schema, target)` | `Try(Plan, Error)`: the diff from the snapshot (`""` for an empty database) to the schema |
+| `Surreal.plan(snapshot, schema)` | `Try(Plan, Error)`: the diff from the snapshot (`""` for an empty database) to the schema |
 | `plan.statements(mode)` | `List(List(Str))`: the statements of each section, with no `;` |
 | `plan.to_file(name, mode)` | `Str`: the migration file |
 | `plan.snapshot(mode)` | `Str`: the snapshot after the file. Write it to `db/schema.surql` |
@@ -496,10 +491,9 @@ A value that the plan cannot pick gets a `-- reify: edit` line: a new required f
 | `plan.is_empty(mode)` | `Bool`: the plan has no statement |
 | `plan.replacing(names)` | `Plan`: a squashed file that replaces the files `names` |
 | `plan.prepare(mode)` | `Try(List(Prepared({})), Error)`: each section as a transaction, for `session.run!` in a test. A plan that needs an edit is an error |
-| `Surreal.migration(name, text)` | `Try(Migration, Error)`: a file, read. `name()`, `target()`, `sections()`, `checksum()`, `replaces()` |
+| `Surreal.migration(name, text)` | `Try(Migration, Error)`: a file, read. `name()`, `sections()`, `checksum()`, `replaces()` |
 | `Surreal.check(snapshot, schema)` | `Ok({ pending_drops })` when the snapshot is the schema. Else `Migration({ problem: Unplanned(statements) })` |
-| `session.migrate!(migrations)` | `Try({ session, applied }, Error)`. `applied` is `{ ran, adopted, ahead, server }` |
-| `Surreal.raise_compatibility` | `"ALTER DATABASE COMPATIBILITY 4;"`, for the file that moves a database to level 4 |
+| `session.migrate!(migrations)` | `Try({ session, applied }, Error)`. `applied` is `{ ran, adopted, ahead }` |
 
 ### What `migrate!` does
 
@@ -509,19 +503,23 @@ A value that the plan cannot pick gets a `-- reify: edit` line: a new required f
 | Order | The order of the list. A file that did not run, before one that ran, is `OutOfOrder` |
 | Checksum | A file that ran and whose text changed is `Changed`. Fix a mistake with a new file |
 | Sections | Section 1 creates the record of the file and runs in the same transaction; each later section moves the record on. After a crash between sections, the next run goes on at the next section |
-| Two runners at once | The record of a file is created once. The second runner fails on it, reads the history again and goes on. No section runs two times (tested on SurrealDB 3.3.5 and 4.0.0) |
-| Target | A `V4` file on SurrealDB 3, or on a database at level 3, is `Target`, and nothing runs |
+| Two runners at once | The record of a file is created once. The second runner fails on it, reads the history again and goes on. No section runs two times (tested on SurrealDB 4.0.1) |
+| Level | A database below compatibility level 4 is `Migration({ name: "", problem: Level({ found }) })`, and nothing runs. A SurrealDB 3 datastore that was upgraded to SurrealDB 4 stays at level 3 until `ALTER DATABASE COMPATIBILITY 4`. A server with no level (SurrealDB 3) is a `Wire` error |
+| History table | `_reify_migration` keeps the field `target`. A new database defines it as `'V4'`; a database of 0.0.x keeps `'V3' \| 'V4'`, which takes `'V4'` |
 | Squash | A file with `replaces` is recorded and does not run when the database ran all the files it replaces. A fresh database runs it. A database that ran only some of them is an error |
 | `ahead` | Records of the history that no file of the list has: a newer version of the app ran them. It is not an error |
 
 There is no down migration. To undo a change, write a new file.
 
-### Move from SurrealDB 3 to 4
+### Upgrade from 0.0.x
 
-1. Upgrade the server. The database stays at level 3, and `V3` files still run.
-2. Add a `V3` file with `Surreal.raise_compatibility` as its body.
-3. Set `db_target = V4`.
-4. Squash: `roc examples/migrate.roc -- squash 0005_base` writes a `V4` file that replaces the older files, so a fresh database does not run `V3` fills.
+This version runs on SurrealDB 4 at compatibility level 4 only. `Surreal.MigrationTarget`, the `V3` plans and `Surreal.raise_compatibility` are removed, and `Surreal.plan` takes no target.
+
+1. If any file has `target V3`, do this with 0.0.3 first: raise the database to level 4 (`ALTER DATABASE COMPATIBILITY 4`, the body of `Surreal.raise_compatibility`), set `db_target = V4`, then squash: `roc examples/migrate.roc -- squash 0005_base` writes one `V4` file that `replaces` the older files. Put it in place of the old files in `migrations`, and run `migrate!`: a database that ran all the old files records it and does not run it. This version refuses a `target V3` file with `Legacy`.
+2. A file with `target V4` keeps working as it is. Its checksum does not change.
+3. A SurrealDB 3.x datastore that was upgraded to SurrealDB 4.0.1 stays at level 3. Raise it with `ALTER DATABASE COMPATIBILITY 4` before `migrate!` runs, or `migrate!` refuses it with `Level`.
+4. SurrealDB 4 refuses a token made before the server upgrade. Sign in again to get a new token.
+5. Remove `db_target` and the third argument of `Surreal.plan` from the app.
 
 ## Limits
 
@@ -530,7 +528,7 @@ There is no down migration. To undo a change, write a new file.
 | A path through an optional record or a union arm cannot be indexed or made unique | Use an optional field at the end of a path, the whole optional record, or a field outside it |
 | `REFERENCE` works only on root fields, so other links use events and an index | Accept the extra index. The event name is `<table>_<path>_on_delete` |
 | A plan does not find renames, and does not compare with the live database. `INFO FOR DB` gives the text of the server, which is not the text of `Surreal.schema` | A rename is a drop and a new field (warning `MaybeRenamed`): copy the data in a statement of your own, in the file, before the drop. Keep the snapshot committed, and run `Surreal.check` in CI |
-| On `V4`, an index build blocks writes to its table until it ends. `DEFINE INDEX .. CONCURRENTLY` is not used | Plan large indexes for a quiet time |
+| An index build blocks writes to its table until it ends. `DEFINE INDEX .. CONCURRENTLY` is not used | Plan large indexes for a quiet time |
 | Two tables with an equal row type are refused in one list, because a link to the row type is then ambiguous | Make one of the rows a nominal type (`:=`) |
 | A table name can appear once in the list | Define one stored row for each name. Use `define_read()` for a read row |
 | A view is grouped, takes no rule, no range and no median. A sum of integers is refused | Convert with `to_f64()`. Compute the median in a query |

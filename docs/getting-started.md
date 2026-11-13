@@ -26,7 +26,7 @@ The function stays a Roc function. A test, a seed list and your own code can cal
 | --- | --- |
 | Compiler | The `reify` branch of [Karakatiza666/roc](https://github.com/Karakatiza666/roc), at the commit in `.roc-version` (`reify-76ed44249ac086e593325c58f56d96d8dc4ffd47` from release 0.0.3, the reify nightly `nightly-reify-2026-11-07-76ed442`) |
 | Zig, to build the compiler | 0.17.0 |
-| Database, to run queries | SurrealDB 3.3.4 |
+| Database, to run queries | SurrealDB 4.0.1 |
 
 Stock Roc has no `Code` type. The package does not compile with it. The compiler feature is described in [reifying.md](https://github.com/Karakatiza666/roc/blob/reify/docs/langref/reifying.md) of the compiler repository.
 
@@ -46,7 +46,7 @@ export ROC=$PWD/zig-out/bin/roc
 To start a local server:
 
 ```sh
-docker run --rm -d --name surreal-roc -p 8000:8000 surrealdb/surrealdb:v3.3.4 start --user root --pass root memory
+docker run --rm -d --name surreal-roc -p 8000:8000 surrealdb/surrealdb:v4.0.1 start --user root --pass root memory
 ```
 
 ## Add the package

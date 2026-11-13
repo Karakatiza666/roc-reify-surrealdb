@@ -221,7 +221,7 @@ LIVE SELECT VALUE { row: label, now: true } FROM kennel WHERE id.chain(|$v1| (SE
 LIVE SELECT VALUE (SELECT VALUE { ref: id, row: label, now: id.chain(..).any(..) } FROM record::id($parent.id)[0]) FROM vital;
 ```
 
-A write to a reading sends one notice, for the kennel of its key. Before, it sent one for each kennel (300 notices for each write with 300 kennels; now 1, on SurrealDB 3.3.5 and 4.0.0).
+A write to a reading sends one notice, for the kennel of its key. Before, it sent one for each kennel (300 notices for each write with 300 kennels; now 1, on SurrealDB 4.0.1).
 
 | The function over the rows of `rows()` | Rows of the result that a write reaches | Payload of the `read` statement |
 | --- | --- | --- |
@@ -244,7 +244,7 @@ Surreal.from(kennels).select(|k| { label: k.label, rounds: rounds.rows().count_i
 LIVE SELECT VALUE (SELECT VALUE { ref: id, row: { label: label, rounds: $this.chain(|$v1_0| (SELECT VALUE id FROM round WHERE $v1_0.id IN stops[*].kennel)).len() }, now: true } FROM array::distinct(array::flatten([$before, $after].filter(|$w| $w != NONE).map(|$w| $w.stops[*].kennel)))) FROM round;
 ```
 
-A write to a round sends a notice for each kennel that it stops at, before or after the write. With 300 kennels and 15 writes, it sent 300 notices for each write before, and now 1 to 3 (SurrealDB 3.3.5 and 4.0.0).
+A write to a round sends a notice for each kennel that it stops at, before or after the write. With 300 kennels and 15 writes, it sent 300 notices for each write before, and now 1 to 3 (SurrealDB 4.0.1).
 
 ### A filter that reads only the record id
 
@@ -254,7 +254,7 @@ A filter that reads the row only through its record id and its edges (`id`, `<-c
 LIVE SELECT VALUE { row: { carers: <-cares_for.len(), label: label }, now: true } FROM kennel WHERE <-cares_for.len() = 0;
 ```
 
-A filter that reads another field of the row is tested three times on each write: in `now`, in `WHERE`, and on `$before`. SurrealDB 3.3.5 and 4.0.0 do not let `WHERE` read a projection alias or a `LET` in a `LIVE SELECT`.
+A filter that reads another field of the row is tested three times on each write: in `now`, in `WHERE`, and on `$before`. SurrealDB 4.0.1 does not let `WHERE` read a projection alias in a `LIVE SELECT` (verified: no notice comes). On 3.3.5 and 4.0.0 it also did not read a `LET` there.
 
 ### What is not watched
 
@@ -358,7 +358,7 @@ The view held one row after the create and the update, and none after the delete
 
 ## Order of notices
 
-SurrealDB 3.3.4 can deliver the notices of two writes in the wrong order. This can happen when both writes come from one client, also when the second write is sent after the reply to the first. It is upstream issue [surrealdb/surrealdb#7603](https://github.com/surrealdb/surrealdb/issues/7603). A maintainer says SurrealDB 4.0 fixes it.
+SurrealDB 3.3.4 (no test shows the fix on 4.0.1 yet) can deliver the notices of two writes in the wrong order. This can happen when both writes come from one client, also when the second write is sent after the reply to the first. It is upstream issue [surrealdb/surrealdb#7603](https://github.com/surrealdb/surrealdb/issues/7603). A maintainer says SurrealDB 4.0 fixes it.
 
 | Fact | What to do |
 | --- | --- |
@@ -408,9 +408,8 @@ From `examples/watch.roc`, `vital_step` and `expected`. A real run of `Create(ho
 | An `Out` or `In` field of a linked row is not watched. `edges_from` and `edges_to` of another record watch the whole edge table | Watch the edge table with its own query |
 | `live_raw` and `live_diff` report the table only. A leave sends nothing | Use `live` for leaves, edges and links |
 | `live_diff` has no edges and no projection | Use `live` |
-| A field name with `/` or `~` gives a patch pointer that is not exact | Roc field names have neither |
 | A `LIVE` in the text of `Unchecked.query!` is not watched. The inbox drops its notices | Use `live!` (see [Raw SurrealQL](advanced.md#raw-surrealql)) |
-| The notices of two writes can come in the wrong order on SurrealDB 3.3.4 | Read the changes of a write before the next write to the same records |
+| The notices of two writes can come in the wrong order on SurrealDB 3.3.4 (no test shows the fix on 4.0.1 yet) | Read the changes of a write before the next write to the same records |
 | The inbox keeps every notice of a watch until you read it | Read the watch or call `kill!` |
 | `next_within!` needs `Transport.websocket_timed` | On basic-webserver, do not wait for a watch (see [Sessions on basic-webserver](sessions.md#sessions-on-basic-webserver)) |
 | HTTP has no live queries | Use a WebSocket transport |

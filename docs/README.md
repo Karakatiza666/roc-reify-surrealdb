@@ -110,10 +110,10 @@ The other pages cover one topic each: links and edges, live queries, record user
 | `define_read()` for a read row | [schema.md#read-rows](schema.md#read-rows) |
 | Full-text and vector indexes in `define()` | [schema.md#indexes-for-search](schema.md#indexes-for-search) |
 | `permit`, `permit_full`, `permit_field` and `deny_field` | [schema.md#permissions](schema.md#permissions) |
-| Migrations: `Surreal.plan(snapshot, schema, target)` writes a reviewed `.surql` file from the committed snapshot; `V4` (`MIGRATE EXISTING ROWS`, sections) or `V3` | [schema.md#migrations](schema.md#migrations) |
+| Migrations: `Surreal.plan(snapshot, schema)` writes a reviewed `.surql` file from the committed snapshot, for SurrealDB 4 at compatibility level 4 (`MIGRATE EXISTING ROWS`, sections) | [schema.md#migrations](schema.md#migrations) |
 | The dev tool `examples/migrate.roc`: `plan`, `check`, `squash`, `up` | [schema.md#flows](schema.md#flows) |
 | `Surreal.check(snapshot, schema)` in an `expect`, for CI | [schema.md#the-calls](schema.md#the-calls) |
-| A squashed file with `replaces`, and the move from SurrealDB 3 to 4 | [schema.md#move-from-surrealdb-3-to-4](schema.md#move-from-surrealdb-3-to-4) |
+| A squashed file with `replaces`, and the upgrade from 0.0.x (`target V3` files, a database at level 3) | [schema.md#upgrade-from-00x](schema.md#upgrade-from-00x) |
 | `KeepData` and `DropData`, `dropped`, `warnings`, `to_file`, `snapshot` and `prepare` of a plan, `-- reify: edit` lines | [schema.md#what-a-plan-writes](schema.md#what-a-plan-writes) |
 
 ### Choosing fields
@@ -202,7 +202,7 @@ The other pages cover one topic each: links and edges, live queries, record user
 | Only the fields that the clauses read | [live-queries.md#only-the-fields-that-the-clauses-read](live-queries.md#only-the-fields-that-the-clauses-read) |
 | `live_raw` and `Event` | [live-queries.md#raw-events](live-queries.md#raw-events) |
 | `live_diff`, `Patch` and `DiffView` | [live-queries.md#patches-of-stored-rows](live-queries.md#patches-of-stored-rows) |
-| The order of notices on SurrealDB 3.3.4 | [live-queries.md#order-of-notices](live-queries.md#order-of-notices) |
+| The order of notices on SurrealDB 3.3.4 (no test shows the fix on 4.0.1 yet) | [live-queries.md#order-of-notices](live-queries.md#order-of-notices) |
 | `Surreal.Mirror` to predict notices | [live-queries.md#predict-notices-in-roc](live-queries.md#predict-notices-in-roc) |
 
 ### Record users and permissions

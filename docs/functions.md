@@ -100,7 +100,7 @@ The check lists 66 intrinsics (64 for release 0.0.1). The tables of this page ma
 
 ## Roc builtins
 
-The builtins below have a SurrealQL form. `s` is a `Str`, `n` and `m` are integers, `d` is a `Dec`, `list` is a list. A builtin maps only when SurrealDB 3.3.4 gives the same result as Roc. Where the two differ, the translator writes a longer expression, or it refuses the call.
+The builtins below have a SurrealQL form. `s` is a `Str`, `n` and `m` are integers, `d` is a `Dec`, `list` is a list. A builtin maps only when SurrealDB 4.0.1 gives the same result as Roc. Where the two differ, the translator writes a longer expression, or it refuses the call.
 
 | Family | Roc | SurrealQL | Note |
 | --- | --- | --- | --- |
@@ -444,8 +444,8 @@ The package leaves out these functions on purpose.
 | `array::sort`, `array::sort::asc`, `array::sort::desc` | Use `List.sort` and `List.sort_reversed` for whole numbers and `Dec`. There is no `Array.sort` |
 | `array::difference` | Use `Array.complement`. `array::difference` is a symmetric difference |
 | `time::millis`, `time::micros` | Called `Time.unix_millis` and `Time.unix_micros` |
-| `string::similarity::fuzzy`, `smithwaterman` | Left out. Both give 0 for `('martha', 'marhta')` on SurrealDB 3.3.4 |
-| `string::distance::hamming`, `osa_distance` | Left out. `hamming` is an error for texts of different length. `osa_distance` is "Invalid function" in 3.3.4 |
+| `string::similarity::fuzzy`, `smithwaterman` | Left out. Both give 0 for `('martha', 'marhta')` on SurrealDB 4.0.1 |
+| `string::distance::hamming`, `osa_distance` | Left out. `hamming` is an error for texts of different length. `osa_distance` is a parse error in 4.0.1: "Invalid function/constant path" |
 | `crypto::bcrypt`, `scrypt`, `pbkdf2` | Left out. A random salt makes each call differ. `argon2` is the hash that signup and signin need |
 | `Datetime - Datetime` | Left out. It is an error in SurrealDB when the result is negative. Use `Time.unix(a) - Time.unix(b)` |
 | `time::timezone`, `is_leap_year`, `max`, `min` | Left out |

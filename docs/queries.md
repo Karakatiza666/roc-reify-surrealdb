@@ -118,7 +118,7 @@ The text is the same for each value. Only the `LET` values change.
 | --- | --- | --- |
 | A clause of any step: `filter`, `select`, `order_by`, `group_by` and the others | `.filter(\|m\| m.unit_price >= least).select(\|m\| { over: m.unit_price - base })` | `WHERE unit_price >= $_1`, `unit_price - $_2 AS over` |
 | The key of `at`, `set_at`, `update_at`, `update_at_by` and `delete_at` | `owners.set_at(key, \|_\| { name: name })` with `key : Surreal.Id(Owner)` | `LET $_1 = owner:⟨jon⟩; UPDATE $_1 SET name = $_2` |
-| `limit` and `start` | `.start(skip).limit(size)` | `LIMIT $_2 START $_1` |
+| `limit` and `start` | `.start(skip).limit(size)` | `ORDER BY id LIMIT $_2 START $_1` |
 
 `tests/CapturedTest.roc` has each of these.
 
@@ -204,13 +204,14 @@ Surreal.from(visits).select(|v| { id: v.id, vet: v.vet.get().name }).order_by(|r
 SELECT record::id(id) AS id, vet.name AS vet FROM visit ORDER BY vet, id DESC
 ```
 
-SurrealDB orders by a field path only. A key that is not one column of the result, such as `|r| r.name.count_utf8_bytes()` or a path into a column, is `Unsupported`. Select the value as a column of its own, then order by that column.
+The package orders by a field path only (SurrealDB 4.0.1 also takes a call, but the package does not write one). A key that is not one column of the result, such as `|r| r.name.count_utf8_bytes()` or a path into a column, is `Unsupported`. Select the value as a column of its own, then order by that column.
 
 Call `start(n)` to skip rows and `limit(n)` to keep at most `n` rows. The types allow only the order in which SurrealDB runs the clauses: `order_by` any number of times, then `start` at most once, then `limit` at most once.
 
 | Chain | Result |
 | --- | --- |
 | `.order_by(\|r\| r.id, Asc).start(2).limit(2)` | `ORDER BY id LIMIT 2 START 2` |
+| `.limit(2)`, `.start(1)`, with no `order_by` and no group | `ORDER BY id LIMIT 2`, `ORDER BY id START 1`. SurrealDB 4 reads a table in no fixed order, so the package adds the order of the key |
 | `.limit(2).order_by(..)` | Compile error: `Surreal.Limited(p, VisitLine)` has no method `order_by` |
 | `.limit(10).start(20)`, `.limit(2).limit(5)` | Compile error. A `Limited` has no `start` or `limit` |
 | `.start(1).start(2)` | Compile error. A `Started` has no `start` |
@@ -227,8 +228,8 @@ After `select_value`, the key reads the value. The value and the key together mu
 | --- | --- |
 | `select`, `select_value` | One `SELECT`. The filter reads the projection expressions in the same `WHERE` (see [Choosing the fields to read](selecting-fields.md#the-result-type-limits-the-next-clauses)) |
 | `order_by` | One `SELECT`. An order does not change which rows a filter keeps |
-| `start` or `limit` | A subquery: `SELECT .. FROM (SELECT .. LIMIT n) WHERE ..` |
-| `aggregate` | A subquery. This is the `HAVING` of SQL, which SurrealDB 3.3.4 does not have |
+| `start` or `limit` | A subquery: `SELECT .. FROM (SELECT .. ORDER BY .. LIMIT n) WHERE ..` |
+| `aggregate` | A subquery. This is the `HAVING` of SQL, which SurrealDB 4.0.1 does not have |
 
 After a limit, the filter keeps the rows of the limit only:
 
@@ -467,9 +468,9 @@ For the totals of the same rows, end the chain with `totals` in place of the gro
 | `limit` and `start` come after `order_by`, in that order | Use `query()` to order or page the rows of a limit again |
 | Each group key part must be a result column | Return the key from the per-group function |
 | `group_by(\|_\| {})` is refused | Use `totals` |
-| SurrealDB 3.3.4 has no `HAVING` | A filter after `aggregate` is a subquery. This is automatic |
+| SurrealDB 4.0.1 has no `HAVING` | A filter after `aggregate` is a subquery. This is automatic |
 | `totals` refuses `Math.median` | Take the median per group |
-| A per-row list `sum` inside `aggregate` or `totals`, such as `rows.map(\|v\| Clinic.bill(v)).sum()`, is built, but SurrealDB 3.3.4 refuses the statement: "Nested aggregate functions are not supported" | Sum a field of the row in the group. Compute the per-row value in a projection without a group |
+| A per-row list `sum` inside `aggregate` or `totals`, such as `rows.map(\|v\| Clinic.bill(v)).sum()`, is built, but SurrealDB 4.0.1 refuses the statement: "Nested aggregate functions are not supported" | Sum a field of the row in the group. Compute the per-row value in a projection without a group |
 | One `between` per query, with literal times | Make one query for each range |
 | `outgoing`, `incoming`, `between` and `live` are refused after a subquery | Put them before the step that makes the subquery |
 | `table.rows()` in a clause reads the whole table for each row. The rows of one series of a time series are a range scan | Prefer a link or an edge when the rows are linked |

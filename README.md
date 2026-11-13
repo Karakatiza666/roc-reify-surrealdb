@@ -42,7 +42,7 @@ with it. See [Requirements](#requirements).
 | Dependencies | [roc-cbor](https://github.com/Karakatiza666/roc-cbor) 0.4.0, [roc-websocket](https://github.com/Karakatiza666/roc-websocket) 0.0.6 |
 | Examples only | [roc-basic-cli-websocket](https://github.com/Karakatiza666/roc-basic-cli-websocket) 0.0.4 (basic-cli 0.27.0), [roc-basic-webserver-websocket](https://github.com/Karakatiza666/roc-basic-webserver-websocket) 0.0.3 (basic-webserver 0.21.0) |
 | Compiler | the `reify` branch of [Karakatiza666/roc](https://github.com/Karakatiza666/roc), at commit `76ed44249a` (reify nightly `nightly-reify-2026-11-07-76ed442`, based on Roc nightly 2026-11-07), pinned in `.roc-version` |
-| Database | SurrealDB 3.3.4. Migrations: 3.3.5 or later on 3.x (target `V3`), 4.0.0 (target `V4`) |
+| Database | SurrealDB 4.0.1. Migrations need a database at compatibility level 4 |
 | Tests | `scripts/all_tests.sh` |
 | License | UPL-1.0 (`LICENSE`) |
 
@@ -132,7 +132,7 @@ described at compile time and passed to the library as data. The library
 translates it, and the compiler still checks it as an ordinary function.
 
 SurrealDB is needed to run the checks and the apps. The version the package is
-tested on is 3.3.4. The migrations are also tested on 3.3.5 and 4.0.0.
+tested on is 4.0.1.
 
 ## Setup
 
@@ -314,7 +314,7 @@ kennel b at 2026-03-01T10:00:00Z: pulse 120, temp_c 39.0
 | `src/Types.roc` | Roc types as SurrealDB types, the `BadSchema` checks, and the list of link sites of a row. `Types.nominal` is the one place that knows a nominal type by its name. |
 | `src/Encode.roc` | The format that the derived `encoder_for` runs against. It turns a row into a SurrealQL literal. `Encode.Bind` is the byte format of a value that `Query.filter_with` captures, which reads back as the same literal. |
 | `src/Ql.roc` | SurrealQL text: values, quoting, identifiers and the error type, with the errors of a live session (`Wire`, `Server`, `Transport`). |
-| `src/Migrate.roc` | Migrations, pure: the statements of a plan for a target (`V3`, `V4`) in sections, the text of a migration file and what the runner reads from it, and what the runner does for each file from the history. |
+| `src/Migrate.roc` | Migrations, pure: the statements of a plan for SurrealDB 4 at compatibility level 4 in sections, the text of a migration file and what the runner reads from it, and what the runner does for each file from the history. |
 | `src/Diff.roc` | The ops of `LIVE SELECT DIFF`: the paths, the text patches, and each op applied to a stored row as a `Cbor.Value`. |
 | `src/Rpc.roc` | The RPC requests of a live session (`signin`, `signup`, `authenticate`, `invalidate`, `use`, `query`, `kill`), and the uuid of a live query (CBOR tag 37). |
 | `src/HttpRpc.roc` | The RPC over HTTP, pure: the `POST /rpc` of a message, with its headers and the authentication of the session (Basic for a system user, the `Bearer` token of a record user), and the reply in its response. |
@@ -341,12 +341,12 @@ kennel b at 2026-03-01T10:00:00Z: pulse 120, temp_c 39.0
 | `tests/PreparedTest.roc` | Tests of the typed results of plain queries and writes: the text of each request, and the replies that SurrealDB sent to `client.roc`, read as the type of each query, rows with a tag union too, and a search with its scores and the nearest notes. |
 | `tests/MuxTest.roc` | Tests of the `Inbox` of a session: the frames of one session with two watches and requests in flight, in the order that SurrealDB sent them. |
 | `tests/DeadlineTest.roc` | Tests of `Session.next_within!` over a scripted adapter (`Transport.websocket_timed`): a notice that the inbox holds comes before any wait, a silence is `TimedOut`, a later notice still comes, and `Transport.websocket` gives an `Unsupported` error. The frames are the ones of `MuxTest.roc`. `roc tests/DeadlineTest.roc` runs the session and prints an `ok` or `FAIL` line for each check. |
-| `tests/MigrateTest.roc` | Tests of migrations: what a plan writes for `V3` and `V4`, the sections, the file format, the snapshot, `Surreal.check`, and what the runner does from a history. |
+| `tests/MigrateTest.roc` | Tests of migrations: what a plan writes, the sections, the file format, the snapshot, `Surreal.check`, and what the runner does from a history. |
 | `tests/MigrateServer.roc` | An app on basic-cli 0.27.0 that `check.py` runs: migration files on a live server, in empty databases of the namespace `roc_mig`, and two runners at once. |
 | `tests/RpcTest.roc` | Tests of the RPC requests and the uuid. |
 | `tests/ErrorTest.roc` | Tests of the typed errors of the server: a reply of each kind of error that SurrealDB sent, read as a `ServerError`, the constraints of a schema read back as `Unique`, `Assert`, `Check` and `Referenced`, and the messages of the constraints. |
 | `tests/HttpTest.roc` | Tests of the posts of a session over HTTP, with the authentication of each login, of the replies in their responses, and of replies that SurrealDB sent over HTTP, read through the `Inbox` in another order than they were sent. |
-| `tests/fixtures/` | Messages of a live session that SurrealDB 3.3.4 sent, one file each, in `fixtures/queries/` the replies to the requests of `client.roc`, in `fixtures/http/` the same replies over HTTP (`client.roc -- --http`), in `fixtures/mux/` the frames of one session with two watches and requests in flight, and in `fixtures/errors/` a reply of each kind of error (`check.py --record fixtures`). |
+| `tests/fixtures/` | Messages of a live session that SurrealDB 4.0.1 sent, one file each, in `fixtures/queries/` the replies to the requests of `client.roc`, in `fixtures/http/` the same replies over HTTP (`client.roc -- --http`), in `fixtures/mux/` the frames of one session with two watches and requests in flight, and in `fixtures/errors/` a reply of each kind of error (`check.py --record fixtures`). |
 | `tests/check.py` | Runs the scripts of `examples/main.roc`, `tests/BuiltinsTest.roc`, `examples/monitoring.roc` and `examples/search.roc` on SurrealDB and compares every block, the live blocks in a WebSocket session, then runs `watch.roc`, `client.roc` on a WebSocket and over HTTP, and `server.roc`, which it asks for a query over HTTP. With `--record DIR`, it saves the messages of each live block, the replies to `client.roc` on both transports and the frames of `MuxTest.roc`. Python standard library only. |
 | `scripts/bundle.sh`, `scripts/test_bundle.sh` | The release bundle `dist/<hash>.tar.zst` and its release URL, and the check of the examples against it. |
 | `.roc-version`, `.github/` | The compiler commit that CI builds (`reify-<commit>`), the action that builds it, and the workflows that test and release. |
@@ -371,7 +371,7 @@ runs in the browser as WASM, so it has no address that a script can reach.
 Start a local server instead:
 
 ```sh
-docker run --rm -d --name surreal-roc -p 8000:8000 surrealdb/surrealdb:v3.3.4 start --user root --pass root memory
+docker run --rm -d --name surreal-roc -p 8000:8000 surrealdb/surrealdb:v4.0.1 start --user root --pass root memory
 ```
 
 Without a server, the script skips `tests/check.py` and says so. Stop the
@@ -395,7 +395,7 @@ module is private"). `test_bundle.sh` serves the bundle on 127.0.0.1 and runs
 `src/`, so a change there changes the URL: the headers in this file name the
 URL that `bundle.sh` printed for the release.
 
-`.github/workflows/tests.yaml` runs `all_tests.sh` (with a SurrealDB 3.3.4
+`.github/workflows/tests.yaml` runs `all_tests.sh` (with a SurrealDB 4.0.1
 container, so that `check.py` runs), `bundle.sh` and `test_bundle.sh`.
 `.github/workflows/release.yml` runs on a tag `X.Y.Z`: it runs the tests, makes
 the bundle and the docs, publishes the GitHub Release with them, and runs
@@ -430,12 +430,12 @@ roc test tests/DeadlineTest.roc
 roc tests/DeadlineTest.roc            # the scripted session: an ok or FAIL line for each check
 roc test tests/HttpTest.roc
 roc test tests/MigrateTest.roc
-python3 tests/check.py "$ROC"     # run the four scripts on SurrealDB 3.3.4, compare with Roc
+python3 tests/check.py "$ROC"     # run the four scripts on SurrealDB 4.0.1, compare with Roc
 roc examples/watch.roc                 # check.py runs it: a live session on the server, checked against the Mirror
 roc examples/client.roc                # check.py runs it: plain queries with typed results, checked against Roc
 roc examples/client.roc -- --http      # check.py runs it: the same queries in a session over HTTP
 roc examples/server.roc                # check.py runs it last: a web server on 127.0.0.1:8001 that runs a query in a WebSocket session
-python3 tests/check.py "$ROC" --url http://127.0.0.1:8401 --migrations   # only tests/MigrateServer.roc, on any server (3.3.5, 4.0.0)
+python3 tests/check.py "$ROC" --url http://127.0.0.1:8401 --migrations   # only tests/MigrateServer.roc, on any server (4.0.1 or later)
 python3 tests/check.py --record tests/fixtures   # record the messages again
 ```
 
@@ -515,7 +515,7 @@ Roc tag unions with `match` in a query.
 | An optional object, read with `map_ok` and `??` | `p.?chip.map_ok(\|c\| c.implanted_by.get().name) ?? "nobody"`. A `match` on `p.?chip` does the same, and its SQL is longer | `chip.implanted_by.name ?? 'nobody'` | `examples/main.roc:476` |
 | A union in a write | `certified = \|v\| { years: v.years + 1, specialty: Surgery({ board: "ECVS" }) }`, in `vets.set_at(vets.id("tia"), certified)` | `UPDATE vet:⟨tia⟩ SET specialty = { kind: 'Surgery', board: 'ECVS' }, years = years + 1 RETURN AFTER` | `examples/main.roc:572` |
 | A union in a write that reads the row | `{ ..p, place: Since(p.at) }`. Each `SET` item reads the row before the update, as Roc does (verified) | `UPDATE placement:⟨away⟩ SET place = { kind: 'Since', value: at } RETURN AFTER` | `examples/client.roc:449` |
-| `==` on a union | `.filter(\|o\| o.kind == o.prev)`, against a parameter or against a literal arm. The derived `==` expands into `match`es | `(IF kind.kind = 'Firm' THEN (IF prev.kind = 'Firm' THEN kind.vat = prev.vat ELSE false END) ELSE (IF prev.kind = 'Firm' THEN false ELSE true END) END)`. A run on SurrealDB 3.3.4 keeps the rows that agree in kind and payload | |
+| `==` on a union | `.filter(\|o\| o.kind == o.prev)`, against a parameter or against a literal arm. The derived `==` expands into `match`es | `(IF kind.kind = 'Firm' THEN (IF prev.kind = 'Firm' THEN kind.vat = prev.vat ELSE false END) ELSE (IF prev.kind = 'Firm' THEN false ELSE true END) END)`. A run on SurrealDB 4.0.1 keeps the rows that agree in kind and payload | |
 | A parameter record | `filter_by(in_city)`, `.prepare({ city: "Oslo" })` | `LET $city = 'Oslo'; .. WHERE address.city = $city` | `examples/main.roc:778` |
 | Optional field with `??` | `o.?phone ?? "none"` | `phone ?? 'none'` | `examples/main.roc:455` |
 | `.?` on an optional self-link | `o.?referred_by.map_ok(\|r\| r.get().name) ?? "nobody"` | `referred_by.name ?? 'nobody'` | `examples/main.roc:461` |
@@ -541,7 +541,7 @@ Roc tag unions with `match` in a query.
 | Group and aggregate | `.group_by(\|v\| v.vet.get().name).aggregate(ledger_line)` | `math::sum(fee) AS revenue, vet.name AS vet, count() AS visits .. GROUP BY vet` | `examples/main.roc:862` |
 | A statistic over a group | `avg_fee: Surreal.Math.mean_dec(rows.map(\|v\| v.fee))` in `ledger_line` | `math::mean(<float>fee) AS avg_fee .. GROUP BY vet` | `examples/main.roc:518` |
 | Totals of all matching rows | `.totals(visit_totals)` with `rows.len()`, `rows.map(\|v\| v.fee).sum()` and `Math.mean_dec(..)`, run with `.ready()` | `SELECT math::mean(<float>fee) AS avg_fee, math::sum(fee) AS revenue, count() AS visits FROM visit GROUP ALL`, read as one `VisitTotals`, not a list (`Totals.prepare`) | `examples/main.roc:1148` |
-| Totals of no rows | `.filter(\|v\| v.fee > 1000).totals(\|rows\| { visits: rows.len() })` | `SELECT count() AS visits FROM visit WHERE fee > 1000.0dec GROUP ALL`: one row, `visits: 0`. With a sum and a mean it is `revenue: 0` and `avg_fee: NaN` (verified on 3.3.4), as `vital_totals([])` computes in `client.roc` | `examples/main.roc:1154` |
+| Totals of no rows | `.filter(\|v\| v.fee > 1000).totals(\|rows\| { visits: rows.len() })` | `SELECT count() AS visits FROM visit WHERE fee > 1000.0dec GROUP ALL`: one row, `visits: 0`. With a sum and a mean it is `revenue: 0` and `avg_fee: NaN` (verified on 4.0.1), as `vital_totals([])` computes in `client.roc` | `examples/main.roc:1154` |
 | The database clock in a read | `.filter(\|v\| v.seen < Surreal.Time.now())` | `WHERE seen < time::now()` | `examples/main.roc:838` |
 | A helper that the program also calls | `Clinic.bill(v)` in `visit_line` | `fee + math::sum(items.map(\|$v1\| <decimal>$v1.doses * $v1.medication.unit_price))` | `examples/clinic/Clinic.roc:15` |
 | A helper over an open row that calls another | `Clinic.seen_since : { since : Surreal.Datetime, ..p }, { seen : Surreal.Datetime, ..r } -> Bool` calls `Clinic.seen_from`, and `filter_by(Clinic.seen_since)` takes it over `Visit` | `WHERE seen >= $since` | `examples/clinic/Clinic.roc:33` |
@@ -562,7 +562,7 @@ Roc tag unions with `match` in a query.
 | A patch of only the fields it sets | `owners.set_at(owners.id("lena"), moved)`, with `moved = \|o\| { address: { ..o.address, zip: "69002" }, phone: Err(Missing) }`. The annotation of `moved` gives the `Err` its type. `set` takes a condition instead of a key, and `set_by` and `set_at_by` read a parameter record. A `Try` sets an optional field, and `Err` removes it. Each field is checked against the row when the statement is built (see Design limits) | `UPDATE owner:⟨lena⟩ SET address.zip = '69002', phone = NONE` | `examples/main.roc:1011` |
 | A record merged into a row | `tallies.merge_at(tallies.id("t1"), { label: "Merged", meta: { a: 9 } })`, `upsert_merge_at` for a key with no row, `merge(\|t\| t.hits > 10, { tags: ["hot"] })` for a condition. The record is a value of the app, with only the fields to change; an object in it is merged into the stored object, so `meta.b` stays. `set_at` writes the same, each field as a clause, and stays the way to change a union field (a merged union keeps the keys of its old arm) or to remove an optional one. The fields are the server's to check, as Roc has no type for a record of some of the row's fields; `id` is refused | `UPDATE tally:⟨t1⟩ MERGE { label: 'Merged', meta: { a: 9 } } RETURN AFTER`, `UPSERT tally:⟨t4⟩ MERGE { .. }`, `UPDATE tally MERGE { tags: ['hot'] } WHERE hits > 10` | `examples/client.roc:1387` |
 | JSON Patch ops replayed on a row | `tallies.patch_at(tallies.id("t3"), patches)` takes the `Patch`es of `live_diff`, in order, so a client replays what another saw; `patch_ops_at` takes `Op`s that the app made, `[Replace(["label"], Cbor.Value.Text("Patched")), Add(["tags", "-"], ..)]`. A patch of another row, a patch of a delete, an op at `/id` and a `change` op (a text diff, read and not written) are refused when the statement is built. A path that the row does not have is the server's error | `UPDATE tally:⟨t3⟩ PATCH [{ op: 'replace', path: '/label', value: 'Patched' }, { op: 'add', path: '/tags/-', value: 'p' }, { op: 'replace', path: '/meta/b', value: 7 }] RETURN AFTER` | `examples/client.roc:1372`, `examples/client.roc:1390`, `tests/DiffTest.roc:272` |
-| Insert, or update the row that exists | `tallies.insert_or_update(incoming, \|new, old\| { ..old, label: new.label, hits: old.hits + new.hits })`. The patch is translated as the one of `update` is, with the new row at `$input`; the row is the last argument, as in `update_by`. One transaction. A duplicate is the same record key: a row that repeats only the value of a unique index is `Unique`, as for `insert`. A relation table is refused | `BEGIN; INSERT INTO tally [..] ON DUPLICATE KEY UPDATE hits = IF id != NONE { hits + $input.hits }, label = IF id != NONE { $input.label } RETURN AFTER; COMMIT`. SurrealDB 3.3.4 evaluates the clause once with no stored row, where `hits + 1` is an error even for a new key (verified), so each item is guarded with `IF id != NONE` | `examples/client.roc:1385` |
+| Insert, or update the row that exists | `tallies.insert_or_update(incoming, \|new, old\| { ..old, label: new.label, hits: old.hits + new.hits })`. The patch is translated as the one of `update` is, with the new row at `$input`; the row is the last argument, as in `update_by`. One transaction. A duplicate is the same record key: a row that repeats only the value of a unique index is `Unique`, as for `insert`. A relation table is refused | `BEGIN; INSERT INTO tally [..] ON DUPLICATE KEY UPDATE hits = hits + $input.hits, label = $input.label RETURN AFTER; COMMIT`. SurrealDB 4.0.1 evaluates the clause only for a stored row, so a new key is inserted as it is (verified) | `examples/client.roc:1385` |
 | Seeds through the derived encoder | `vets.insert(seed_vets)`, `treats.insert(seed_treats)` | `BEGIN; INSERT INTO vet [..] RETURN AFTER; COMMIT`, `BEGIN; INSERT RELATION INTO treats [..] RETURN AFTER; COMMIT` | `examples/main.roc:943`, `examples/main.roc:948` |
 | A Roc function as a database function | `fever_fn = Surreal.db_fn("fever", fever)`, `Surreal.function(\|_\| fever_fn)` in the schema | `DEFINE FUNCTION OVERWRITE fn::fever($a1: decimal, $a2: int) -> bool { RETURN ($a1 > 39.0dec) OR ($a2 > 120) };` | `examples/monitoring.roc:105` |
 | A database function in a filter | `.filter(\|v\| fever_fn.call2(v.temp_c, v.pulse))` | `WHERE fn::fever(temp_c, pulse)` | `examples/monitoring.roc:352` |
@@ -596,8 +596,8 @@ Roc tag unions with `match` in a query.
 | Two statements in one request | `write.then(read)` | `LET $key = 'q'; LET $label = ..; UPDATE kennel SET .. RETURN AFTER; SELECT ..`, read as `(Try(List(Kennel), Error), Try(List(KennelLine), Error))`, each with its own error | `examples/client.roc:257` |
 | Statements in one transaction | `create.begin().then(insert).then(rows).commit()` | `BEGIN; CREATE bin:⟨b3⟩ .. RETURN AFTER; INSERT INTO bin [..] RETURN AFTER; SELECT .. FROM bin; COMMIT`, read as `((List(Bin), List(Bin)), List(Bin))`, or `Aborted({ at, error })` | `examples/client.roc:376` |
 | Writes of one type in one transaction | `Surreal.transaction([bins.create(spare_bin), bins.create(twin_bin)])` | `BEGIN; CREATE bin:⟨b5⟩ ..; CREATE bin:⟨b2⟩ ..; COMMIT`, read as `List(List(Bin))`, or `Aborted({ at, error })` | `examples/client.roc:406` |
-| A plan from one schema to another, in a test | `Surreal.plan(Surreal.schema(place_defs)?, loose_defs, V3)?.prepare(DropData)` for `run!` | `BEGIN; REMOVE INDEX IF EXISTS bin_label_unique ON bin; COMMIT`, read as `{}` | `examples/client.roc:422` |
-| Migration files and the runner | `Surreal.plan(snapshot, schema, V4)?.to_file(name, KeepData)`, `Surreal.migration(name, text)`, `session.migrate!(migrations)` | A file with sections, and `_reify_migration` | `examples/migrate.roc` |
+| A plan from one schema to another, in a test | `Surreal.plan(Surreal.schema(place_defs)?, loose_defs)?.prepare(DropData)` for `run!` | `BEGIN; REMOVE INDEX IF EXISTS bin_label_unique ON bin; COMMIT`, read as `{}` | `examples/client.roc:422` |
+| Migration files and the runner | `Surreal.plan(snapshot, schema)?.to_file(name, KeepData)`, `Surreal.migration(name, text)`, `session.migrate!(migrations)` | A file with sections, and `_reify_migration` | `examples/migrate.roc` |
 | A typed read of a patch | `patch.field(\|v\| v.temp_c)` | `{ op: 'replace', path: '/temp_c', value: 37.9dec }` is `Set(37.9)` | `examples/watch.roc:609` |
 | The notices of a write, in Roc | `Surreal.Mirror.notices(vitals, Replace(hot, cooled), is_fever, vital_line)` | `[{ action: 'UPDATE', now: false, ref: vital:[..], role: 'node', row: { .. } }]` | `Mirror.notices` |
 | A key that the server makes | `.default_by(\|n\| n.id, \|_\| Surreal.Rand.ulid())`, then `notes.insert_new(new_notes)` with rows that have no `id` | `DEFINE FIELD OVERWRITE id ON note TYPE string DEFAULT rand::ulid()`, `INSERT INTO note [{ text: .., vet: vet:⟨ruth⟩ }] RETURN AFTER`, each row read back as a `Created` with its `Id` | `examples/main.roc:1112`, `examples/main.roc:1097` |
@@ -655,7 +655,7 @@ refused, except a database function that calls its own row (see "Database functi
 are one table, `Translate.builtins`, read by `Translate.builtin`. The intrinsics, the cut functions and the tables a clause names are the extension
 `Surreal.library`, which `Surreal` passes into every translation, as `Translate` cannot import `Surreal` (see "Extending the translator").
 A builtin is mapped only when
-SurrealDB 3.3.4 gives the same result as Roc. `tests/BuiltinsTest.roc` checks the risky
+SurrealDB 4.0.1 gives the same result as Roc. `tests/BuiltinsTest.roc` checks the risky
 rows on a live server.
 
 ### Row types and defaults
@@ -766,11 +766,11 @@ match session.run!(made).result {
 | `Table.insert_new` | `Table({ id : Str, ..new }), List(new) -> Prepared(List(Created({ id : Str, ..new }, new)))` |
 | `Surreal.Created(row, new)` | `{ id : Id(row), fields : new }`: the key that the server gave, as an `Id` of the table, and the other fields as stored |
 
-| The key | Schema | Key (verified on 3.3.4) |
+| The key | Schema | Key (verified on 4.0.1) |
 | --- | --- | --- |
-| No default | None: the key has no definition | SurrealDB's random key, 20 lower-case letters and digits: `handover:5cydmqi6344mvu5l5uhj` |
-| `.default_by(\|r\| r.id, \|_\| Surreal.Rand.ulid())` | `DEFINE FIELD OVERWRITE id .. TYPE string DEFAULT rand::ulid()` | A ULID: `shift:01M6C3BN3QZJM8Y0GRCFTYK5NR` |
-| `.default_by(\|r\| r.id, \|_\| Surreal.Rand.uuid())` | `.. DEFAULT <string>rand::uuid()` | A UUID as text: `task:⟨01a19835-d479-78d2-ab74-94d43551495f⟩` |
+| No default | None: the key has no definition | SurrealDB's random key, 20 lower-case letters and digits: `handover:956wn0p4gj5ik7k4a6er` |
+| `.default_by(\|r\| r.id, \|_\| Surreal.Rand.ulid())` | `DEFINE FIELD OVERWRITE id .. TYPE string DEFAULT rand::ulid()` | A ULID: `shift:01M7911XWVP2307M56XCDKCQWS` |
+| `.default_by(\|r\| r.id, \|_\| Surreal.Rand.uuid())` | `.. DEFAULT <string>rand::uuid()` | A UUID as text: `task:⟨01a1d210-f79e-77e0-b588-1324ffd4dc5a⟩` |
 | `.default_by(\|r\| r.id, \|r\| r.title)` | `.. DEFAULT $this.title` | A key from the content |
 | `id : Str ?? "main"`, `.default(\|r\| r.id, "main")` | `.. DEFAULT 'main'` | One key |
 
@@ -795,12 +795,14 @@ they read (`Started`, `Limited`):
 | Roc | What it gives |
 | --- | --- |
 | `.order_by(..).order_by(..).start(s).limit(n)`, each part optional | `ORDER BY .. LIMIT n START s` |
+| `.limit(n)` or `.start(s)` with no `order_by` and no group | `ORDER BY id LIMIT n`, `ORDER BY id START s`: SurrealDB 4 reads a table in no fixed order, so the library adds the order of the key |
 | `.limit(2).order_by(..)`, `.limit(10).start(20)`, `.limit(2).limit(5)`, `.start(1).start(2)` | A type error: a `Limited` has no `order_by`, `limit` or `start`, and a `Started` no `order_by` or `start` |
-| `.limit(2).query().select(\|r\| r).order_by(..)` | The rows of the limit, then ordered: `SELECT .. FROM (SELECT .. LIMIT 2) ORDER BY ..` |
+| `.limit(2).query().select(\|r\| r).order_by(..)` | The rows of the limit, then ordered: `SELECT .. FROM (SELECT .. ORDER BY id LIMIT 2) ORDER BY ..` |
 | `.limit(3).live(..)` | A type error. SurrealDB refuses `LIMIT` and `START` in a live query |
 
-`ORDER BY` takes a field path, not an expression: a call is a parse error.
-SurrealDB 3.3.4 reads a top-level name as a column of the result and a
+`ORDER BY` takes a field path here, not an expression. SurrealDB 4.0.1
+accepts a call, such as `ORDER BY string::len(name)` (verified), but the
+library does not write one. SurrealDB reads a top-level name as a column of the result and a
 longer path off the source row, and it accepts a path into an aliased
 column or through a record link (`ORDER BY owner.name`) but leaves the
 rows unordered, in the same order for `ASC` and `DESC` (verified). So
@@ -832,7 +834,7 @@ form a step takes:
 | Parameters | A `filter_by` over a subquery reads `$name`, and `prepare` writes a `LET` for it, as for any query |
 | Edges | `outgoing` and `incoming` take a row of a table. After `select(\|r\| r).query()` the row is still the table row. A row of a subquery is a copy with no record id, so they are `Unsupported` |
 | `between`, `view` | `Unsupported` over a subquery: each reads a table |
-| `LIVE SELECT` | SurrealDB 3.3.4 refuses `LIVE SELECT .. FROM (SELECT ..)`: "Cannot execute LIVE statement using value". The target of a query over a subquery is `Sub` (`Surreal.Target`), so `live` refuses it (`Surreal.live_table`) and takes the form of one `SELECT` |
+| `LIVE SELECT` | SurrealDB 4.0.1 refuses `LIVE SELECT .. FROM (SELECT ..)`: "Cannot execute LIVE statement using value". The target of a query over a subquery is `Sub` (`Surreal.Target`), so `live` refuses it (`Surreal.live_table`) and takes the form of one `SELECT` |
 
 ### Edge types
 
@@ -943,7 +945,7 @@ holds the row and `now`, the filter after the write.
 | A link of a row of `rows()`, `badges.rows().any(\|b\| b.kennel.get().label == c.name)` | The statement on `badge`, and one on `kennel` with the test `$parent.id IN (SELECT VALUE id FROM badge).kennel`: a write to a kennel that a badge links to reaches every row |
 | `vitals.rows()` in a clause, with no relation | `LIVE SELECT VALUE (SELECT VALUE { ref: id, row: <row>, now: <p> } FROM kennel) FROM vital` |
 | `vitals.rows().keep_if(\|v\| v.id.series() == kennels.id(k.id))` | `.. FROM record::id($parent.id)[0]) FROM vital`: the key names the kennel, and a write never changes a key |
-| `kennels.rows().count_if(\|k\| k.site.id() == sites.id(s.id))` | `.. FROM array::distinct([$before, $after].filter(\|$w\| $w != NONE).map(\|$w\| $w.site))) FROM kennel`: the old site and the new one (verified on SurrealDB 3.3.5 and 4.0.0) |
+| `kennels.rows().count_if(\|k\| k.site.id() == sites.id(s.id))` | `.. FROM array::distinct([$before, $after].filter(\|$w\| $w != NONE).map(\|$w\| $w.site))) FROM kennel`: the old site and the new one (verified on SurrealDB 4.0.1) |
 | `customers.rows().count_if(\|c\| c.tags.contains(p.title))` | `.. FROM product WHERE title IN array::distinct(array::flatten([$before, $after]..map(\|$w\| $w.tags)))) FROM customer` |
 | `.live_raw({})` | `LIVE SELECT VALUE <row> FROM vital WHERE <p>` (`Selected.live_raw`) |
 | `Query.live_diff({})` | `LIVE SELECT DIFF FROM vital WHERE <p>` (`Query.live_diff`) |
@@ -991,7 +993,7 @@ same functions that the clauses reify:
 | `Mirror.events(table, edit, keep, show)` | `live_raw`: a create, an update and a delete when `keep` holds after the write |
 | `Mirror.notices_literal`, `Mirror.events_literal` | The `-- roc:` literal of a `-- live:` block, one list for each write |
 
-Facts of SurrealDB 3.3.4 that the design reads, each run on the server:
+Facts of SurrealDB 4.0.1 that the design reads, each run on the server:
 
 | Write | Row statement | Edge statement | `read` statement |
 | --- | --- | --- | --- |
@@ -1095,17 +1097,17 @@ and no notice is lost.
 | `KILLED` of a watch | Keeps it as a notice of the watch, which then ends |
 | A notice of a uuid that no `live!` of the session opened | Drops it. A `LIVE` in the text of `Unchecked.query!` is not a watch |
 
-SurrealDB 3.3.4 sends the frames in these orders (`MuxTest.roc` reads them
+SurrealDB 4.0.1 sends the frames in these orders (`MuxTest.roc` reads them
 from `fixtures/mux/`):
 
 | Fact | Frames |
 | --- | --- |
 | Replies to requests in flight come out of order | Five requests, and the first sleeps 800 ms: its reply comes last |
 | A notice can come while a call waits for the reply to another request | A write over HTTP while a request sleeps |
-| The notice of a write can come before or after the reply to that write | A create and a `RETURN` in one request, and a write to each of two tables in one request |
-| `KILLED` can come before or after the reply to `kill` | Both orders, in two runs of one probe. `MuxTest.roc` reads the recorded order and the other |
+| The notice of a write can come before or after the reply to that write | Both orders are in one recording. The notice came before the reply for a create and a `RETURN` in one request, and for a write to each of two tables in one request. It came after the reply for the creates of requests in flight |
+| `KILLED` can come before or after the reply to `kill` | Both orders were seen in two runs of one probe on SurrealDB 3.3.4, and both are in the 4.0.1 recordings: `KILLED` after the reply in `fixtures/mux/e`, before it in the live blocks (`fixtures/fevered`, `vital_patches`). `MuxTest.roc` reads the recorded order and the other |
 | Requests in flight run at the same time on the server, so they have no order | The create of request 11, sent after request 10, runs and replies while 10 sleeps |
-| The notices of two requests can come in the other order, also when the app waited for the reply to the first before it sent the second | One session, 300 groups of a create, an update and a delete of one row, each request sent after the reply to the one before: in 5 of 10 runs on a busy machine, notices came in another order, for example the delete of a row before its update. A notice has no count or time that gives the order of the writes |
+| The notices of two requests can come in the other order, also when the app waited for the reply to the first before it sent the second | On SurrealDB 3.3.4 (no test shows the fix on 4.0.1 yet): one session, 300 groups of a create, an update and a delete of one row, each request sent after the reply to the one before: in 5 of 10 runs on a busy machine, notices came in another order, for example the delete of a row before its update. A notice has no count or time that gives the order of the writes |
 
 | Method | Does |
 | --- | --- |
@@ -1131,7 +1133,7 @@ from `fixtures/mux/`):
 | The queued notices have no limit | The inbox keeps each notice of a watch until the app reads it or kills the watch |
 | `next_within!` bounds each wait, not the call | `ms` is the time that the session waits for one message. A message that gives no change (a reply, a notice of another watch, a notice with no change) starts the wait again, and a ping does not count. The inbox is read first, so a notice that it holds comes with no wait |
 
-Note on order. SurrealDB 3.3.4 can deliver the live notices of two writes
+Note on order. SurrealDB 3.3.4 (no test shows the fix on 4.0.1 yet) can deliver the live notices of two writes
 out of order. This can happen when both writes come from the same client, and
 when the app sends the second write after the reply to the first. This is
 upstream issue https://github.com/surrealdb/surrealdb/issues/7603. The
@@ -1275,7 +1277,7 @@ the connection ended, `Closing`, or the adapter's own tag as text (see
 
 `HttpRpc.roc` writes the post: `Content-Type` and `Accept`
 `application/cbor`, the `Authorization` of the session, and `surreal-ns`
-and `surreal-db`. SurrealDB 3.3.4 keeps no state between two posts
+and `surreal-db`. SurrealDB 4.0.1 keeps no state between two posts
 (verified: after a `use`, a post with no `surreal-ns` is refused with
 "Specify a namespace to use"), so each post carries who the session is, the
 `Credentials` that the session holds (`HttpRpc.Auth`):
@@ -1284,7 +1286,7 @@ and `surreal-db`. SurrealDB 3.3.4 keeps no state between two posts
 | --- | --- | --- |
 | `Root` | `Basic` with the user and the password: its `signin` and `use` only check them | The login's |
 | `SignUp`, `SignIn` | `Bearer` with the token that the reply gave. The `signup` or `signin` post itself has none | The login's |
-| `Token` | `Bearer` with the token. The `authenticate` post has none | None: the token holds them, and SurrealDB 3.3.4 runs a post with a token and no `surreal-ns` in the token's (verified) |
+| `Token` | `Bearer` with the token. The `authenticate` post has none | None: the token holds them, and SurrealDB 4.0.1 runs a post with a token and no `surreal-ns` in the token's (verified) |
 | After `invalidate!` | None | As before |
 
 The response has status 200 for each RPC reply, also one with an error; any
@@ -1337,7 +1339,10 @@ takes one post, and a query that runs longer than the 30 s of
 
 #### Patches
 
-A `live_diff` op has a path and a value. `Diff.pointer` splits a path, and
+A `live_diff` op has a path and a value. `Diff.pointer` splits a path and
+reads its escapes (RFC 6901): SurrealDB 4.0.1 writes a `/` in a key as `~1`
+and a `~` as `~0`, so the key `a/b` of `m` is `/m/a~1b` (verified). `patch_at`
+and `patch_ops_at` write the same escapes.
 `Diff.TextPatch` reads and applies the text patch of a `change` op, which
 SurrealDB sends for a string edited in place. Its positions count Unicode
 scalar values, and its text is UTF-8 with `%XX` escapes. `apply` is exact:
@@ -1374,7 +1379,7 @@ a statement that fails is `Server(error)`, typed by the server's kind (see
 | `Table.create(row)` | `CREATE t:⟨k⟩ CONTENT .. RETURN AFTER`, or `RELATE` on an edge table | `List(row)`: one row. A row that exists is an error |
 | `Table.upsert(row)` | `UPSERT .. RETURN AFTER` | `List(row)` |
 | `Table.replace(row)` | `UPDATE t:⟨k⟩ CONTENT .. RETURN AFTER`, with the key of the new row: the old row is not needed, as `Replace(a, b)` takes it for the Mirror only | `List(row)`: one row, or none for a key with no row |
-| `Table.insert_or_update(rows, \|new, old\| ..)` | `BEGIN; INSERT INTO t [..] ON DUPLICATE KEY UPDATE .. RETURN AFTER; COMMIT`; each item is `IF id != NONE { .. }` | `List(row)`: the rows as stored, in the order of `rows` |
+| `Table.insert_or_update(rows, \|new, old\| ..)` | `BEGIN; INSERT INTO t [..] ON DUPLICATE KEY UPDATE .. RETURN AFTER; COMMIT` | `List(row)`: the rows as stored, in the order of `rows` |
 | `Table.merge_at(id, partial)`, `Table.upsert_merge_at(id, partial)`, `Table.merge(condition, partial)` | `UPDATE t:⟨k⟩ MERGE { .. } RETURN AFTER`, `UPSERT t:⟨k⟩ MERGE { .. }`, `UPDATE t MERGE { .. } WHERE .. RETURN AFTER` | `List(row)`: the rows after the write. None for a key with no row (`merge_at`) |
 | `Table.patch_at(id, patches)`, `Table.patch_ops_at(id, ops)` | `UPDATE t:⟨k⟩ PATCH [{ op, path, value }, ..] RETURN AFTER`, the ops of the patches in order | `List(row)`: one row, or none for a key with no row |
 | `Table.create_new(new)` | `CREATE t CONTENT .. RETURN AFTER`, or `RELATE a->t->b` on an edge table: no key, the server makes it | `List(Created(row, new))`: one row, its `Id` and its other fields |
@@ -1482,7 +1487,7 @@ files.
 #### Transactions
 
 `Prepared.then` sends two prepared statements in one request, and each
-runs on its own: SurrealDB 3.3.4 runs every statement of a request, also
+runs on its own: SurrealDB 4.0.1 runs every statement of a request, also
 after one failed (verified: a create that a unique index refuses, then a
 select, gives the error and the rows). So the result keeps the result of
 each, with its own error, and nothing that ran is hidden behind the error
@@ -1526,20 +1531,21 @@ match session.run!(stocked).result {
 
 #### Migrations
 
-The Roc schema is the source of truth. `Surreal.plan(snapshot, schema,
-target)` compares the committed snapshot (`db/schema.surql`, the text of
+The Roc schema is the source of truth. `Surreal.plan(snapshot, schema)`
+compares the committed snapshot (`db/schema.surql`, the text of
 `Surreal.schema` that the migrations make) with the schema, and writes a
 migration file that you review and commit. The app applies the files that
 the database does not have with `session.migrate!(migrations)`, at each
 start. The first setup and each update take the same path. Do not run
-`Surreal.schema` at each start: on SurrealDB 3.x an unchanged `DEFINE INDEX
-OVERWRITE` builds the index again (1 to 1.7 s for each index on 200k rows,
-0.4 s for a view; measured on 3.3.4 and 3.3.5), and a file has only the
-statements that changed. `examples/migrate.roc` is the dev tool to copy:
+`Surreal.schema` at each start: on SurrealDB 4.0.1 an unchanged `DEFINE TABLE
+OVERWRITE` of a view fills the view again (0.16 to 0.26 s for 20000 rows),
+and `OVERWRITE` does not remove what the schema leaves out. An unchanged
+`DEFINE INDEX OVERWRITE` is not built again on 4.0.1 (verified). A file has
+only the statements that changed. `examples/migrate.roc` is the dev tool to copy:
 `plan NAME`, `check`, `squash NAME`, `up`.
 
 ```roc
-moved = Surreal.plan(snapshot, schema_v2, V4)?
+moved = Surreal.plan(snapshot, schema_v2)?
 moved.to_file("0002_bin_size", KeepData)   # the file
 moved.snapshot(KeepData)                   # the new db/schema.surql
 moved.warnings()                           # what to read first
@@ -1558,24 +1564,26 @@ DEFINE INDEX OVERWRITE bin_size_index ON bin FIELDS size;
 
 | Rule | Detail |
 | --- | --- |
-| Target | `V4` is SurrealDB 4 at compatibility level 4, `V3` is SurrealDB 3.3 (floor 3.3.5) and SurrealDB 4 at level 3: a constant of the app (`Surreal.MigrationTarget`), in the header of each file. `migrate!` reads the level with `(INFO FOR DB).compatibility` (none on 3.x) and refuses a `V4` file on SurrealDB 3 or at level 3 before it sends it |
+| Target | Every file is for SurrealDB 4 at compatibility level 4. The header keeps the word `target`, and `V4` is its only value (kept for a later target). A file with `target V3` (0.0.3 and before) is `Legacy`, and a header with no `target V4` is a `Text` error. `migrate!` reads the level with `(INFO FOR DB).compatibility` and refuses a database below level 4 with `Level({ found })` before it runs any file. A server with no level (SurrealDB 3) is a `Wire` error |
 | Only changes | A definition whose text did not change is not in the file. The diff compares the statements by what each defines (the kind, the name, the table); the removals come first, from the last statement of the snapshot to the first |
-| A new field on a table with rows | SurrealDB does not give a `DEFAULT` to the rows that are there (verified). `V4`: `MIGRATE EXISTING ROWS AS .. USING <default>`, lazy, and level 4 refuses the field without it (verified). `V3`: `UPDATE t SET f = <default> WHERE f IS NONE`. The default comes from the schema value, not from the text |
-| A narrower type | `V4`: `USING <type> $value FALLBACK <default>` for a scalar type (verified: `'5'` is 5, `'zz'` is the default). `V3`: `UPDATE t SET f = <type> f` |
-| A dropped field (`DropData`) | `V4`: `REMOVE FIELD`, and level 4 clears the values on the next write (verified). `V3`: also `UPDATE t UNSET f`, as a row that keeps a field with no definition refuses its next write (verified) |
+| A new field on a table with rows | SurrealDB does not give a `DEFAULT` to the rows that are there (verified). `MIGRATE EXISTING ROWS AS .. USING <default>`, lazy, and level 4 refuses the field without it (verified). The default comes from the schema value, not from the text |
+| A narrower type | `USING <type> $value FALLBACK <default>` for a scalar type (verified: `'5'` is 5, `'zz'` is the default) |
+| A dropped field (`DropData`) | `REMOVE FIELD`, and level 4 clears the values on the next write (verified) |
 | Sections | SurrealDB 4 refuses a `DEFINE INDEX` in a transaction that writes to, migrates or removes a field of its table, and `MIGRATE EXISTING ROWS` on a table that a view reads (verified, three error texts). The plan puts such an index in section 2, and removes the view in section 1 and defines it in section 2. `-- reify: commit` ends a section; each is one transaction |
-| Edits | A value that the plan cannot pick (a required field with no default, a type with no cast, a `REFERENCE` field on `V4`, which 4.0 does not migrate) is a placeholder after a `-- reify: edit` line. `Surreal.migration` and `migrate!` refuse the file until a person removes the line |
-| History | `_reify_migration:⟨name⟩`: the SHA-256 of the file, its target, its sections and the count that ran. A changed file is `Changed`, a file before an applied one is `OutOfOrder`, a record that no file has is `ahead` (a newer app), not an error |
-| Two runners | Section 1 creates the record in its transaction, so a second runner fails on it (`Conflict` at `COMMIT`, or the record exists), reads the history again and goes on; a later section checks the record first (`THROW`). Verified with two processes on 3.3.5 and 4.0.0: each section ran once |
-| Squash | `plan("", schema, V4).replacing(names)` writes a file with `replaces`: a database that ran all of `names` records it and does not run it; a fresh one runs it |
+| Edits | A value that the plan cannot pick (a required field with no default, a type with no cast, a `REFERENCE` field, which SurrealDB 4 does not migrate) is a placeholder after a `-- reify: edit` line. `Surreal.migration` and `migrate!` refuse the file until a person removes the line |
+| History | `_reify_migration:⟨name⟩`: the SHA-256 of the file, its target (`'V4'`), its sections and the count that ran. A changed file is `Changed`, a file before an applied one is `OutOfOrder`, a record that no file has is `ahead` (a newer app), not an error |
+| Two runners | Section 1 creates the record in its transaction, so a second runner fails on it (`Conflict` at `COMMIT`, or the record exists), reads the history again and goes on; a later section checks the record first (`THROW`). Verified with two processes on 4.0.1: each section ran once |
+| Squash | `plan("", schema).replacing(names)` writes a file with `replaces`: a database that ran all of `names` records it and does not run it; a fresh one runs it |
+| From 0.0.x | A file with `target V4` reads as it is, with the same checksum. Squash `target V3` files with 0.0.3 first (`docs/schema.md`, "Upgrade from 0.0.x") |
 | Not done | A down file (fix forward with a new file), renames (a drop and a new field; warning `MaybeRenamed`), a compare with the live database, `DEFINE INDEX .. CONCURRENTLY` |
 
 `MigrateTest.roc` tests the plans, the file format and the decisions of
 the runner. `tests/MigrateServer.roc` (run by `check.py`) applies the
 files on a live server: a fresh database, a second run that sends no
-section, a filled field, a type change with a cast on 4.0, an index and a
-filled field in two sections, a squash, a `V4` file at level 3, and two
-runners at once. `PreparedTest.roc` and `HttpTest.roc` read the replies of
+section, a filled field, a type change with a cast, an index and a
+filled field in two sections, a squash, a database lowered to level 3
+(refused with `Level`, then the file runs after `ALTER DATABASE
+COMPATIBILITY 4`), and two runners at once. `PreparedTest.roc` and `HttpTest.roc` read the replies of
 the plans of `client.roc` (`fixtures/queries/unpin_labels.cbor`,
 `pin_labels_again.cbor`), which run one section with `plan.prepare`.
 
@@ -1657,7 +1665,7 @@ the namespace and the database of the token (verified). Over HTTP each post
 carries the credentials (see "Transports").
 
 `client.roc` signs up Ann and Bob, and runs each step on a WebSocket and
-over HTTP. SurrealDB 3.3.4 gives the same on both (verified):
+over HTTP. SurrealDB 4.0.1 gives the same on both (verified):
 
 | Step | Result |
 | --- | --- |
@@ -1713,15 +1721,15 @@ Surreal.from(charts).filter(|c| c.patient != "rex").nearest(chart_vectors, [1, 0
 | `t.vector_index(\|r\| r.embedding, { dimension, distance })`, `Def.vector_index` | `DEFINE INDEX t_embedding_hnsw ON t FIELDS embedding HNSW DIMENSION n DIST COSINE TYPE F64` | A `List(F64)` is `TYPE F64`, a `List(F32)` `TYPE F32`, any other type a `BadSchema`. `distance` is `Cosine`, `Euclidean`, `Manhattan` or `Chebyshev`. A write of another dimension is refused by the server: "Incorrect vector dimension (2)" (`vector_dimension`) |
 | `q.search(index, terms)` | `WHERE body @1@ 'terms'`, `AND`ed with the other filters | The row becomes `(row, hit)`. The library numbers the search: the index, the query and the hit are of one row, so a query has one search and no `nearest` (a type error), and no clause writes the number |
 | `hit.score()`, `hit.highlight(a, b)`, `hit.offsets()` | `search::score(1)`, `search::highlight(a, b, 1)`, `search::offsets(1)['0'].map(\|$o\| { end: $o.e, start: $o.s })` | Intrinsics: SurrealDB computes them, and they have no Roc body. `Hit` and `Near` are backed by `[]`, so the program has no value of them. `ORDER BY` takes a column, so the score is selected as one |
-| `q.nearest(index, probe, Approx({ k, ef }))`, `Exact(k)` | `WHERE embedding <\|k,ef\|> [..]` through the HNSW graph, `<\|k,COSINE\|>` over every row | The row becomes `(row, near)`, and `near.distance()` is `vector::distance::knn()`. A probe of another dimension than the index's is an `Unsupported` when the statement is built. `<\|k\|>` alone is refused by 3.3.4 ("no longer supported"), and `MTREE` is a parse error |
+| `q.nearest(index, probe, Approx({ k, ef }))`, `Exact(k)` | `WHERE embedding <\|k,ef\|> [..]` through the HNSW graph, `<\|k,COSINE\|>` over every row | The row becomes `(row, near)`, and `near.distance()` is `vector::distance::knn()`. A probe of another dimension than the index's is an `Unsupported` when the statement is built. `<\|k\|>` alone is refused by 4.0.1 ("no longer supported"), and `MTREE` is a parse error |
 | A live query of a search | Refused | A search reads its index, and a notice is of one written row; watch the rows with a `filter` |
 
 The Roc meanings:
 
-| Part | Roc meaning | Verified on 3.3.4 |
+| Part | Roc meaning | Verified on 4.0.1 |
 | --- | --- | --- |
 | The rows of `search` | `Analyzer.matches(text, terms)`: the terms of the query, by the analyzer, are not empty, and the text has each of them. `Analyzer.tokens` is the analyzer for the tokenizers `Blank` and `Class` and the filters `Lowercase` and `Uppercase`, over ASCII text. Any other analyzer, or a text outside ASCII, stops the program: only the database computes it | `Class` cuts at a change of letter, digit and anything else, and keeps the punctuation as terms: `a!+b` is `a`, `!+`, `b`. A query of two terms keeps the rows that have both. `''` keeps none (`search_limping`, `search_two_terms`, `search_no_term`, `search_after_filter`) |
-| The score, the highlights, the offsets, the distance of a KNN | None: they are intrinsics. The block names the column in `-- intrinsic:`, the literal leaves it out, or the order or the text is written by hand | BM25 gives 0 to a term that half the rows or more have. The KNN distance through the graph is computed on the index's copy, and `<\|k,COSINE\|>` differs from `1 - vector::similarity::cosine` in the last bits. By `EUCLIDEAN` over `F64` it is the Roc distance to the bit (`client.roc`, `close_notes`) |
+| The score, the highlights, the offsets, the distance of a KNN | None: they are intrinsics. The block names the column in `-- intrinsic:`, the literal leaves it out, or the order or the text is written by hand | BM25 gives a score above 0 also to a term that most rows have (on 4.0.1, a term in 2 of 3 rows scored 0.434). The KNN distance through the graph is computed on the index's copy, and `<\|k,COSINE\|>` differs from `1 - vector::similarity::cosine` in the last bits. By `EUCLIDEAN` over `F64` it is the Roc distance to the bit (`client.roc`, `close_notes`) |
 | The rows of `nearest` | The rows that the other filters keep, sorted by their `Vector` distance from the probe, the first `k` | The `k` are taken after the other filters (`nearest_after_filter`). On a few rows `Approx` gives the exact rows |
 | `Vector` | A real implementation | Each sum runs from the first element, as the server's does, so the six functions agree to the bit (`vector_measures`, `vector_filter`) |
 
@@ -1757,19 +1765,19 @@ Every call has one error type, `Surreal.Error` (`Ql.Error`):
 | `Decode({ path, message })` | A value of the server does not fit the Roc type it is read as | The path to the value, `result[0].temp_c`, or empty when the reader names none |
 | `Server(error)` | The server refused the request or a statement | A `Surreal.ServerError`, below |
 | `Aborted({ at, error })` | A statement failed a transaction of `Transaction.commit` | The part that failed it, and its `ServerError` (see "Transactions") |
-| `Migration({ name, problem })` | `Surreal.migration`, `Surreal.check` or `migrate!` refuses a file or a history | The file ("" for `check`), and `Changed`, `OutOfOrder`, `Edit`, `Text(why)`, `Target({ file, server })` or `Unplanned(statements)` (see "Migrations") |
+| `Migration({ name, problem })` | `Surreal.migration`, `Surreal.check` or `migrate!` refuses a file or a history | The file ("" for `check` and `Level`), and `Changed`, `OutOfOrder`, `Edit`, `Text(why)`, `Legacy`, `Level({ found })` or `Unplanned(statements)` (see "Migrations") |
 
 `run!` and `await!` give `{ session, result : Try(out, Surreal.Error) }`,
 the same on both transports: the session always comes back, and `result`
 has the rows or any of the errors. A `Transport` or `WebSocket` error ends
 the session, and the app opens a new one.
 
-SurrealDB 3.3.4 sends each error with a `kind`, also over CBOR and over
+SurrealDB 4.0.1 sends each error with a `kind`, also over CBOR and over
 HTTP (verified: a statement's result is `{ status: 'ERR', kind, details,
 result: message }`, a request's error `{ code, kind, details, message }`).
 `Surreal.server_error` reads the kind and its `details`,
-and the message of an `Internal` error when it has a form that the server
-writes for a constraint (`Schema.violation`, `src/Schema.roc:950`). Each tag keeps
+and the message of an `Internal` error (and of the `Validation` error of a
+type) when it has a form that the server writes for a constraint (`Schema.violation`, `src/Schema.roc:950`). Each tag keeps
 the message:
 
 | Server error | Tag |
@@ -1785,7 +1793,7 @@ the message:
 | `Thrown` | `Thrown({ text })`, the text of the `THROW` |
 | `Internal`: ``Database index `i` already contains v, with record `r` `` | `Unique({ table, index, fields, value, record })` for an index of a `Def.unique` the session knows (`Session.knowing(defs)`), else `Index({ index, value, record })` |
 | `Internal`: ``Found v for field `f`, with record `r`, but field must conform to: c`` | `Assert({ table, field, record, value, condition })` |
-| `Internal`: ``Couldn't coerce value for field `f` of `r`: Expected `t` but found `v` `` | `Type({ table, field, record, expected, found })` |
+| `Validation` with details `InvalidRequest`: ``Couldn't coerce value for field `f` of `r`: Expected `t` but found `v` `` | `Type({ table, field, record, expected, found })`. SurrealDB 3.3.4 sent this message with the kind `Internal` |
 | `Internal`: an event `t_check_<name>` throws `t: name` | `Check({ table, name })`, a `Def.check` that reads several fields and has no field to hold it (see the table of checks). A check that a field holds is that field's `ASSERT`, so it is `Assert` |
 | `Internal`: ``Cannot delete `r` as it is referenced by `b` ..``, or the delete event of a nested link throws `r is referenced by t.path` | `Referenced({ record, by })` |
 | Any other | `Other({ kind, message })` |
@@ -2006,9 +2014,11 @@ span `d`:
 | `ceil` | `t` when `r = 0`, else `t - r + d` | `t` |
 | `round` | `t - r + d` when `2r >= d`, else `t - r`: a half goes up, also before 1970 | `t` |
 
-SurrealDB 3.3.4 refuses a time outside 1677-09-21T00:12:43.145224192Z to
-2262-04-11T23:47:16.854775807Z (the nanoseconds of an `I64`) and a span above
-`I64.highest` nanoseconds. The Roc body stops the program with a message there.
+The Roc body works on the nanoseconds of an `I64`, so it stops the program
+with a message for a time outside 1677-09-21T00:12:43.145224192Z to
+2262-04-11T23:47:16.854775807Z and for a span above `I64.highest`
+nanoseconds. SurrealDB 4.0.1 refuses the span too, but it takes a time
+outside that range (verified with `time::floor`).
 The block `time_floor_weeks` checks spans of 1 week, 7 hours, 13 seconds, 365
 days, 3 nanoseconds, zero and `I64.highest` nanoseconds, ties, and times before
 1970 and at both limits.
@@ -2213,7 +2223,7 @@ Eight nominals of `Surreal` hold a geometry: `Point` (`Surreal.Point`),
 `Line`, `Polygon`, `MultiPoint`, `MultiLine`, `MultiPolygon`, `Collection` and
 `Geometry` (`Surreal.Geometry`), the union of the other seven. Each one encodes
 to its GeoJSON object through `Surreal.geojson` (`Surreal.geojson`) and
-`Encode.Format.encode_geometry` (`src/Encode.roc:84`). SurrealDB 3.3.4 reads an
+`Encode.Format.encode_geometry` (`src/Encode.roc:84`). SurrealDB 4.0.1 reads an
 object of GeoJSON shape as a geometry in a write, a `LET` and a `RETURN`, so
 `Ql.Value` has no geometry arm. As the one payload of a union arm, a geometry
 is `{ kind, value }`, not spread: its type is not a record (see the union
@@ -2252,7 +2262,7 @@ Surreal.from(sites).select(|s| { id: s.id, lat: s.location.lat() })
 | --- | --- |
 | Field type | `TYPE geometry<kind> ASSERT geo::is_valid($value)` (`src/Types.roc:99`). SurrealDB stores a point out of range, so the assert refuses it (`bad_point`) |
 | A ring | SurrealDB closes a ring that is not closed. `geo_values` reads one back closed, and the `-- roc:` literal goes through the same server, so the two agree |
-| A geometry in a clause | A point is the cast `<point> [lon, lat]`, which takes any number expressions. Another kind is `Unsupported`: "pass a geometry as a parameter with `filter_by` and `prepare`". A tuple takes only number literals, and `<geometry>` of an object fails in 3.3.4 |
+| A geometry in a clause | A point is the cast `<point> [lon, lat]`, which takes any number expressions. Another kind is `Unsupported`: "pass a geometry as a parameter with `filter_by` and `prepare`". A tuple takes only number literals. SurrealDB 4.0.1 takes `<geometry>` of an object (verified with a polygon), but the translator does not write it |
 | A captured geometry | Bound as its GeoJSON object, `{ type: 'Point', coordinates: [lon, lat] }`, which SurrealDB reads as a geometry (`Translate.geojson`) |
 | `geo_valid` | Each field asserts `geo::is_valid`, so the stored points are valid. The query doubles the coordinates of `at` to reach the range limits: `(180, 90)` is valid, `-180.0000002` and `-90.0000002` are not |
 
@@ -2260,18 +2270,18 @@ Surreal.from(sites).select(|s| { id: s.id, lat: s.location.lat() })
 
 | Function | Decision | Reason |
 | --- | --- | --- |
-| `array::sort`, `array::sort::asc`, `array::sort::desc` | `List.sort` and `List.sort_reversed` (not `Array.sort`) | A `Prim` with the evidence of an integer or `Dec` order translates to `array::sort::asc` and `array::sort::desc`. Any other evidence is refused with the reason (verified on SurrealDB 3.3.4: `array::sort::desc([3, 1, 2])` is `[3, 2, 1]`) |
+| `array::sort`, `array::sort::asc`, `array::sort::desc` | `List.sort` and `List.sort_reversed` (not `Array.sort`) | A `Prim` with the evidence of an integer or `Dec` order translates to `array::sort::asc` and `array::sort::desc`. Any other evidence is refused with the reason (verified on SurrealDB 4.0.1: `array::sort::desc([3, 1, 2])` is `[3, 2, 1]`) |
 | `array::difference` | Replaced by `Array.complement` | SurrealDB's `array::difference` is a symmetric difference. `array::complement` is the values of the first list that the second has not, which is what the name `complement` says |
 | `time::millis`, `time::micros` | Renamed `Time.unix_millis`, `Time.unix_micros` | `Time.millis` and `Time.micros` make a `Duration`. The prefix `unix_` matches `Time.unix` and `Time.from_unix` |
-| `string::similarity::fuzzy`, `smithwaterman` | Left out | Both give 0 for `('martha', 'marhta')` on SurrealDB 3.3.4, so the meaning is not clear |
+| `string::similarity::fuzzy`, `smithwaterman` | Left out | Both give 0 for `('martha', 'marhta')` on SurrealDB 4.0.1, so the meaning is not clear |
 | `string::distance::hamming` | Left out | An error for texts of different length. A clause cannot guard it, because the length is in characters |
-| `string::distance::osa_distance` | Left out | "Invalid function" in 3.3.4 |
+| `string::distance::osa_distance` | Left out | A parse error in 4.0.1: "Invalid function/constant path" |
 | `crypto::bcrypt`, `scrypt`, `pbkdf2` | Left out | A random salt makes each call differ, and `argon2` is the one hash that the signup and the signin of an access method need |
 | `Datetime - Datetime` | Left out | An error in SurrealDB when the result is negative. Subtract `Time.unix(a) - Time.unix(b)` |
 | `time::timezone`, `is_leap_year`, `max`, `min` | Left out | Low use, or a Roc builtin and a test say the same |
 | `vector::add`, `subtract`, `multiply`, `divide`, `scale`, `normalize`, `cross`, `project`, `angle`, `distance::hamming`, `distance::minkowski`, `similarity::jaccard`, `similarity::pearson` | Left out | Vector arithmetic is rare in a clause, and each is one row of `Vector` with a Mirror; the six of `Vector` are the measures a search needs (see "Full-text and vector search") |
 | `search::analyze`, `search::linear`, `search::rrf` | Left out | A search is a step of a query (`Query.search`), and the Roc meaning of an analyzer is `Analyzer.tokens` |
-| `math::mode`, `spread`, `product`, `top`, `bottom`, `midhinge`, `trimean`, `interquartile`, `nearestrank` | Left out | Rarely needed in a clause. They exist in 3.3.4 |
+| `math::mode`, `spread`, `product`, `top`, `bottom`, `midhinge`, `trimean`, `interquartile`, `nearestrank` | Left out | Rarely needed in a clause. They exist in 4.0.1 |
 | `rand::string`, `bool`, `float`, `enum`, `time`, `guid` | Left out | Rare. The first three have the shape of `rand::int`, so one row of `functions` adds each |
 | `geo::*`, `http::*`, `sleep`, `session::*`, `sequence::*`, `meta::*`, `value::*`, `object::*`, `parse::*`, `ml::*` | Left out | A point type, a side effect, a different kind of clause, or a different feature |
 | `record::id`, `record::exists`, `type::is_*` | Not needed | `Id.key` and `Link.id` read the id, the schema asserts that every link exists, and the Roc type of a column fixes the type |
@@ -2538,7 +2548,6 @@ A reason that starts with "By design" is a limit of a live query that stays.
 | An update patch that branches around the whole row is refused | `\|o\| if c { ..o, f: x } else o` has one `SET` list only when each arm changes the same fields. Branch inside the field, `{ ..o, f: if c x else o.f }`. A `match` on an optional field of the row is the exception: it is the switch that `..o` makes |
 | A record that leaves out an optional field needs its type | `\|o\| { ..o, address: { city: o.address.city } }` is a type mismatch in a lambda. Annotate the patch as a function, `Owner -> Owner` (`without_zip` in `TranslateTest.roc`) |
 | `created_now` overwrites a value that a create gives | A seed cannot set it. A query must not select it for a `-- roc:` comparison |
-| A condition on the key does not make an `UPDATE` or a `DELETE` read one record | SurrealDB 3.3.4 plans `UPDATE t SET .. WHERE id = t:⟨k⟩` and `DELETE t WHERE id = t:⟨k⟩` as `Iterate Table` (verified with `EXPLAIN`), and only a `SELECT` reads the record. Write by key with `update_at`, `set_at` and `delete_at` |
 | `at`, `update_at`, `set_at` and `delete_at` take a text key | An `Id(row)` holds a text key. A row of a time series is read with `between` and deleted with `Delete(row)` |
 | A captured run-time value needs a function whose result is a `Prepared` or a `Watch`. A chain in place in an effectful body cannot capture | Move the chain to a function of its own, as `shift_at` in `examples/client.roc:450` |
 | A nominal type is known by its name | `Code.Ty.Named` has no type id, so `Types.nominal` compares names, and an app's or another package's nominal named `Surreal.Link` or `Builtin.Try` would be taken for that one. A call is known by its id, and an opaque type by its `Code.TypeId`, so only the nominals of `Surreal` and `Builtin` have this limit. A type id on `Named`, a change to the reifier, removes it |
@@ -2561,7 +2570,7 @@ A reason that starts with "By design" is a limit of a live query that stays.
 | `edges_from` and `edges_to` have no Roc body | By design. A row in the program holds no edges. Write the path over a list of edges, and give it the edges in Roc (see "Graph paths") |
 | After an order, a limit, a start or a group, a read row is a copy | A linked row in it holds its key as `id`, not a record id, so a later clause that reads `row.owner.id` fails in SurrealDB (`record::id` of an object). Read the `id` before the order |
 | A whole union or a list of lists that holds a `Linked` is refused | Its shape has no destructure. Select its fields |
-| `rows()` reads a whole table in a clause | It is `(SELECT VALUE id FROM t)`, and each field read traverses a record. The tests of `keep_if`, `count_if`, `any` and `find_first` that read the row go into the `WHERE` of the subquery, and an index serves them on SurrealDB 3.3.x; 4.0.0 does not use an index in a correlated subquery (`TableScan`). A filter over a large table is better as its own query. The rows of one series of a time series (`keep_if(\|v\| v.id.series() == x)`) are a range scan. On each write to that table, a live query sends a notice for each row of the result's table that the written row is related to, or for each row when the clause gives no relation (see `docs/live-queries.md`) |
+| `rows()` reads a whole table in a clause | It is `(SELECT VALUE id FROM t)`, and each field read traverses a record. The tests of `keep_if`, `count_if`, `any` and `find_first` that read the row go into the `WHERE` of the subquery. On SurrealDB 4.0.1 this is about 7 times faster than a `filter` of the whole table, but slower than an index read: 0.8 s for 30 rows over 30000 (see `docs/links-and-graphs.md`). A filter over a large table is better as its own query. The rows of one series of a time series (`keep_if(\|v\| v.id.series() == x)`) are a range scan. On each write to that table, a live query sends a notice for each row of the result's table that the written row is related to, or for each row when the clause gives no relation (see `docs/live-queries.md`) |
 | A query fragment that calls a method of its query needs an annotation | `whole = \|q\| q.select(\|r\| r)` with no annotation is a type error: the type of `q` is not known where the lambda is checked, so the lambda is a plain function and not a `Code`. Annotate it with open rows, as `Clinic.recent` and `Clinic.by_id` are. By design (Y1b in `roc-reify-structural-proposal.md`) |
 | A `??` default in a record of a union arm is not in the schema | An arm has no field definition, so a write from outside the program that leaves the field out is refused by the field's `TYPE`, not filled (verified). A write from Roc always has the field |
 | A `??` default that is not a literal is refused | The type does not carry its value (`DefaultComputed`), so the schema cannot give it to the database. Give a literal default, or remove the `??` and use `.default_by(..)` |
@@ -2585,14 +2594,14 @@ A reason that starts with "By design" is a limit of a live query that stays.
 | `create_new` and `insert_new` take an alias row with `id : Str` | The type `Table({ id : Str, ..new })` takes the row apart, which a nominal row and a `TimeKey` key do not allow. The result is a `Created`, not the row: the compiler derives no `parser_for` of a record with a type variable extension |
 | A part of a transaction cannot read a key that another part made | Each part is built before the request runs. Write the rows that link to it after the result |
 | `id : TimeKey(Link(..))` is refused | A key has no delete policy. Use an `Id` |
-| A key has two parts, the series and the time | A key of several parts puts them in a record series. SurrealDB 4.0 has named key parts, and 3.3.4 does not |
+| A key has two parts, the series and the time | A key of several parts puts them in a record series. Named key parts of SurrealDB 4 are a later feature |
 | Views are grouped views only, with no parameters, order, limit or range | SurrealDB refuses order and a range in a view. A plain projection view adds no capability |
 | No median, percentile, or integer sum in a view | SurrealDB refuses the first two, and gives a float for the sum |
 | `SHOW CHANGES` has no Roc API | Its versionstamps cannot be predicted |
 | `Time.floor`, `ceil` and `round` stop the program outside 1677 to 2262 | SurrealDB refuses a time outside the nanoseconds of an `I64` |
-| A geometry other than a point is a parameter, not a clause literal | A tuple takes only number literals, and `<geometry>` of an object fails in 3.3.4. A captured geometry is bound as its GeoJSON object |
+| A geometry other than a point is a parameter, not a clause literal | A tuple takes only number literals. The translator does not write `<geometry>` of an object, which SurrealDB 4.0.1 takes. A captured geometry is bound as its GeoJSON object |
 | `CONTAINSALL`, `CONTAINSANY`, `ALLINSIDE` and the other list forms have no Roc API | List semantics over geometries. Low use |
-| A clause after a group, a limit or a start reads a subquery | SurrealDB 3.3.4 has no `HAVING` (verified), and a limit comes after `WHERE`. A `LIVE SELECT` refuses a subquery, so a live query can take only the form of one `SELECT` |
+| A clause after a group, a limit or a start reads a subquery | SurrealDB 4.0.1 has no `HAVING` (verified), and a limit comes after `WHERE`. A `LIVE SELECT` refuses a subquery, so a live query can take only the form of one `SELECT` |
 | No live query with `GROUP BY`, `ORDER BY`, `LIMIT`, `START`, `between` or a subquery | SurrealDB refuses them. Watch a view for a group, and order the rows of a `View` |
 | A parameter of a live query is fixed when it starts | The `LET` is read once. Start a new watch for a new value |
 | A filter that raises an error in SurrealDB drops the notice | SurrealDB sends nothing. The guard `$before IS NOT NONE` keeps a filter on `$before` from failing on a `CREATE` |
@@ -2600,7 +2609,6 @@ A reason that starts with "By design" is a limit of a live query that stays.
 | `live_raw`: a row that leaves sends nothing, a row that enters is `Updated`, and a write to an edge table or to a table that the rows read sends nothing | By design. It is the server's own stream |
 | `live_diff` watches the table only | By design. Its patches are of the stored row. A write to a table that a filter reads sends nothing |
 | `live_diff`: a row that leaves sends nothing, and a row that enters sends only the ops of its write | A DIFF has no projection and no `now`. A patch replayed on a snapshot that already holds its write is wrong |
-| `live_diff`: a field name with `/` or `~` gives a pointer that is not exact | SurrealDB does not escape them. Roc field names have neither |
 | No live query and no typed result of `Unchecked.select_star` | Its row has no type, and a notice and a typed result are typed rows |
 | A live query needs a session on a platform with TCP | `/sql` has no live queries. The Echo platform has no TCP, so only `watch.roc` and `client.roc`, on basic-cli, and `server.roc`, on basic-webserver, open a session |
 | Requests in flight run with no order between them | SurrealDB runs the requests of a session at the same time, and their replies come out of order (verified). A step that needs another goes in one request (`Prepared.then`), or waits for the reply to the other |

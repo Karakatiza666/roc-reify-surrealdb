@@ -164,18 +164,18 @@ From `examples/search.roc`, `search_ranked`. The statement from a real run:
 SELECT record::id(id) AS id, search::highlight('<b>', '</b>', 1) AS marked, search::score(1) AS score FROM chart WHERE body @1@ 'limping' ORDER BY score DESC;
 ```
 
-With `.ready()` the type of each row is `Ranked`. A session reads the rows of the reply as `List(Ranked)`. This output is from `session.run!` on a WebSocket session, in a scratch namespace of a SurrealDB 3.3.4 server:
+With `.ready()` the type of each row is `Ranked`. A session reads the rows of the reply as `List(Ranked)`. The reply of SurrealDB 4.0.1 to this statement, over the seed rows in a scratch database, read as `List(Ranked)`:
 
 ```
-Ok([{ id: "c6", marked: "Bo eats well and no <b>limping</b>.", score: 0.2716912627220154 }, { id: "c2", marked: "Rex <b>limping</b> again, left leg swollen.", score: 0.2583606243133545 }, { id: "c4", marked: "Mimi has a <b>limping</b> gait, right leg sore.", score: 0.235273078083992 }])
+Ok([{ id: "c6", marked: "Bo eats well and no <b>limping</b>.", score: 0.8937065601348877 }, { id: "c2", marked: "Rex <b>limping</b> again, left leg swollen.", score: 0.8498564958572388 }, { id: "c4", marked: "Mimi has a <b>limping</b> gait, right leg sore.", score: 0.7739118337631226 }])
 ```
 
 Notes on a score:
 
 | Fact | Detail |
 | --- | --- |
-| A common term adds 0 | A term that half the rows or more have adds 0. A real run of `limping` over 2 of 3 rows gave the score `0.0` for both |
-| A filter can read a score | `filter(|(_, hit)| hit.score() > 0.25)` gives `AND (search::score(1) > 0.25f)`. A real run kept `c2` and `c6` |
+| A score has no fixed scale | The scale changed from SurrealDB 3.3.4 to 4.0.1. On 3.3.4 a term that half the rows or more have added 0. On 4.0.1 it adds more than 0: a term in 2 of 3 rows gave the score 0.434 |
+| A filter can read a score | `filter(|(_, hit)| hit.score() > 0.8)` gives `AND (search::score(1) > 0.8f)`. A real run on 4.0.1 kept `c2` and `c6` |
 | `limit` works | `.order_by(..).limit(2)` adds `LIMIT 2` |
 
 `offsets` gives the places of each term. For `"left leg"` the example reads the offsets `[{ end: 21, start: 17 }, { end: 30, start: 27 }]` for `c1`. See [Order and page results](queries.md#order-and-page-results) for `order_by` and `limit`.

@@ -190,7 +190,7 @@ A system user has no `$access`. A query that reads `Surreal.Auth.access()` as `S
 
 ## What happens for each user
 
-A real run on SurrealDB 3.3.4 with the schema of `examples/client.roc`. Ann and Bob signed up. Ann owns `ann_note` (private) and `ann_board` (shared). Bob owns `bob_note`. The run is the same on a WebSocket and over HTTP.
+A real run on SurrealDB 4.0.1 with the schema of `examples/client.roc`. Ann and Bob signed up. Ann owns `ann_note` (private) and `ann_board` (shared). Bob owns `bob_note`. The run is the same on a WebSocket and over HTTP.
 
 | Step | Result |
 | --- | --- |
