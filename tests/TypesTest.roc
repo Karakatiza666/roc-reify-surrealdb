@@ -69,6 +69,12 @@ Kitchen : {
 	deep : List(List(I8)),
 	pick : [Pad, Pair(Str, I64), Box({ w : I64 })],
 	maybe ?: Surreal.Link(Product),
+	re : Surreal.Regex,
+	big : Surreal.BigDecimal,
+	day : Surreal.Date,
+	clock : Surreal.TimeOfDay,
+	stamp : Surreal.Timestamp,
+	span : List(Surreal.Interval),
 }
 
 kitchen : Surreal.Table(Kitchen)
@@ -152,7 +158,10 @@ expect defs_of("crate") == [
 
 expect defs_of("kitchen") == [
 	"at datetime []",
+	"big bigdecimal []",
 	"bytes array<int> [$value.all(|$e1| $e1 >= 0 AND $e1 <= 255)]",
+	"clock time []",
+	"day date []",
 	"dec decimal []",
 	"deep array<array<int>> [$value.all(|$e1| $e1.all(|$e2| $e2 >= -128 AND $e2 <= 127))]",
 	"f32 float []",
@@ -171,9 +180,12 @@ expect defs_of("kitchen") == [
 	"note option<string> []",
 	"pick { kind: \"Box\", w: int } | \"Pad\" | { kind: \"Pair\", value: [string, int] } []",
 	"plain \"Green\" | \"Red\" []",
+	"re regex []",
 	"rows array<{ n: int, s: string }> []",
 	"rows[*].n  [$value >= 0 AND $value <= 255]",
 	"rows[*].s  []",
+	"span array<interval> []",
+	"stamp timestamp []",
 	"status \"Active\" | \"Closed\" []",
 	"text string []",
 	"u16 int [$value >= 0 AND $value <= 65535]",

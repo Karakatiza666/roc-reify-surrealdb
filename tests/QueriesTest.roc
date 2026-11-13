@@ -954,3 +954,20 @@ expect Surreal.from(reviews).nearest(review_vectors, [1, 0], Exact(2)).select_va
 
 # A prepared search, with a parameter of another filter.
 expect Surreal.from(reviews).search(review_text, "sturdy").filter_by(|p, (r, _)| r.product.id == p.product).select_value(|(r, _)| r.id).prepare({ product: pen_id }).request() == Ok("LET $product = product:⟨pen⟩;\nSELECT VALUE record::id(id) FROM review WHERE (text @1@ 'sturdy') AND (product = $product);")
+
+# The types of CBOR v2 in a clause. `==` and `<` compare the fields of the
+# backing, so a `date` is its days and a `time` its nanoseconds; a captured
+# one is bound as that number. The other types have no expression for each
+# field, and are refused.
+Kinds : { id : Str, day : Surreal.Date, at : Surreal.TimeOfDay, span : Surreal.Interval }
+
+kinds : Surreal.Table(Kinds)
+kinds = Surreal.table("kinds")
+
+kinds_on : Surreal.Date -> Try(Str, Surreal.Error)
+kinds_on = |day| Surreal.from(kinds).filter(|k| k.day == day).select_value(|k| k.id).ready().request()
+
+expect kinds_on(Surreal.Date.from_days(5)) == Ok("LET $_1 = 5;\nSELECT VALUE record::id(id) FROM kinds WHERE (day - <date>'1970-01-01') = $_1;")
+expect Surreal.from(kinds).filter(|k| k.day < Surreal.Date.from_days(0)).select_value(|k| k.id).ready().request() == Ok("SELECT VALUE record::id(id) FROM kinds WHERE (day - <date>'1970-01-01') < 0;")
+expect Surreal.from(kinds).filter_by(|p, k| k.at == p.at).select_value(|k| k.id).prepare({ at: Surreal.TimeOfDay.from_nanos(1) ?? crash "valid" }).request() == Ok("LET $at = <time>'00:00:00.000000001';\nSELECT VALUE record::id(id) FROM kinds WHERE duration::nanos(<duration>at) = duration::nanos(<duration>$at);")
+expect Surreal.from(kinds).filter_by(|p, k| k.span == p.span).select_value(|k| k.id).prepare({ span: Surreal.Interval.from_parts({ months: 1, days: 0, micros: 0 }) }).request() == Err(Unsupported("in `filter_by`: a `interval` in a clause has no SurrealQL form for its parts; compare it in Roc after the read"))

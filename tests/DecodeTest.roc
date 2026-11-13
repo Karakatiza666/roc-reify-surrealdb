@@ -4,6 +4,7 @@ app [] {
 }
 
 import internal.Ql
+import internal.Encode
 import internal.Surreal
 import internal.Diff
 import cbor.Cbor
@@ -403,6 +404,60 @@ expect {
 	row = read(Diff.vmap([(Cbor.Value.Text("n"), Cbor.Value.Tag(181, int(7))), (Cbor.Value.Text("f"), Cbor.Value.Tag(188, Cbor.Value.Float(0.5)))]))
 	row == Ok({ n: 7, f: 0.5 })
 }
+
+# The types of CBOR v2 that Roc has no type for: each reads its own tag
+# only, and writes the literal that SurrealDB reads as the same value.
+sure : Try(a, e) -> a
+sure = |got| match got {
+	Ok(v) => v
+	Err(_) => crash "a valid constant"
+}
+
+expect read(Cbor.Value.Tag(193, Cbor.Value.Text("a.*"))) == Ok(Surreal.Regex.from_pattern("a.*"))
+expect read(Cbor.Value.Tag(192, Cbor.Value.Text("1.50"))).map_ok(Surreal.BigDecimal.to_str) == Ok("1.50")
+expect read(Cbor.Value.Tag(100, int(20770))) == Ok(sure(Surreal.date("2026-11-13")))
+expect read(Cbor.Value.Tag(189, int(45000500000000))).map_ok(Surreal.TimeOfDay.to_str) == Ok("12:30:00.5")
+expect read(tag(190, [int(1794573000), int(5)])).map_ok(Surreal.Timestamp.to_parts) == Ok({ secs: 1794573000, nanos: 5 })
+expect read(tag(191, [int(1), int(-2), int(3000000)])).map_ok(Surreal.Interval.to_str) == Ok("P1M-2DT3S")
+expect {
+	text : Try(Surreal.Regex, Surreal.Error)
+	text = read(Cbor.Value.Text("a.*"))
+	other : Try(Surreal.Regex, Surreal.Error)
+	other = read(Cbor.Value.Tag(192, Cbor.Value.Text("a.*")))
+	text.is_err() and other.is_err()
+}
+expect {
+	plain : Try(Surreal.Date, Surreal.Error)
+	plain = read(int(20770))
+	short : Try(Surreal.Interval, Surreal.Error)
+	short = read(tag(191, [int(1), int(2)]))
+	nanos : Try(Surreal.Timestamp, Surreal.Error)
+	nanos = read(tag(190, [int(0), int(1000000000)]))
+	plain.is_err() and short.is_err() and nanos.is_err()
+}
+
+V2Row : { re : Surreal.Regex, big : Surreal.BigDecimal, day : Surreal.Date, at : Surreal.TimeOfDay, stamp : Surreal.Timestamp, span : Surreal.Interval }
+
+v2_row : V2Row
+v2_row = {
+	re: Surreal.Regex.from_pattern("a'b"),
+	big: sure(Surreal.BigDecimal.from_str("-1.5e+40")),
+	day: Surreal.Date.from_days(-1),
+	at: sure(Surreal.TimeOfDay.from_nanos(1)),
+	stamp: sure(Surreal.Timestamp.from_parts({ secs: 0, nanos: 0 })),
+	span: Surreal.Interval.from_parts({ months: 0, days: 1, micros: -500000 }),
+}
+
+expect Encode.value_of(v2_row).map_ok(Ql.literal) == Ok("{ at: <time>'00:00:00.000000001', big: <bigdecimal>'-1.5e+40', day: <date>'1969-12-31', re: <regex>'a\\'b', span: <interval>'P0M1DT-0.5S', stamp: <timestamp>'1970-01-01T00:00:00' }")
+
+# The constructors check what SurrealDB would refuse.
+expect Surreal.date("2026-02-29") == Err(BadDate)
+expect Surreal.date("2024-02-29").map_ok(Surreal.Date.to_str) == Ok("2024-02-29")
+expect Surreal.date("2026-1-01") == Err(BadDate)
+expect ["0", "-1.5", "1e5", "1.0E-3", "123456789012345678901234567890"].all(|t| Surreal.BigDecimal.from_str(t).is_ok())
+expect ["", "01", "1.", ".5", "+1", "1e", "NaN", "1 "].all(|t| Surreal.BigDecimal.from_str(t) == Err(BadDecimal))
+expect Surreal.TimeOfDay.from_nanos(86400000000000) == Err(BadTime)
+expect Surreal.Timestamp.from_parts({ secs: 0, nanos: 1000000000 }) == Err(BadTimestamp)
 
 # The bytes that SurrealDB sent for geometries: each point is a tag 88 of f16 floats.
 expect {

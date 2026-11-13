@@ -289,6 +289,58 @@ payment_rows = Surreal.from(payments).ready()
 payment_lines : Surreal.Prepared(List(PaymentLine))
 payment_lines = Surreal.from(payments).select(payment_line).ready()
 
+# ------------------------------- the types of SurrealDB that CBOR v2 tags
+
+## A field of each type that Roc has no type for: CBOR v2 tags each one
+## (193, 192, 100, 189, 190, 191).
+Kinds : { id : Str, re : Surreal.Regex, big : Surreal.BigDecimal, day : Surreal.Date, at : Surreal.TimeOfDay, stamp : Surreal.Timestamp, span : Surreal.Interval }
+
+kinds : Surreal.Table(Kinds)
+kinds = Surreal.table("kinds")
+
+kind_schema : Try(Str, Surreal.Error)
+kind_schema = Surreal.schema([kinds.define().done()])
+
+## A value of a constructor that cannot fail here.
+sure : Try(a, e) -> a
+sure = |got| match got {
+	Ok(v) => v
+	Err(_) => crash "a constant of the app is valid"
+}
+
+kind_one : Kinds
+kind_one = {
+	id: "one",
+	re: Surreal.Regex.from_pattern("^a'b/c$"),
+	big: sure(Surreal.BigDecimal.from_str("123456789012345678901234567890.50")),
+	day: sure(Surreal.date("2026-11-13")),
+	at: sure(Surreal.TimeOfDay.from_nanos(45000500000000)),
+	stamp: sure(Surreal.Timestamp.from_parts({ secs: 1794573000, nanos: 5 })),
+	span: Surreal.Interval.from_parts({ months: 1, days: -2, micros: 3000001 }),
+}
+
+kind_two : Kinds
+kind_two = {
+	id: "two",
+	re: Surreal.Regex.from_pattern("x+"),
+	big: Surreal.BigDecimal.from_dec(-1.5),
+	day: Surreal.Date.from_days(-719893),
+	at: sure(Surreal.TimeOfDay.from_nanos(0)),
+	stamp: sure(Surreal.Timestamp.from_parts({ secs: -1, nanos: 500000000 })),
+	span: Surreal.Interval.from_parts({ months: 0, days: 0, micros: 0 }),
+}
+
+## A captured date in a clause, a time of day as a parameter, and a date
+## written in the clause: `<` on two dates compares the dates.
+kinds_on_day : Surreal.Date -> Surreal.Prepared(List(Kinds))
+kinds_on_day = |day| Surreal.from(kinds).filter(|k| k.day == day).ready()
+
+kinds_at : Surreal.Prepared(List(Str))
+kinds_at = Surreal.from(kinds).filter_by(|p, k| k.at == p.at).select_value(|k| k.id).prepare({ at: kind_two.at })
+
+kinds_before : Surreal.Prepared(List(Str))
+kinds_before = Surreal.from(kinds).filter(|k| k.day < Surreal.Date.from_days(0)).select_value(|k| k.id).ready()
+
 # --------------------------------- a table with a union of nominal payloads
 
 ## A nominal of the app over a record: its payload is spread, as a record is.
@@ -886,6 +938,15 @@ run! = |record, over| {
 	$run = check!($run, "payment_rows", payment_rows, same_rows(paid))?
 	$run = check!($run, "payment_lines", payment_lines, same_rows(paid.map(payment_line)))?
 	$run = script!($run, "remove_payments", Ok("REMOVE TABLE payment;"))?
+	# A table of its own with the types of CBOR v2: written, read back,
+	# and read with a captured value and a parameter.
+	$run = script!($run, "define_kinds", kind_schema)?
+	$run = check!($run, "insert_kinds", kinds.insert([kind_one, kind_two]), same_rows([kind_one, kind_two]))?
+	$run = check!($run, "kind_rows", Surreal.from(kinds).ready(), same_rows([kind_one, kind_two]))?
+	$run = check!($run, "kinds_on_day", kinds_on_day(kind_one.day), same_rows([kind_one]))?
+	$run = check!($run, "kinds_at", kinds_at, same_rows(["two"]))?
+	$run = check!($run, "kinds_before", kinds_before, same_rows(["two"]))?
+	$run = script!($run, "remove_kinds", Ok("REMOVE TABLE kinds;"))?
 	# A table of its own with a union of nominal payloads: each arm is
 	# written, read back, and written in a clause and as a parameter.
 	$run = script!($run, "define_places", place_schema)?

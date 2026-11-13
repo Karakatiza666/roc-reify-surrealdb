@@ -88,6 +88,11 @@ Encode :: {}.{
 		encode_geometry : Ql.Value, Encode.State -> Try(Encode.State, [])
 		encode_geometry = |geojson, state| Ok(state.append(Value(geojson)))
 
+		## A value of a SurrealDB type that has no Roc type, written by the
+		## encoders of `Surreal.Regex`, `Surreal.Date` and the like.
+		encode_value : Ql.Value, Encode.State -> Try(Encode.State, [])
+		encode_value = |value, state| Ok(state.append(Value(value)))
+
 		## Each field pushes its name, then its value. A field that is absent
 		## pushes nothing, so the key is left out.
 		encode_record : Encode.State, U64, (Encode.State, (Encode.State, Str, (Encode.State -> Try(Encode.State, [])) -> Try(Encode.State, [])) -> Try(Encode.State, [])) -> Try(Encode.State, [])

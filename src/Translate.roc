@@ -980,6 +980,7 @@ Translate :: {}.{
 				_ => Err(Unsupported("a captured time key without its series and its time"))
 			}
 			Geometry(_) => Translate.geojson(name, Translate.captured(backing, inner)?)
+			Scalar(surql) => Translate.v2_scalar(surql, Translate.captured(backing, inner)?)
 			_ => Translate.captured(backing, inner)
 		}
 		(_, Int(n)) => match n.to_i64_try() {
@@ -1021,6 +1022,30 @@ Translate :: {}.{
 		_ => Err(Unsupported("a captured `${ty.name()}` has no SurrealQL value"))
 	}
 
+	## The value of a captured type of CBOR v2 (`Types.Scalar`), from the
+	## object of its backing record: `Surreal.Date` is `{ days }`.
+	v2_scalar : Str, Ql.Value -> Try(Ql.Value, Ql.Error)
+	v2_scalar = |surql, backing| {
+		bad = Unsupported("a captured `${surql}` without its parts")
+		fields = match backing {
+			Object(f) => f
+			_ => return Err(bad)
+		}
+		int = |name| match fields.find_first(|f| f.name == name) {
+			Ok({ value: Int(n), .. }) => Ok(n)
+			_ => Err(bad)
+		}
+		match surql {
+			"regex" => Translate.named_str(fields, "pattern").map_ok(|t| Ql.Value.Regex(t)).map_err(|_| bad)
+			"bigdecimal" => Translate.named_str(fields, "text").map_ok(|t| Ql.Value.BigDecimal(t)).map_err(|_| bad)
+			"date" => Ok(Ql.Value.Date(int("days")?.to_i32_try().map_err(|_| bad)?))
+			"time" => Ok(Ql.Value.Time(int("nanos")?.to_u64_try().map_err(|_| bad)?))
+			"timestamp" => Ok(Ql.Value.Timestamp({ secs: int("secs")?, nanos: int("nanos")?.to_u32_try().map_err(|_| bad)? }))
+			"interval" => Ok(Ql.Value.Interval({ months: int("months")?.to_i32_try().map_err(|_| bad)?, days: int("days")?.to_i32_try().map_err(|_| bad)?, micros: int("micros")? }))
+			_ => Err(bad)
+		}
+	}
+
 	## Whether a captured value of this type has a SurrealQL value
 	## (`captured`), or why not. A clause reads the type of each captured
 	## value when the compiler runs it, so this check is a compile error.
@@ -1030,7 +1055,7 @@ Translate :: {}.{
 			match Types.nominal(name) {
 				Link => Err("a captured `Link` has no SurrealQL value; capture its `id()`")
 				DbFn => Err("a captured database function has no SurrealQL value; name the function in the clause")
-				Id | Datetime | Duration | TimeKey | Geometry(_) => Ok({})
+				Id | Datetime | Duration | TimeKey | Geometry(_) | Scalar(_) => Ok({})
 				_ => Translate.bindable(backing, encoded)
 			}
 		Record(fields) => fields.map_try(|f| Translate.bindable(f.ty, encoded)).map_ok(|_| {})
@@ -1629,6 +1654,25 @@ Translate :: {}.{
 		_ => Err(Untyped)
 	}
 
+	## The SurrealDB type of a value of a type of CBOR v2 (`Types.Scalar`).
+	scalar_of : Code.Tree, Env -> Try(Str, [NotScalar])
+	scalar_of = |tree, env| match Translate.type_of(tree, env) {
+		Ok(Named(name, _, _)) => Types.scalar_type(name)
+		_ => Err(NotScalar)
+	}
+
+	## The fields of the backing record of a type of CBOR v2.
+	scalar_fields : Str -> List(Str)
+	scalar_fields = |surql| match surql {
+		"regex" => ["pattern"]
+		"bigdecimal" => ["text"]
+		"date" => ["days"]
+		"time" => ["nanos"]
+		"timestamp" => ["secs", "nanos"]
+		"interval" => ["months", "days", "micros"]
+		_ => []
+	}
+
 	is_datetime : Code.Tree, Env -> Bool
 	is_datetime = |tree, env| match Translate.type_of(tree, env) {
 		Ok(Named(name, _, _)) => Types.nominal(name) == Datetime
@@ -1699,6 +1743,19 @@ Translate :: {}.{
 					# A datetime's `iso` is its text, which is how `==` on a
 					# `Datetime` arrives. An equality compares the datetimes.
 					Ok(Binding.Fields([{ name: "iso", binding: Binding.Moment(Translate.arg(inner, env)?) }]))
+				}
+				[inner] if Translate.scalar_of(inner, env).is_ok() => {
+					# `==` and `<` on a type of CBOR v2 compare the fields of its
+					# backing, and a captured value arrives as those fields. So a
+					# field is an expression of the SurrealDB value: the `days` of
+					# a `date`, the `nanos` of a `time`. The other types have no
+					# such expression for each field.
+					value = Translate.arg(inner, env)?
+					match Translate.scalar_of(inner, env) ?? "" {
+						"date" => Ok(Binding.Fields([{ name: "days", binding: Binding.Expr("(${value} - <date>'1970-01-01')") }]))
+						"time" => Ok(Binding.Fields([{ name: "nanos", binding: Binding.Expr("duration::nanos(<duration>${value})") }]))
+						surql => Err(Unsupported("a `${surql}` in a clause has no SurrealQL form for its parts; compare it in Roc after the read"))
+					}
 				}
 				[inner] if Translate.is_point(inner, env) => {
 					# A point is GeoJSON in SurrealDB: `lon` and `lat` are its coordinates.
@@ -1947,6 +2004,20 @@ Translate :: {}.{
 				Err(_) => Err(Unsupported("a datetime built without its text"))
 			}
 			Link => Err(Unsupported("a `Link` written in a clause has no SurrealQL form; compare `link.id()` with an `Id`"))
+			# A type of CBOR v2 of literals is its literal.
+			Scalar(surql) => {
+				parts = Translate.scalar_fields(surql).map_try(
+					|f| match Translate.record_field(inner, f) {
+						Ok(Op({ op: Lit(Str(t)), .. })) => Ok({ name: f, value: Ql.Value.Str(t) })
+						Ok(Op({ op: Lit(Int(n, _)), .. })) => n.to_i64_try().map_ok(|i| { name: f, value: Ql.Value.Int(i) }).map_err(|_| NotLiteral)
+						_ => Err(NotLiteral)
+					},
+				)
+				match parts {
+					Ok(fields) => Translate.v2_scalar(surql, Ql.Value.Object(fields)).map_ok(|v| Binding.Expr(Ql.literal(v)))
+					Err(_) => Err(Unsupported("a `${surql}` written in a clause must be of literals; capture it, or pass it as a parameter"))
+				}
+			}
 			Duration => match Translate.record_field(inner, "nanos") {
 				# A known count is a duration literal: `1d`, not `duration::from_nanos(86400000000000)`.
 				Ok(Op({ op: Lit(Int(n, _)), .. })) if n.to_u64_try().is_ok() => Ok(Binding.Expr(Ql.duration(n.to_u64_wrap())))

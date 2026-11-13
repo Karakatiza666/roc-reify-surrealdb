@@ -518,6 +518,211 @@ Surreal :: {}.{
 		}
 	}
 
+	# ============================== the types of SurrealDB that CBOR v2 tags
+
+	## A SurrealDB `regex`: the pattern text. The server checks the pattern
+	## when it reads it. CBOR v2 sends it as tag 193; the literal is
+	## `<regex>'a.*'`.
+	Regex := { pattern : Str }.{
+		is_eq : _
+
+		## The regex of a pattern, such as `^[a-z]+$`.
+		from_pattern : Str -> Regex
+		from_pattern = |pattern| Regex.({ pattern: pattern })
+
+		pattern : Regex -> Str
+		pattern = |Regex.(r)| r.pattern
+
+		encoder_for : Encode.Format -> (Regex, Encode.State -> Try(Encode.State, []))
+		encoder_for = |_format| |Regex.(r), state| Encode.Format.encode_value(Ql.Value.Regex(r.pattern), state)
+
+		## Tag 193 and the text.
+		parser_for : Cbor -> (Cbor.Reader -> Try({ value : Regex, rest : Cbor.Reader }, [InvalidCbor(U64)]))
+		parser_for = |encoding| |state| {
+			text : { value : Str, rest : Cbor.Reader }
+			text = tagged(encoding, state, 193)?
+			Ok({ value: Regex.({ pattern: text.value }), rest: text.rest })
+		}
+	}
+
+	## A SurrealDB `bigdecimal`: a decimal of any size, as its text (`1.50`
+	## keeps its zero). A `Dec` holds 18 digits after the point and about 20
+	## before it. CBOR v2 sends it as tag 192; the literal is
+	## `<bigdecimal>'1.50'`.
+	BigDecimal := { text : Str }.{
+		is_eq : _
+
+		## A decimal in the number form of JSON: `-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?`.
+		## Other text is refused.
+		from_str : Str -> Try(BigDecimal, [BadDecimal])
+		from_str = |text| if (is_json_number(text.to_utf8())) Ok(BigDecimal.({ text: text })) else Err(BadDecimal)
+
+		from_dec : Dec -> BigDecimal
+		from_dec = |d| BigDecimal.({ text: d.to_str() })
+
+		to_str : BigDecimal -> Str
+		to_str = |BigDecimal.(b)| b.text
+
+		encoder_for : Encode.Format -> (BigDecimal, Encode.State -> Try(Encode.State, []))
+		encoder_for = |_format| |BigDecimal.(b), state| Encode.Format.encode_value(Ql.Value.BigDecimal(b.text), state)
+
+		## Tag 192 and the text.
+		parser_for : Cbor -> (Cbor.Reader -> Try({ value : BigDecimal, rest : Cbor.Reader }, [InvalidCbor(U64)]))
+		parser_for = |encoding| |state| {
+			text : { value : Str, rest : Cbor.Reader }
+			text = tagged(encoding, state, 192)?
+			Ok({ value: BigDecimal.({ text: text.value }), rest: text.rest })
+		}
+	}
+
+	## A SurrealDB `date`: a day with no time and no time zone, as the days
+	## since 1970-01-01. Make one with `date`. CBOR v2 sends it as tag 100
+	## (RFC 8943); the literal is `<date>'2026-11-13'`.
+	Date := { days : I32 }.{
+		is_eq : _
+
+		is_lt : Date, Date -> Bool
+		is_lt = |Date.(a), Date.(b)| a.days < b.days
+
+		from_days : I32 -> Date
+		from_days = |days| Date.({ days: days })
+
+		to_days : Date -> I32
+		to_days = |Date.(d)| d.days
+
+		## `2026-11-13`. A year before 0 has a `-`, a year after 9999 a `+`.
+		to_str : Date -> Str
+		to_str = |Date.(d)| Ql.date_text(d.days.to_i128())
+
+		encoder_for : Encode.Format -> (Date, Encode.State -> Try(Encode.State, []))
+		encoder_for = |_format| |Date.(d), state| Encode.Format.encode_value(Ql.Value.Date(d.days), state)
+
+		## Tag 100 and the days.
+		parser_for : Cbor -> (Cbor.Reader -> Try({ value : Date, rest : Cbor.Reader }, [InvalidCbor(U64)]))
+		parser_for = |encoding| |state| {
+			days : { value : I32, rest : Cbor.Reader }
+			days = tagged(encoding, state, 100)?
+			Ok({ value: Date.({ days: days.value }), rest: days.rest })
+		}
+	}
+
+	## A date from `YYYY-MM-DD`, of the years 0 to 9999.
+	date : Str -> Try(Date, [BadDate])
+	date = |text| match text.to_utf8() {
+		[y1, y2, y3, y4, 45, m1, m2, 45, d1, d2] => {
+			digits = [y1, y2, y3, y4, m1, m2, d1, d2]
+			number = |part| part.fold(0.U64, |acc, b| acc * 10 + (b - 48).to_u64())
+			year = number([y1, y2, y3, y4])
+			month = number([m1, m2])
+			day = number([d1, d2])
+			if digits.all(|b| b >= 48 and b <= 57) and month >= 1 and month <= 12 and day >= 1 and day <= days_in_month(year, month) {
+				Ok(Date.({ days: days_from_civil(year.to_i128(), month.to_i128(), day.to_i128()).to_i32_wrap() }))
+			} else {
+				Err(BadDate)
+			}
+		}
+		_ => Err(BadDate)
+	}
+
+	## A SurrealDB `time`: a time of day with no time zone, as the
+	## nanoseconds since midnight. CBOR v2 sends it as tag 189; the literal
+	## is `<time>'12:30:00.5'`.
+	TimeOfDay := { nanos : U64 }.{
+		is_eq : _
+
+		is_lt : TimeOfDay, TimeOfDay -> Bool
+		is_lt = |TimeOfDay.(a), TimeOfDay.(b)| a.nanos < b.nanos
+
+		## A time of day before 24:00:00 (86,400,000,000,000 nanoseconds).
+		from_nanos : U64 -> Try(TimeOfDay, [BadTime])
+		from_nanos = |nanos| if (nanos < 86400000000000) Ok(TimeOfDay.({ nanos: nanos })) else Err(BadTime)
+
+		to_nanos : TimeOfDay -> U64
+		to_nanos = |TimeOfDay.(t)| t.nanos
+
+		## `12:30:00`, `12:30:00.5`.
+		to_str : TimeOfDay -> Str
+		to_str = |TimeOfDay.(t)| Ql.clock_text(t.nanos.to_i128())
+
+		encoder_for : Encode.Format -> (TimeOfDay, Encode.State -> Try(Encode.State, []))
+		encoder_for = |_format| |TimeOfDay.(t), state| Encode.Format.encode_value(Ql.Value.Time(t.nanos), state)
+
+		## Tag 189 and the nanoseconds.
+		parser_for : Cbor -> (Cbor.Reader -> Try({ value : TimeOfDay, rest : Cbor.Reader }, [InvalidCbor(U64)]))
+		parser_for = |encoding| |state| {
+			nanos : { value : U64, rest : Cbor.Reader }
+			nanos = tagged(encoding, state, 189)?
+			Ok({ value: TimeOfDay.({ nanos: nanos.value }), rest: nanos.rest })
+		}
+	}
+
+	## A SurrealDB `timestamp`: a date and a time with no time zone, as the
+	## seconds and the nanoseconds since 1970-01-01T00:00:00. A `Datetime` is
+	## in UTC. CBOR v2 sends it as tag 190 with `[seconds, nanoseconds]`; the
+	## literal is `<timestamp>'2026-11-13T12:30:00'`.
+	Timestamp := { secs : I64, nanos : U32 }.{
+		is_eq : _
+
+		is_lt : Timestamp, Timestamp -> Bool
+		is_lt = |Timestamp.(a), Timestamp.(b)| a.secs < b.secs or (a.secs == b.secs and a.nanos < b.nanos)
+
+		## The nanoseconds must be less than a second.
+		from_parts : { secs : I64, nanos : U32 } -> Try(Timestamp, [BadTimestamp])
+		from_parts = |parts| if (parts.nanos < 1000000000) Ok(Timestamp.(parts)) else Err(BadTimestamp)
+
+		to_parts : Timestamp -> { secs : I64, nanos : U32 }
+		to_parts = |Timestamp.(t)| t
+
+		## `2026-11-13T12:30:00.5`.
+		to_str : Timestamp -> Str
+		to_str = |Timestamp.(t)| Ql.literal(Ql.Value.Timestamp(t)).drop_prefix("<timestamp>'").drop_suffix("'")
+
+		encoder_for : Encode.Format -> (Timestamp, Encode.State -> Try(Encode.State, []))
+		encoder_for = |_format| |Timestamp.(t), state| Encode.Format.encode_value(Ql.Value.Timestamp(t), state)
+
+		## Tag 190 and `[seconds, nanoseconds]`.
+		parser_for : Cbor -> (Cbor.Reader -> Try({ value : Timestamp, rest : Cbor.Reader }, [InvalidCbor(U64)]))
+		parser_for = |encoding| |state| {
+			parts : { value : (I64, U32), rest : Cbor.Reader }
+			parts = tagged(encoding, state, 190)?
+			if parts.value.1 < 1000000000 {
+				Ok({ value: Timestamp.({ secs: parts.value.0, nanos: parts.value.1 }), rest: parts.rest })
+			} else {
+				Err(Cbor.invalid_value(encoding, state))
+			}
+		}
+	}
+
+	## A SurrealDB `interval`: months, days and microseconds, each with its
+	## own sign, as PostgreSQL has it. A month and a day have no fixed
+	## length, so a `Duration` does not hold one. CBOR v2 sends it as tag 191
+	## with `[months, days, microseconds]`; the literal is
+	## `<interval>'P1M2DT3S'`.
+	Interval := { months : I32, days : I32, micros : I64 }.{
+		is_eq : _
+
+		from_parts : { months : I32, days : I32, micros : I64 } -> Interval
+		from_parts = |parts| Interval.(parts)
+
+		to_parts : Interval -> { months : I32, days : I32, micros : I64 }
+		to_parts = |Interval.(i)| i
+
+		## ISO 8601: `P1M2DT3S`.
+		to_str : Interval -> Str
+		to_str = |Interval.(i)| Ql.interval_text(i)
+
+		encoder_for : Encode.Format -> (Interval, Encode.State -> Try(Encode.State, []))
+		encoder_for = |_format| |Interval.(i), state| Encode.Format.encode_value(Ql.Value.Interval(i), state)
+
+		## Tag 191 and `[months, days, microseconds]`.
+		parser_for : Cbor -> (Cbor.Reader -> Try({ value : Interval, rest : Cbor.Reader }, [InvalidCbor(U64)]))
+		parser_for = |encoding| |state| {
+			parts : { value : (I32, I32, I64), rest : Cbor.Reader }
+			parts = tagged(encoding, state, 191)?
+			Ok({ value: Interval.({ months: parts.value.0, days: parts.value.1, micros: parts.value.2 }), rest: parts.rest })
+		}
+	}
+
 	## The `string::` functions that Roc has no builtin for. A function with no
 	## body is an intrinsic: SurrealDB computes it, so it exists only in a clause,
 	## and a call in code that runs is a compile error.
@@ -4149,6 +4354,42 @@ fraction_nanos : Datetime -> I128
 fraction_nanos = |Datetime.(d)| {
 	digits = d.iso.to_utf8().drop_first(20).drop_last(1)
 	digits.concat(List.repeat(48, 9 - digits.len())).fold(0.I128, |acc, b| acc * 10 + (b - 48).to_i128())
+}
+
+## Whether the bytes are a number in the form of JSON:
+## `-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?`.
+is_json_number : List(U8) -> Bool
+is_json_number = |bytes| {
+	is_digit = |b| b >= 48 and b <= 57
+	digits = |list| {
+		count = list.take_first(list.len()).fold_until(0, |n, b| if (is_digit(b)) Continue(n + 1) else Break(n))
+		(count, list.drop_first(count))
+	}
+	unsigned = match bytes {
+		[45, .. as rest] => rest
+		_ => bytes
+	}
+	(whole, after_whole) = digits(unsigned)
+	whole_ok = whole == 1 or (whole > 1 and unsigned.first() != Ok(48))
+	after_fraction = match after_whole {
+		[46, .. as rest] => {
+			(count, more) = digits(rest)
+			if (count > 0) Ok(more) else Err(BadNumber)
+		}
+		_ => Ok(after_whole)
+	}
+	after_exponent = match after_fraction {
+		Ok([e, .. as rest]) if e == 101 or e == 69 => {
+			signed = match rest {
+				[s, .. as more] if s == 43 or s == 45 => more
+				_ => rest
+			}
+			(count, more) = digits(signed)
+			if (count > 0) Ok(more) else Err(BadNumber)
+		}
+		other => other
+	}
+	whole_ok and after_exponent == Ok([])
 }
 
 ## A fraction without its trailing zeros.

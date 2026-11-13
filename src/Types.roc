@@ -50,8 +50,10 @@ Types :: {}.{
 	## so a nominal is known by its name only, and another package's nominal
 	## of the same name would be taken for it. A call is known by its id
 	## (`Translate.Form`), and an opaque type by its `Code.TypeId`.
-	## `Geometry` holds the SurrealDB type of a geometry type of `Surreal`.
-	Nominal : [Link, Id, Datetime, Duration, DbFn, TimeKey, Geometry(Str), Linked, Out, In, Try, Bool, Other]
+	## `Geometry` holds the SurrealDB type of a geometry type of `Surreal`,
+	## and `Scalar` the SurrealDB type of a type of CBOR v2 that has no Roc
+	## type (`Surreal.Regex` is `regex`).
+	Nominal : [Link, Id, Datetime, Duration, DbFn, TimeKey, Geometry(Str), Scalar(Str), Linked, Out, In, Try, Bool, Other]
 
 	nominal : Str -> Nominal
 	nominal = |name| match name {
@@ -72,6 +74,12 @@ Types :: {}.{
 		"Surreal.MultiPolygon" => Geometry("geometry<multipolygon>")
 		"Surreal.Collection" => Geometry("geometry<collection>")
 		"Surreal.Geometry" => Geometry("geometry")
+		"Surreal.Regex" => Scalar("regex")
+		"Surreal.BigDecimal" => Scalar("bigdecimal")
+		"Surreal.Date" => Scalar("date")
+		"Surreal.TimeOfDay" => Scalar("time")
+		"Surreal.Timestamp" => Scalar("timestamp")
+		"Surreal.Interval" => Scalar("interval")
 		"Builtin.Try" => Try
 		"Builtin.Bool" => Bool
 		_ => Other
@@ -93,6 +101,13 @@ Types :: {}.{
 
 	id_name : Str
 	id_name = "Surreal.Id"
+
+	## The SurrealDB type of a type of `Surreal` for a type of CBOR v2.
+	scalar_type : Str -> Try(Str, [NotScalar])
+	scalar_type = |name| match Types.nominal(name) {
+		Scalar(surql) => Ok(surql)
+		_ => Err(NotScalar)
+	}
 
 	## The SurrealDB type of a geometry type of `Surreal`.
 	geometry_type : Str -> Try(Str, [NotGeometry])
@@ -412,7 +427,7 @@ Types :: {}.{
 			I128 => bad("I128 does not fit SurrealDB's `int`, which is 64-bit signed")
 			U128 => bad("U128 does not fit SurrealDB's `int`, which is 64-bit signed")
 			Named(name, args, _) =>
-				if Types.nominal(name) == Datetime or Types.geometry_type(name).is_ok() {
+				if Types.nominal(name) == Datetime or Types.geometry_type(name).is_ok() or Types.scalar_type(name).is_ok() {
 					Ok({})
 				} else if Types.nominal(name) == Link or Types.nominal(name) == Id {
 					match Types.lookup(registry, Types.row_of(name, args)) {
@@ -543,6 +558,8 @@ Types :: {}.{
 		Named(name, args, _) =>
 			if Types.nominal(name) == Datetime {
 				Ok("datetime")
+			} else if Types.scalar_type(name).is_ok() {
+				Types.scalar_type(name).map_err(|_| BadSchema("`${name}` has no SurrealDB type"))
 			} else if Types.nominal(name) == Link or Types.nominal(name) == Id {
 				table = Types.table_for(registry, Types.row_of(name, args))?
 				Ok("record<${Ql.ident(table)}>")
