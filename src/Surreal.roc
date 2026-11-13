@@ -4607,9 +4607,9 @@ group_all = |text| "${text} GROUP ALL"
 ## The result columns of one group: the key and the group's rows bound.
 group_columns : Code(row -> k), Code((k, List(row) -> out)), Translate.Binding, (Str -> Str), Bool -> Try(List({ name : Str, surql : Str }), Error)
 group_columns = |key, per_group, base, param, in_view| {
-	group_key = Translate.evaluate(own, key.graph(), [base], spelled(key, param))?
+	group_key = Translate.grouped_key(own, key.graph(), [base], spelled(key, param))?
 	bindings = [group_key, Translate.Binding.Group(base)]
-	if (in_view) Translate.view_columns(own, per_group.graph(), bindings, spelled(per_group, param)) else Translate.columns(own, per_group.graph(), bindings, spelled(per_group, param))
+	if (in_view) Translate.view_columns(own, per_group.graph(), bindings, spelled(per_group, param)) else Translate.grouped_columns(own, per_group.graph(), bindings, spelled(per_group, param))
 }
 
 ## The id of a row by its table's name. `Table.id` is the same with the

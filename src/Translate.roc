@@ -192,7 +192,7 @@ Translate :: {}.{
 		param : Str -> Str,
 		depth : U64,
 		random : Bool,
-		view : [Plain, View, Totals],
+		view : [Plain, View, Totals, Grouped],
 		self : [Inside({ row : U32, name : Str }), Outside],
 		extensions : List(Extension),
 	}
@@ -333,7 +333,7 @@ Translate :: {}.{
 	row_value : List(Extension), Code.Graph, List(Binding), (Str -> Str) -> Try(Str, Ql.Error)
 	row_value = |extensions, graph, bindings, param| Translate.text(Translate.run(extensions, graph, bindings, param, Bool.True, Plain)?)
 
-	run : List(Extension), Code.Graph, List(Binding), (Str -> Str), Bool, [Plain, View, Totals] -> Try(Binding, Ql.Error)
+	run : List(Extension), Code.Graph, List(Binding), (Str -> Str), Bool, [Plain, View, Totals, Grouped] -> Try(Binding, Ql.Error)
 	run = |extensions, graph, bindings, param, random, view| {
 		root = graph.root_row()
 		if root.params.len() != bindings.len() {
@@ -441,6 +441,16 @@ Translate :: {}.{
 	## in a view (`Translate.aggregate_arg`).
 	view_columns : List(Extension), Code.Graph, List(Binding), (Str -> Str) -> Try(List({ name : Str, surql : Str }), Ql.Error)
 	view_columns = |extensions, graph, bindings, param| Translate.fields_of(Translate.run(extensions, graph, bindings, param, Bool.False, View)?)
+
+	## The same, for the columns of a `GROUP BY` query that is not a view,
+	## and its key: SurrealDB refuses `$parent` in such a column, so a
+	## subquery binds an outer value with `chain` (`Translate.where_of`).
+	grouped_columns : List(Extension), Code.Graph, List(Binding), (Str -> Str) -> Try(List({ name : Str, surql : Str }), Ql.Error)
+	grouped_columns = |extensions, graph, bindings, param| Translate.fields_of(Translate.run(extensions, graph, bindings, param, Bool.False, Grouped)?)
+
+	## The key of a `GROUP BY` query, as `grouped_columns` reads it.
+	grouped_key : List(Extension), Code.Graph, List(Binding), (Str -> Str) -> Try(Binding, Ql.Error)
+	grouped_key = |extensions, graph, bindings, param| Translate.run(extensions, graph, bindings, param, Bool.False, Grouped)
 
 	## The same, for the columns of `Query.totals`: the one row of `GROUP ALL`,
 	## which also exists for no rows (`Translate.aggregate_arg`).
@@ -3040,15 +3050,24 @@ Translate :: {}.{
 	## `t.rows()` with a `keep_if`, `count_if`, `any` or `find_first`: the
 	## conjuncts of the function that read the element go into the
 	## `WHERE` of the subquery, so an index can serve them; the other
-	## conjuncts stay a `filter`. A value of the
-	## clause that a conjunct compares with is bound around the subquery
-	## with `chain`, as the subquery reads its own row:
-	## `id.chain(|$v3_0| (SELECT VALUE id FROM kennel WHERE site = $v3_0)).len()`.
-	## `$parent.id` in place of `chain` is a `TableScan` on 3.3.5 and
-	## 4.0.0, and is `NONE` in an `UPDATE .. WHERE` and in a view on
-	## 3.3.5 (verified). `chain` uses the index on 3.3.5. A filter or a
-	## find with a test other than `==` reads the rows `ORDER BY id`, the
-	## order of the table. `Scan` when no conjunct can go into the `WHERE`.
+	## conjuncts stay a `filter`. A value of the clause that a conjunct
+	## compares with is read in the subquery as `$parent.<path>` when it
+	## is a plain field path of the row of the statement and the one
+	## value of the clause in the `WHERE`:
+	## `(SELECT VALUE id FROM kennel WHERE site = $parent.id).len()`.
+	## Any other value is bound around the subquery with `chain`, as the
+	## subquery reads its own row:
+	## `record::id(id).chain(|$v3_0| (SELECT VALUE id FROM kennel WHERE record::id(site) = $v3_0)).len()`.
+	## `chain` stays for a wrapped value, for two or more values, for a
+	## value of a row further out (a subquery or a closure inside the
+	## clause), and in the columns of a `GROUP BY`, a `GROUP ALL` or a
+	## view, where SurrealDB refuses `$parent`. On SurrealDB 4.0.1 the
+	## `$parent` form runs about 15 times faster (30 sites, 30000 kennels:
+	## 0.04 s, `chain` 0.6 s; `UPDATE .. WHERE` 0.08 s, `chain` 1.3 s),
+	## although both plan a `TableScan`. SurrealDB does not document this.
+	## A filter or a find with a test other than `==` reads the rows
+	## `ORDER BY id`, the order of the table. `Scan` when no conjunct can
+	## go into the `WHERE`.
 	where_of : Str, Bool, U32, List(Binding), Binding, Str, Items, Env -> Try([Pushed(Binding), Scan], Ql.Error)
 	where_of = |table, edge, row, values, element, name, items, env| {
 		k = values.len().to_u32_wrap()
@@ -3056,9 +3075,9 @@ Translate :: {}.{
 		outside = { ..env, params: values.append(element), row, nodes: [], depth: env.depth + 1 }
 		inside = { ..outside, params: values.append(Translate.table_row(table, edge)) }
 		start = { kept: [], rest: [], chains: [], nodes: [], ordered: Bool.False }
-		split = Translate.conjuncts(Translate.body(env.graph.to_tree(row))).fold(
+		split_by = |parent| Translate.conjuncts(Translate.body(env.graph.to_tree(row))).fold(
 			start,
-			|acc, c| match Translate.pushed_test(c, k, acc.nodes.len(), "${var_name}_", outside, inside) {
+			|acc, c| match Translate.pushed_test(c, k, acc.nodes.len(), "${var_name}_", outside, inside, parent) {
 				Ok(p) =>
 					{
 						kept: acc.kept.append(p.test),
@@ -3070,6 +3089,11 @@ Translate :: {}.{
 				Err(_) => { ..acc, rest: acc.rest.append(c) }
 			},
 		)
+		chained = split_by(Bool.False)
+		split = match chained.chains {
+			[one] if env.view == Plain and env.depth == 0 and Translate.is_field_path(one.value) => split_by(Bool.True)
+			_ => chained
+		}
 		if split.kept.is_empty() {
 			return Ok(Scan)
 		}
@@ -3108,10 +3132,12 @@ Translate :: {}.{
 	## the `WHERE`: each largest part that does not read the element `k`
 	## and reads a value of the clause becomes a kept node, bound to that
 	## value. A `$` parameter is read in place; any other value is bound
-	## with `chain` to `<prefix><n>`. `Err` when the conjunct does not read
-	## the element as a value, or a part has no SurrealQL value to bind.
-	pushed_test : Code.Tree, U32, U64, Str, Env, Env -> Try({ test : Code.Tree, chains : List({ value : Str, slot : Str }), nodes : List({ id : U32, binding : Binding, ty : Try(Code.Ty, [Untyped]) }) }, [Stays])
-	pushed_test = |conjunct, k, before, prefix, outside, inside| {
+	## with `chain` to `<prefix><n>`, or, with `parent`, read as
+	## `$parent.<path>` when it is a plain field path (`where_of` decides).
+	## `Err` when the conjunct does not read the element as a value, or a
+	## part has no SurrealQL value to bind.
+	pushed_test : Code.Tree, U32, U64, Str, Env, Env, Bool -> Try({ test : Code.Tree, chains : List({ value : Str, slot : Str }), nodes : List({ id : U32, binding : Binding, ty : Try(Code.Ty, [Untyped]) }) }, [Stays])
+	pushed_test = |conjunct, k, before, prefix, outside, inside, parent| {
 		# A conjunct that does not read the row is no test of the row.
 		if !Translate.reads_param(conjunct, k) {
 			return Err(Stays)
@@ -3136,6 +3162,8 @@ Translate :: {}.{
 				node = |place| { id: Translate.lifted_id(n), binding: at_slot(place), ty }
 				if Translate.is_variable(value) {
 					Ok({ chains: [], node: node(value) })
+				} else if parent and Translate.is_field_path(value) {
+					Ok({ chains: [], node: node("$parent.${value}") })
 				} else {
 					slot = "${prefix}${n.to_str()}"
 					Ok({ chains: [{ value, slot }], node: node(slot) })
@@ -3203,6 +3231,11 @@ Translate :: {}.{
 		root = names.first() ?? ""
 		spelled.starts_with("$") and names.all(|name| Ql.is_plain(name) or Translate.is_mark(name)) and root != "this" and root != "parent"
 	}
+
+	## A plain field path of the row of a statement: `site`, `address.city`.
+	## Not a variable, a call or a bracketed name.
+	is_field_path : Str -> Bool
+	is_field_path = |spelled| !spelled.is_empty() and spelled.split_on(".").all(Ql.is_plain)
 
 	is_equality_tree : Code.Tree, Env -> Bool
 	is_equality_tree = |tree, env| match tree {

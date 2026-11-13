@@ -1042,6 +1042,116 @@ hashes_expected = [
 	{ id: "g06", hash: "1zzzzz", cell: pt(-90.0054931640625, -45.00274658203125) },
 ]
 
+# ------------------------------------------ an outer value in a subquery
+
+# A subquery of `t.rows()` reads a field of the row of the statement as
+# `$parent.<path>` when it is the one outer value of its `WHERE`, and
+# with `chain` in the other cases (`Translate.where_of`). Each block runs
+# on the server and is compared with the same functions over the seed
+# rows: a `SELECT`, an `UPDATE .. WHERE`, a `DELETE .. WHERE`, a view
+# whose `WHERE` reads the row, and the cases that keep `chain` (two outer
+# values, a `GROUP BY` column, where SurrealDB refuses `$parent`).
+
+Ward : { id : Str, name : Str, cap : I64 }
+
+Bed : { id : Str, ward : Surreal.Link(Ward), size : I64 }
+
+wards : Surreal.Table(Ward)
+wards = Surreal.table("ward")
+
+beds : Surreal.Table(Bed)
+beds = Surreal.table("bed")
+
+ward_def : Surreal.Defined
+ward_def = wards.define().done()
+
+bed_def : Surreal.Defined
+bed_def = beds.define().done()
+
+seed_wards : List(Ward)
+seed_wards = [{ id: "w1", name: "North", cap: 2 }, { id: "w2", name: "South", cap: 1 }, { id: "w3", name: "East", cap: 5 }]
+
+seed_beds : List(Bed)
+seed_beds = [{ id: "b1", ward: wards.link("w1"), size: 1 }, { id: "b2", ward: wards.link("w1"), size: 3 }, { id: "b3", ward: wards.link("w2"), size: 2 }]
+
+## The beds of a ward: one outer value, `$parent.id`.
+beds_in : List(Bed), Ward -> U64
+beds_in = |all, w| all.count_if(|b| b.ward.id() == wards.id(w.id))
+
+## The beds of a ward that fit its cap: two outer values, so `chain`.
+small_beds_in : List(Bed), Ward -> U64
+small_beds_in = |all, w| all.count_if(|b| b.ward.id() == wards.id(w.id) and b.size <= w.cap)
+
+## A ward with a bed larger than 2.
+has_big_bed : List(Bed), Ward -> Bool
+has_big_bed = |all, w| all.any(|b| b.ward.id() == wards.id(w.id) and b.size > 2)
+
+## A ward with no bed.
+is_empty_ward : List(Bed), Ward -> Bool
+is_empty_ward = |all, w| !all.any(|b| b.ward.id() == wards.id(w.id))
+
+WardLine : { id : Str, beds : U64, small : U64 }
+
+ward_line : List(Bed), Ward -> WardLine
+ward_line = |all, w| { id: w.id, beds: beds_in(all, w), small: small_beds_in(all, w) }
+
+WardBeds : { cap : I64, wards : U64 }
+
+ward_beds : Surreal.Table(WardBeds)
+ward_beds = Surreal.view("ward_beds")
+
+## A view whose `WHERE` reads the row of the view's table in a subquery.
+ward_beds_def : Surreal.Defined
+ward_beds_def = ward_beds.define_as(Surreal.from(wards).filter(|w| beds.rows().any(|b| b.ward.id() == wards.id(w.id))).group_by(|w| w.cap), |cap, rows| { cap, wards: rows.len() }).done()
+
+## The view over rows, in Roc.
+ward_beds_of : List(Ward) -> List(WardBeds)
+ward_beds_of = |all| {
+	kept = all.keep_if(|w| seed_beds.any(|b| b.ward.id() == wards.id(w.id)))
+	caps = kept.fold([], |acc, w| if acc.contains(w.cap) acc else acc.append(w.cap))
+	caps.map(|cap| { cap, wards: kept.count_if(|w| w.cap == cap) })
+}
+
+BedGroup : { ward : Surreal.Id(Ward), here : U64, mates : U64 }
+
+## The beds of the ward of a bed, itself included.
+mates_of : List(Bed), Bed -> U64
+mates_of = |all, b| all.count_if(|x| x.ward.id() == b.ward.id())
+
+## A `GROUP BY` column with a subquery that reads a field of the row:
+## `chain`, since SurrealDB refuses `$parent` there.
+bed_group : List(Bed), Surreal.Id(Ward), List(Bed) -> BedGroup
+bed_group = |all, ward, rows| { ward, here: rows.len(), mates: rows.map(|b| mates_of(all, b)).sum() }
+
+bed_groups : List(BedGroup)
+bed_groups = [wards.id("w1"), wards.id("w2")].map(|ward| bed_group(seed_beds, ward, seed_beds.keep_if(|b| b.ward.id() == ward)))
+
+renamed : Ward -> Ward
+renamed = |w| { ..w, name: "Big" }
+
+parent_blocks : List(Str)
+parent_blocks = [
+	block("-- query: parent_select", Surreal.from(wards).select(|w| ward_line(beds.rows(), w)).prepare({}), Surreal.Mirror.literal(seed_wards.map(|w| ward_line(seed_beds, w)))),
+	block("-- query: parent_group_by", Surreal.from(beds).group_by(|b| b.ward.id()).aggregate(|ward, rows| bed_group(beds.rows(), ward, rows)).prepare({}), Surreal.Mirror.literal(bed_groups)),
+	view_block,
+	block("-- query: parent_view", Surreal.from(ward_beds).select(|r| r).prepare({}), Surreal.Mirror.literal(ward_beds_of(seed_wards))),
+	block("-- write: parent_update", then_read(wards.update(|w| has_big_bed(beds.rows(), w), renamed).prepare({}), Surreal.from(wards).select(|w| w).prepare({})), Surreal.Mirror.literal(updated_wards)),
+	block("-- write: parent_delete", then_read(wards.delete(|w| is_empty_ward(beds.rows(), w)).prepare({}), Surreal.from(wards).select(|w| w).prepare({})), Surreal.Mirror.literal(updated_wards.keep_if(|w| !is_empty_ward(seed_beds, w)))),
+	block("-- query: parent_view_after", Surreal.from(ward_beds).select(|r| r).prepare({}), Surreal.Mirror.literal(ward_beds_of(seed_wards.keep_if(|w| !is_empty_ward(seed_beds, w))))),
+]
+
+updated_wards : List(Ward)
+updated_wards = seed_wards.map(|w| if has_big_bed(seed_beds, w) renamed(w) else w)
+
+## The view is defined after the seed rows: SurrealDB fills it from the
+## rows of `ward` that exist, and changes it on a write to `ward`, not to
+## `bed`.
+view_block : Str
+view_block = match Surreal.schema([ward_def, bed_def, ward_beds_def]) {
+	Ok(text) => "-- schema\n${text}"
+	Err(e) => "-- bad schema: ${Str.inspect(e)}"
+}
+
 # --------------------------------------------------------------- the script
 
 ## One block: the statement, then the Roc result for the same question.
@@ -1108,7 +1218,7 @@ package_queries = [
 ]
 
 schema_block : Str
-schema_block = match Surreal.schema([sample_def, phrase_def, stamp_def, pair_def, reading_def, ref_def, keyed_def, shape_def]) {
+schema_block = match Surreal.schema([sample_def, phrase_def, stamp_def, pair_def, reading_def, ref_def, keyed_def, shape_def, ward_def, bed_def]) {
 	Ok(text) => "-- schema\n${text}"
 	Err(e) => "-- bad schema: ${Str.inspect(e)}"
 }
@@ -1129,6 +1239,8 @@ seed_blocks = [
 	seed("reading", readings.insert(seed_readings)),
 	seed("ref", refs.insert(seed_refs)),
 	seed("shape", shapes.insert(seed_shapes)),
+	seed("ward", wards.insert(seed_wards)),
+	seed("bed", beds.insert(seed_beds)),
 ]
 
 queries : List(Str)
@@ -1228,7 +1340,7 @@ same_blocks = [
 ]
 
 script : Str
-script = Str.join_with([schema_block].concat(seed_blocks).concat(queries).concat(package_queries).concat(same_blocks), "\n\n")
+script = Str.join_with([schema_block].concat(seed_blocks).concat(queries).concat(package_queries).concat(parent_blocks).concat(same_blocks), "\n\n")
 
 main! = |_args| {
 	echo!("${script}\n")
