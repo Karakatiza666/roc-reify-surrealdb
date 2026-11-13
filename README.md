@@ -54,6 +54,9 @@ The package covers:
 - queries and writes, with parameters and captured values;
 - Roc functions as SurrealDB functions, time series keys, views, geometry,
   full-text and vector search;
+- the types of SurrealDB 4: sized numbers (`u8`, `i32`, `f32` and so on),
+  `date`, `time`, `timestamp`, `interval`, `bigdecimal` and `regex`, over
+  CBOR v2;
 - live queries, with the Roc prediction of their notices (the `Mirror`);
 - sessions over WebSocket or HTTP, with typed results and typed errors;
 - translator extensions for types the package does not know.
@@ -187,7 +190,7 @@ transport = Surreal.Transport.websocket_timed(WsClient.connect, WsClient.ops, "w
 
 `WsClient.connect` and `WsClient.ops` are the adapter's connect feature and
 its operations. The session connects to the URL plus `/rpc`, with the
-subprotocol `cbor`. `websocket_timed` takes the adapter's `receive_within!`
+subprotocol `cbor.2` (CBOR v2) and no other. `websocket_timed` takes the adapter's `receive_within!`
 too, which basic-cli has, so that `Session.next_within!` can wait for a change
 with a deadline; `Transport.websocket` is the same without it. Then open a session and run a prepared statement. Each
 call gives the session back, and `result` holds the rows as the Roc type of
@@ -469,7 +472,9 @@ removes and creates its own database at the start.
 
 The `-- roc:` literal is a SurrealQL value that Roc printed. The checker sends
 `RETURN <literal>` to the same server, so both sides use one serialiser.
-It asks for CBOR, not JSON. JSON prints a decimal as a string, so the decimal
+It asks for CBOR v2 (`application/cbor; v=2` on `/sql`, the subprotocol
+`cbor.2` on `/rpc`), not JSON. It reads a sized number (tags 180 to 188) as
+its number. JSON prints a decimal as a string, so the decimal
 `42` and the string `"42"` look the same. CBOR tags a decimal, so the checker
 treats a number-like string as a string, and only a tagged decimal is
 compared as a decimal. A string field `"42"` against the number `42` fails.
@@ -494,11 +499,11 @@ Roc tag unions with `match` in a query.
 | Unique, over several fields and a link | `.unique(\|p\| { name: p.name, owner: p.owner })` | `DEFINE INDEX ... ON patient FIELDS name, owner UNIQUE` | `examples/main.roc:414` |
 | Unique, over the ends of an edge | `.unique(\|e\| { from: e.from, to: e.to })` | `DEFINE INDEX ... ON treats FIELDS in, out UNIQUE` | `examples/main.roc:441` |
 | Index | `.index(\|o\| o.address.city)` | `DEFINE INDEX ... ON owner FIELDS address.city` | `examples/main.roc:391` |
-| Default value from the type | `tags : List(Str) ?? []` in `Owner := { .. }`, `stock : I32 ?? 0` in `Medication := { .. }` | `tags ... TYPE array<string> DEFAULT []`, `stock ... TYPE int DEFAULT 0` | `examples/main.roc:31`, `examples/main.roc:48` |
+| Default value from the type | `tags : List(Str) ?? []` in `Owner := { .. }`, `stock : I32 ?? 0` in `Medication := { .. }` | `tags ... TYPE array<string> DEFAULT []`, `stock ... TYPE i32 DEFAULT 0i32` | `examples/main.roc:31`, `examples/main.roc:48` |
 | Default value of an alias row | `.default(\|c\| c.tags, ["new"])` | `tags ... TYPE array<string> DEFAULT ['new']` | `tests/SchemaTest.roc:75` |
 | Computed field | `.computed(\|m\| m.label, \|m\| label_of(m.name, m.form))` | `label ON medication TYPE string VALUE $this.name + ' (' + $this.form + ')'` | `examples/main.roc:408` |
 | Read-only field | `.readonly(\|v\| v.license)` | `license ON vet TYPE string READONLY ASSERT ..` | `examples/main.roc:401` |
-| Range from the Roc type | `Vet : VetRow(U8)`, `stock : I32` | `years ... TYPE int ASSERT $value >= 0 AND $value <= 255` | `examples/main.roc:44` |
+| Sized number from the Roc type | `Vet : VetRow(U8)`, `stock : I32` | `years ... TYPE u8`, `stock ... TYPE i32`. The server refuses a value outside the range | `examples/main.roc:44` |
 | Link in an optional object | `chip ?: { code : Str, implanted_by : Surreal.Link(Vet) }` | `chip.implanted_by ... TYPE record<vet> ASSERT record::exists($value)`, and an event on `vet` that throws on delete | `examples/main.roc:63` |
 | Link in a list of records | `vaccines : List({ name : Str, given : Str, vet : Surreal.Link(Vet) })` | `vaccines[*].vet ... ASSERT record::exists($value)`, and an event on `vet` | `examples/main.roc:60` |
 | Link in a list of records, second site | `items : List({ medication : Surreal.Link(Medication), doses : I64 })` | `items[*].medication ... ASSERT record::exists($value)`, and an event on `medication` | `examples/main.roc:77` |
@@ -508,7 +513,7 @@ Roc tag unions with `match` in a query.
 | Top-level list of links, per-path policy | `allergies : List(Surreal.Link(Medication))`, `.on_delete_at(\|p\| p.allergies, Unset)` | `allergies ... TYPE array<record<medication>> ... REFERENCE ON DELETE UNSET` | `examples/main.roc:422` |
 | A write that names a missing target is refused at every depth | `patients.create(ghost_chip_patient)`, and one row for each other shape | `ASSERT record::exists($value)` fails for the field `chip.implanted_by` | `examples/main.roc:972` |
 | A delete of a target in use is refused at every depth | `vets.delete_at(vets.id("tia"))` | the event throws: `is referenced by visit.outcome.to` | `examples/main.roc:943` |
-| A tag union is a literal union | `Species : [Dog, Cat, Bird({ wingspan_cm : U8 }), Exotic({ latin : Str })]` | `TYPE { kind: "Bird", wingspan_cm: int } \| "Cat" \| "Dog" \| { kind: "Exotic", latin: string }` | `examples/main.roc:57` |
+| A tag union is a literal union | `Species : [Dog, Cat, Bird({ wingspan_cm : U8 }), Exotic({ latin : Str })]` | `TYPE { kind: "Bird", wingspan_cm: u8 } \| "Cat" \| "Dog" \| { kind: "Exotic", latin: string }` | `examples/main.roc:57` |
 | `match` in a projection | `species_label(p.species)` with `match` on `Dog`, `Cat`, `Bird(_)`, `Exotic(other)` | `(IF species.kind = 'Bird' THEN 'bird' ELSE IF species = 'Cat' THEN 'cat' ELSE IF species = 'Dog' THEN 'dog' ELSE species.latin END)` | `examples/main.roc:171` |
 | `match` in a filter | `wide_wings(p)` reads the wingspan of `Bird(wings)` | `WHERE (IF species.kind = 'Bird' THEN species.wingspan_cm >= 20 ELSE false END)` | `examples/main.roc:189` |
 | `match` that reads a link in an arm | `Referred(r) => "referred to ${r.to.get().name}"` | `'referred to ' + outcome.to.name` | `examples/main.roc:182` |
@@ -555,7 +560,7 @@ Roc tag unions with `match` in a query.
 | A filter of groups (`HAVING`) | `.aggregate(day_line).filter(\|d\| d.fevers < d.readings)` | `SELECT day, fevers, kennel, readings FROM (SELECT .. GROUP BY day, kennel) WHERE fevers < readings` | `examples/monitoring.roc:379` |
 | A filter after an order and a limit | `.order_by(\|l\| l.pulse, Desc).limit(3).filter(\|l\| l.temp_c < 39)` | `SELECT at, kennel, pulse, temp_c FROM (SELECT .. ORDER BY pulse DESC LIMIT 3) WHERE temp_c < 39.0dec` | `examples/monitoring.roc:385` |
 | Result rows as the rows of a new query | `.select(hot_line).query().filter(\|r\| r.hot).group_by(\|r\| r.kennel)` | `SELECT count() AS fevers, record::id(id)[0] AS kennel FROM vital WHERE fn::fever(temp_c, pulse) GROUP BY kennel` | `examples/monitoring.roc:396` |
-| Update and delete with a parameter | `medications.update_by(Clinic.low_stock, refill)`, `visits.delete_by(Clinic.too_old)` | `UPDATE medication SET stock = stock + $add WHERE stock < $floor RETURN AFTER`, `DELETE visit WHERE seen < $before RETURN BEFORE` | `examples/main.roc:1017`, `examples/main.roc:1089` |
+| Update and delete with a parameter | `medications.update_by(Clinic.low_stock, refill)`, `visits.delete_by(Clinic.too_old)` | `UPDATE medication SET stock = <int>stock + <int>$add WHERE stock < $floor RETURN AFTER`, `DELETE visit WHERE seen < $before RETURN BEFORE` | `examples/main.roc:1017`, `examples/main.roc:1089` |
 | Read, update and delete by key | `vets.at(ruth_id).select(specialty_line)`, `vets.set_at(vets.id("tia"), certified)`, `owners.delete_at(owners.id("noor"))`. The key is a `Code(Id(row))`: a constant, or a value from around the function, which is a `$_1` slot (`LET $_1 = owner:⟨jon⟩; UPDATE $_1 ..`). The key is an `Id` of the table, written as an escaped record id. `update_at_by` and `set_at_by` read a parameter record | `SELECT .. FROM vet:⟨ruth⟩`, `UPDATE vet:⟨tia⟩ SET ..`, `DELETE owner:⟨noor⟩`. SurrealDB reads and writes the one record (`EXPLAIN`: `RecordIdScan`, `Iterate Record`) | `examples/main.roc:769`, `examples/main.roc:993`, `examples/main.roc:1035` |
 | A key compared with a value of the statement | `.filter_by(\|p, v\| v.id == p.key)`, `.filter(\|v\| v.id == "ruth")`, or a key from around the function | `WHERE id = type::record('vet', $key)`, `WHERE id = vet:⟨ruth⟩`: a `SELECT` reads the one record, where `record::id(id) = $key` scans the table (`Translate.key_compare`) | `examples/main.roc:808` |
 | An update of a row with optional fields | `owners.update_at(owners.id("jon"), renamed)`, with `renamed = \|o\| { ..o, name: "Jon B. Berg" }` and `phone ?:`, `referred_by ?:` in `Owner`. The reifier gives `..o` over each optional field as a switch on its presence, with the row in each arm, and each arm keeps the field. A field that the arms set differently is an `IF` on the presence. An optional field that the patch's row leaves out is `NONE`. A record field built with `..` is set field by field | `UPDATE owner:⟨jon⟩ SET name = 'Jon B. Berg'`; `{ ..m, address: { ..m.address, city: "Rome" } }` is `SET address.city = 'Rome'` | `examples/main.roc:1002` |
@@ -1026,11 +1031,11 @@ The live blocks of `monitoring.roc` (`examples/monitoring.roc:995`) check each p
 
 #### Decoding
 
-A live session speaks CBOR, the WebSocket subprotocol `cbor`. The package
+A live session speaks CBOR v2, the WebSocket subprotocol `cbor.2`. The package
 reads it with roc-cbor 0.5.0, through the `parser_for` of each Roc type.
-Each read uses the options `{ ignore_tags: [6, 10], allow: [DecFromText, ..],
+Each read uses the options `{ ignore_tags: [6, 10, 180, .., 188], allow: [DecFromText, ..],
 unions: Internal({ tag: "kind", content: "value" }) }` (`Surreal.read_options`), so NONE before `null` is no value, a decimal reads from
-its text, and a tag union reads the form that the ORM writes (`Encode.tagged`):
+its text, a sized number reads into any Roc number type that holds it, and a tag union reads the form that the ORM writes (`Encode.tagged`):
 `'Cash'`, `{ kind: 'Card', last4: .. }`, `{ kind: 'Check', value: 7 }`,
 `{ kind: 'Wire', value: ['eu', 9] }`. roc-cbor reads the map itself for a
 payload whose reader is a record reader (`parse_record_start`), and the item
@@ -1048,10 +1053,17 @@ of `Surreal` with a `parser_for` of their own, on the tag API of roc-cbor:
 | NONE | tag 6 and `null` | an absent `?:` field, `Err(Missing)` | the options |
 | Geometry | tags 88 to 94, each point a tag 88 of floats | `Point`, `Line`, `Polygon`, `MultiPoint`, `MultiLine`, `MultiPolygon`, `Collection`, `Geometry` | `Surreal.Geometry` |
 | Uuid of a live query | tag 37, 16 bytes | `Surreal.Uuid` (`Rpc.Uuid`) | `src/Rpc.roc:13` |
+| Sized number | tags 180 to 186 (`i8`, `u8`, `i16`, `u16`, `i32`, `u32`, `u64`) and the integer; 187 and 188 (`f16`, `f32`) and the float | `I8` to `U64`, `F32`, `F64`; a value that the type does not hold is an error | the options |
+| Date | tag 100 and the days since 1970-01-01 | `Date` | `Surreal.Date` |
+| Time of day | tag 189 and the nanoseconds since midnight | `TimeOfDay` | `Surreal.TimeOfDay` |
+| Timestamp | tag 190, `[seconds, nanoseconds]` | `Timestamp` | `Surreal.Timestamp` |
+| Interval | tag 191, `[months, days, microseconds]` | `Interval` | `Surreal.Interval` |
+| Big decimal | tag 192 and its text | `BigDecimal` | `Surreal.BigDecimal` |
+| Regex | tag 193 and the pattern | `Regex` | `Surreal.Regex` |
 
 The key of a `Ref` is a `Ql.Value`, as the Mirror writes it, so a decoded
 `Ref` and a predicted one are equal. `Surreal.value_of`
-reads a key: a text, a number, a record id, a datetime, a decimal, an array
+reads a key: a text, a number (a sized number keeps its type), a record id, a datetime, a decimal, a date, a time, a timestamp, an interval, a big decimal, a regex, an array
 or an object. A key of another kind, such as a duration, is an error.
 
 A message of the session has fixed fields around a row of the type `out`.
@@ -1233,7 +1245,7 @@ session = Surreal.Session.open!(transport, Root({ ns: "roc", db: "roc_surreal", 
 
 | Constructor | Takes | From the platform |
 | --- | --- | --- |
-| `Transport.websocket(connect, ops, url)` | A `Ws.Connect` record of roc-websocket, `{ connect! }`, and a record with `send!` and `receive!` over the same connection type and error row, such as the adapter's `ops`. The session connects to `url` + `/rpc` with the subprotocol `cbor`. Its watch waits with no deadline: `next_within!` is an `Unsupported` error | The adapter of the platform: `WsClient.connect` and `WsClient.ops` of roc-basic-cli-websocket 0.0.4 or roc-basic-webserver-websocket 0.0.3 |
+| `Transport.websocket(connect, ops, url)` | A `Ws.Connect` record of roc-websocket, `{ connect! }`, and a record with `send!` and `receive!` over the same connection type and error row, such as the adapter's `ops`. The session connects to `url` + `/rpc` with the subprotocol `cbor.2`, and refuses a server that chooses another. Its watch waits with no deadline: `next_within!` is an `Unsupported` error | The adapter of the platform: `WsClient.connect` and `WsClient.ops` of roc-basic-cli-websocket 0.0.4 or roc-basic-webserver-websocket 0.0.3 |
 | `Transport.websocket_timed(connect, ops, url)` | As `websocket`, with `ops` also holding `receive_within! : c, U64 => Try((c, [Message(Ws.Message), TimedOut]), Ws.Error(e))`, the `Ws.ReceiveWithin` feature of roc-websocket: the next message, or `TimedOut` when `ms` milliseconds have passed since the call, whatever pings arrive. `Session.next_within!` waits with it | An adapter with `receive_within!`: `WsClient.connect` and `WsClient.ops` of roc-basic-cli-websocket 0.0.4 (or the Cloudflare Workers adapter). roc-basic-webserver-websocket 0.0.3 has none |
 | `Transport.http(client, url)` | `HttpClient`: `{ post! }`, an `HttpRpc.Post` (the URI, the headers and the body) in, the status and the body of the response out | basic-cli's or basic-webserver's `Http.send!` |
 
@@ -1276,7 +1288,7 @@ the connection ended, `Closing`, or the adapter's own tag as text (see
 "Errors").
 
 `HttpRpc.roc` writes the post: `Content-Type` and `Accept`
-`application/cbor`, the `Authorization` of the session, and `surreal-ns`
+`application/cbor; v=2`, the `Authorization` of the session, and `surreal-ns`
 and `surreal-db`. SurrealDB 4.0.1 keeps no state between two posts
 (verified: after a `use`, a post with no `surreal-ns` is refused with
 "Specify a namespace to use"), so each post carries who the session is, the
@@ -1398,7 +1410,7 @@ a statement that fails is `Server(error)`, typed by the server's kind (see
 | The text is pure, and so is the reading | `request` is the text, and `result` reads the bytes of a reply. `Unchecked.query!` sends a text and gives the reply, not read, and `Unchecked.result` reads it. `run!` sends the text of a `Prepared` and reads its reply. `send!` and `await!` are its two halves, for requests in flight together |
 
 A plain query goes over RPC on either transport, also over HTTP: a `POST
-/rpc`, not `/sql`. A `POST /sql` with `Accept: application/cbor` also works
+/rpc`, not `/sql`. A `POST /sql` with `Accept: application/cbor; v=2` also works
 (verified), but its reply is a list of results with no envelope. Over
 `/rpc` the reply is the same message as on a WebSocket, so the session has
 one reader of a reply (`Surreal.query_results`) for a watch and a plain
@@ -1844,7 +1856,7 @@ limits). So the message names where it is: the clause, as `in `select`:
 | `s.split_on(x)` | `string::split(s, x)` | An empty `x` gives `[s]` in Roc. A literal `""` is read at translation. Another `x` gets an `IF x = ''` guard |
 | `s.replace_each(a, b)` | `string::replace(s, a, b)` | An empty `a` gives `s` in Roc. Same literal rule and guard |
 | `s.count_utf8_bytes()` | `bytes::len(<bytes>s)` | `string::len` counts characters |
-| `s.to_str()`, `n.to_str()` | `s`, `<string>n` | |
+| `s.to_str()`, `n.to_str()` | `s`, `<string>n` | `<string><decimal>n` for a sized integer, because `<string>5u8` is `'5u8'` |
 | `n.max(m)`, `n.min(m)` (also `Dec`) | `math::max([n, m])`, `math::min([n, m])` | |
 | `n.pow(m)` | `math::pow(n, m)` | |
 | `n.mod_by(m)` | `(((n % m) + m) % m)` | Floored modulus, as Roc |
@@ -2319,12 +2331,13 @@ The Roc type of a field decides its SurrealDB type (`Types.inline_type`):
 | `Str` | `string` | |
 | `Bool` | `bool` | |
 | `I64` | `int` | |
-| `I8`, `I16`, `I32`, `U8`, `U16`, `U32` | `int` | `ASSERT $value >= lo AND $value <= hi`, the Roc range |
-| `U64` | `int` | `ASSERT $value >= 0`. A value above the `I64` range is encoded as a decimal (`18446744073709551615.0dec`): a comparison stays exact, and a field of type `int` refuses it |
+| `I8`, `I16`, `I32`, `U8`, `U16`, `U32`, `U64` | `i8`, `i16`, `i32`, `u8`, `u16`, `u32`, `u64` | None: the server refuses a value outside the type. A write gives a sized literal (`5u8`, `18446744073709551615u64`), so a `SCHEMALESS` field keeps the type too |
 | `I128`, `U128` | Refused with `BadSchema` | The type does not fit `int`, and it has no encoder |
-| `F32`, `F64` | `float` | |
+| `F32` | `f32` | A write gives `1.5f32` |
+| `F64` | `float` | |
 | `Dec` | `decimal` | |
 | `Surreal.Datetime` | `datetime` | |
+| `Surreal.Date`, `TimeOfDay`, `Timestamp`, `Interval`, `BigDecimal`, `Regex` | `date`, `time`, `timestamp`, `interval`, `bigdecimal`, `regex` | A clause compares a `Date` by its days and a `TimeOfDay` by its nanoseconds. The other four are refused in a clause |
 | `Surreal.Id(row)`, `Surreal.Link(row)` | `record<table>` | `record::exists($value)`, and a delete policy for a link |
 | `Surreal.Point`, `Line`, `Polygon`, `MultiPoint`, `MultiLine`, `MultiPolygon`, `Collection` | `geometry<point>`, `<line>`, `<polygon>`, `<multipoint>`, `<multiline>`, `<multipolygon>`, `<collection>` | `geo::is_valid($value)`: SurrealDB stores a point out of range |
 | `Surreal.Geometry` | `geometry` | `geo::is_valid($value)` |

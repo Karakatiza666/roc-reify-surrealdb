@@ -171,10 +171,12 @@ restock = medications.update_by(|p, m| m.stock < p.floor, |p, m| { ..m, stock: m
 `restock.prepare({ floor: 10, add: 25 })` gives:
 
 ```surql
-LET $add = 25;
-LET $floor = 10;
-UPDATE medication SET stock = stock + $add WHERE stock < $floor RETURN AFTER;
+LET $add = 25i32;
+LET $floor = 10i32;
+UPDATE medication SET stock = <int>stock + <int>$add WHERE stock < $floor RETURN AFTER;
 ```
+
+`stock` is an `I32`, so the parameters are `i32` literals. The sum is done as `int`, and the `i32` field converts it back (see [The CBOR v2 types](data-types.md#the-cbor-v2-types)).
 
 The patch reads the row as it was before the update. A swap works as it does in Roc. `{ ..t, hits: t.meta.a, meta: { ..t.meta, a: t.hits } }` gives `SET hits = meta.a, meta.a = hits`. On a row with `hits: 6` and `meta.a: 1` the server stored `hits: 1` and `meta.a: 6`.
 

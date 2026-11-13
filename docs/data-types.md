@@ -1,6 +1,6 @@
 # Row types and data types
 
-This page shows how to write the row types of your tables. Each Roc type has one SurrealDB type. You learn which types the package accepts, which it refuses, and how optional fields, defaults, tag unions, datetimes, time series keys and geometry work.
+This page shows how to write the row types of your tables. Each Roc type has one SurrealDB type. You learn which types the package accepts, which it refuses, and how optional fields, defaults, tag unions, datetimes, the CBOR v2 types, time series keys and geometry work.
 
 The schema comes from the type. You write no `DEFINE FIELD` by hand. See [Tables and schema](schema.md) for the clauses that add constraints and indexes.
 
@@ -39,10 +39,14 @@ The record must have a required field `id`. Its type is `Str` or `Surreal.TimeKe
 | `Str` | `string` | |
 | `Bool` | `bool` | |
 | `I64` | `int` | |
-| `I8`, `I16`, `I32`, `U8`, `U16`, `U32` | `int` | `ASSERT $value >= lo AND $value <= hi` with the Roc range |
-| `F32`, `F64` | `float` | |
+| `I8`, `I16`, `I32` | `i8`, `i16`, `i32` | |
+| `U8`, `U16`, `U32`, `U64` | `u8`, `u16`, `u32`, `u64` | |
+| `F32` | `f32` | |
+| `F64` | `float` | |
 | `Dec` | `decimal` | |
 | `Surreal.Datetime` | `datetime` | |
+| `Surreal.Date`, `Surreal.TimeOfDay`, `Surreal.Timestamp` | `date`, `time`, `timestamp` | |
+| `Surreal.Interval`, `Surreal.Regex`, `Surreal.BigDecimal` | `interval`, `regex`, `bigdecimal` | |
 | `Surreal.Id(row)`, `Surreal.Link(row)` | `record<table>` | `record::exists($value)`. A link also has a delete policy |
 | `Surreal.Point`, `Line`, `Polygon`, `MultiPoint`, `MultiLine`, `MultiPolygon`, `Collection` | `geometry<point>` and so on | `geo::is_valid($value)` |
 | `Surreal.Geometry` | `geometry` | `geo::is_valid($value)` |
@@ -56,7 +60,7 @@ The record must have a required field `id`. Its type is `Str` or `Surreal.TimeKe
 | `f ?: T` | `option<T>` | See [Optional fields](#optional-fields) |
 | A named type `T := ..` | The type of its backing | |
 
-A narrow integer keeps its Roc range as an `ASSERT`. The server refuses a value outside the range.
+A sized integer or float has the sized type of SurrealDB 4. The server refuses a value outside the range of the type, so the schema has no range `ASSERT`. A write gives each value a sized literal, such as `5u8` or `1.5f32`. Thus a field of a `SCHEMALESS` table also keeps its type. See [The CBOR v2 types](#the-cbor-v2-types).
 
 Here is a row from `examples/main.roc` and the script that `Surreal.schema` prints for it:
 
@@ -76,7 +80,7 @@ DEFINE FIELD OVERWRITE license ON vet TYPE string;
 DEFINE FIELD OVERWRITE name ON vet TYPE string;
 DEFINE FIELD OVERWRITE rate ON vet TYPE decimal;
 DEFINE FIELD OVERWRITE specialty ON vet TYPE "Dental" | "General" | { kind: "Surgery", board: string };
-DEFINE FIELD OVERWRITE years ON vet TYPE int ASSERT $value >= 0 AND $value <= 255;
+DEFINE FIELD OVERWRITE years ON vet TYPE u8;
 ```
 
 Fields come out in name order, and a record gets one `DEFINE FIELD` for each part.
@@ -179,7 +183,7 @@ A union of tags is a SurrealDB union of literals and objects. The tag is the fie
 | Arm | Stored as | Example arm | `TYPE` part |
 | --- | --- | --- | --- |
 | No payload | `'Dog'` | `Dog` | `"Dog"` |
-| One record payload | `{ kind: 'Bird', wingspan_cm: 30 }` | `Bird({ wingspan_cm : U8 })` | `{ kind: "Bird", wingspan_cm: int }` |
+| One record payload | `{ kind: 'Bird', wingspan_cm: 30u8 }` | `Bird({ wingspan_cm : U8 })` | `{ kind: "Bird", wingspan_cm: u8 }` |
 | One other payload | `{ kind: 'Weight', value: 4 }` | `Weight(I64)` | `{ kind: "Weight", value: int }` |
 | Several payloads | `{ kind: 'Span', value: [1, 'x'] }` | `Span(I64, Str)` | `{ kind: "Span", value: [int, string] }` |
 
@@ -339,6 +343,60 @@ SELECT VALUE record::id(id) FROM site WHERE $here INSIDE area;
 
 A point can be built in a clause: `Surreal.point(10.0, 59.0)` gives `<point> [10f, 59f]`. Any other geometry must come as a parameter. A polygon in a clause gives ``Unsupported("in `filter`: a `Polygon` in a clause has no SurrealQL form; pass a geometry as a parameter with `filter_by` and `prepare`")``.
 
+## The CBOR v2 types
+
+SurrealDB 4 sends each of these values with its own CBOR tag. The package talks CBOR v2 only (see [Sessions](sessions.md)), and reads each tag into one Roc type.
+
+| Roc type | `TYPE` | Tag | Literal |
+| --- | --- | --- | --- |
+| `I8`, `U8`, `I16`, `U16`, `I32`, `U32`, `U64` | `i8`, `u8` and so on | 180 to 186 | `5u8`, `-128i8`, `18446744073709551615u64` |
+| `F32` | `f32` | 188 | `1.5f32`, `<f32>NaN` |
+| `Surreal.Date` | `date` | 100 | `<date>'2026-11-13'` |
+| `Surreal.TimeOfDay` | `time` | 189 | `<time>'12:30:00.5'` |
+| `Surreal.Timestamp` | `timestamp` | 190 | `<timestamp>'2026-11-13T12:30:00.5'` |
+| `Surreal.Interval` | `interval` | 191 | `<interval>'P1M-2DT-1.000001S'` |
+| `Surreal.BigDecimal` | `bigdecimal` | 192 | `<bigdecimal>'1.000000000000000000000000000001'` |
+| `Surreal.Regex` | `regex` | 193 | `<regex>'^[a-z]+$'` |
+
+A read of a sized number into a narrower Roc type that does not hold the value is an error, not a wrap. A `u64` up to 2^64 - 1 reads into a `U64`. Tag 187 (`f16`) reads into an `F32` or an `F64`. Roc has no `F16`, so the schema never writes `f16`.
+
+Make a value with these calls:
+
+| Call | Type | Notes |
+| --- | --- | --- |
+| `Surreal.date(text)` | `Str -> Try(Date, [BadDate])` | Form `YYYY-MM-DD`, years 0 to 9999 |
+| `Surreal.Date.from_days(n)`, `d.to_days()` | `I32 -> Date`, `Date -> I32` | Days since 1970-01-01 |
+| `Surreal.TimeOfDay.from_nanos(n)`, `t.to_nanos()` | `U64 -> Try(TimeOfDay, [BadTime])`, `TimeOfDay -> U64` | Nanoseconds since midnight, less than one day |
+| `Surreal.Timestamp.from_parts({ secs, nanos })`, `t.to_parts()` | `{ secs : I64, nanos : U32 } -> Try(Timestamp, [BadTimestamp])` | Seconds since 1970-01-01T00:00:00, no time zone. `nanos` is less than 10^9 |
+| `Surreal.Interval.from_parts({ months, days, micros })`, `i.to_parts()` | `{ months : I32, days : I32, micros : I64 } -> Interval` | Each part has its own sign |
+| `Surreal.BigDecimal.from_str(text)`, `from_dec(d)`, `b.to_str()` | `Str -> Try(BigDecimal, [BadDecimal])` | The text of a JSON number |
+| `Surreal.Regex.from_pattern(text)`, `r.pattern()` | `Str -> Regex` | The server checks the pattern when it reads it |
+
+Each type but `Regex` has `to_str`, which gives the text of the literal. Each type has `==`. `Date`, `TimeOfDay` and `Timestamp` also have `<`.
+
+A clause can use a `Date` or a `TimeOfDay` in a comparison. The package compares the days or the nanoseconds:
+
+```surql
+SELECT VALUE record::id(id) FROM kinds WHERE (day - <date>'1970-01-01') < 0;
+LET $at = <time>'00:00:00.000000001';
+SELECT VALUE record::id(id) FROM kinds WHERE duration::nanos(<duration>at) = duration::nanos(<duration>$at);
+```
+
+A `Timestamp`, an `Interval`, a `BigDecimal` or a `Regex` in a clause is refused: ``Unsupported("in `filter_by`: a `interval` in a clause has no SurrealQL form for its parts; compare it in Roc after the read")``. Read the rows, then compare in Roc. These types can be fields, parameters and values of a write.
+
+Sized numbers in a clause:
+
+| Case | What the package writes |
+| --- | --- |
+| A captured `U8` | `LET $_1 = 5u8;` |
+| Arithmetic on a sized field, such as `r.stock + p.add` | `<int>stock + <int>$add`, because sized arithmetic fails on overflow and `u64` division gives a decimal |
+| `to_str` on a sized field | `<string><decimal>stock`, because `<string>5u8` is `'5u8'` |
+| A `LIMIT` or `START` from a parameter | `LIMIT <int>$_2`, because `LIMIT` refuses a `u64` |
+
+The result of arithmetic in a clause is an `int`. A write of it to a field of a `SCHEMALESS` table stores an `int`, not the sized type. A `SCHEMAFULL` field converts it to its type.
+
+A record key is exact about the type: `kt:[5u8, 1]` is not `kt:[5, 1]`. Give a key part the same Roc type in each program that reads or writes the table.
+
 ## Limits
 
 | Limit | What to do instead |
@@ -347,7 +405,8 @@ A point can be built in a clause: `Surreal.point(10.0, 59.0)` gives `<point> [10
 | `??` on an alias row is a compile error | Use a nominal row, or `.default(..)` in `define()` |
 | A `??` that is not a literal is a `BadSchema` | Use `.default_by(..)` |
 | A `??` in the record of a union arm is not in the schema. A write from outside the program that leaves the field out is refused | Write the field every time. A write from Roc always has it |
-| `I128` and `U128` are refused as field types and as parameter fields | Use `I64` or a narrower integer. A `U64` is an `int` with `ASSERT $value >= 0`. A `U64` above the `I64` range is sent as a decimal, so a comparison is exact and a field of type `int` refuses it |
+| `I128` and `U128` are refused as field types and as parameter fields | Use `I64`, `U64` or a narrower integer |
+| A `Timestamp`, `Interval`, `BigDecimal` or `Regex` in a clause is refused | Compare it in Roc after the read |
 | A `Duration` is not a column type | Store a count, and build the duration in the clause with `Time.hours(2)` |
 | `Surreal.datetime` takes UTC text with `Z` only | Convert the offset before you call it |
 | A clause cannot call `Surreal.datetime` | Pass the datetime as a parameter or a captured value |

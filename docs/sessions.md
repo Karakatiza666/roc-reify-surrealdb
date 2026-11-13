@@ -30,7 +30,7 @@ A `Surreal.Transport` says how the session reaches the server. It is one type wi
 | `Transport.websocket_timed(connect, ops, url)` | As `websocket`, with an adapter that has `receive_within!` | Yes | Yes |
 | `Transport.http(client, url)` | A `Surreal.HttpClient` and an `http://` URL | No | `Unsupported` |
 
-`connect` and `ops` are `WsClient.connect` and `WsClient.ops` of the adapter package. The session connects to the URL plus `/rpc` with the subprotocol `cbor`. For HTTP, each request is one `POST /rpc`.
+`connect` and `ops` are `WsClient.connect` and `WsClient.ops` of the adapter package. The session connects to the URL plus `/rpc` and offers only the subprotocol `cbor.2` (CBOR v2 of SurrealDB 4). A server that chooses another subprotocol is refused with ``Wire("the server did not choose the WebSocket subprotocol `cbor.2`")``. For HTTP, each request is one `POST /rpc` with `Content-Type` and `Accept` set to `application/cbor; v=2`. The package has no CBOR v1 fallback.
 
 | Platform | Adapter package | WebSocket constructor | `Http.send!` call |
 | --- | --- | --- | --- |

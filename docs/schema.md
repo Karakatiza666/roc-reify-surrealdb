@@ -467,12 +467,24 @@ A file has no `BEGIN`, `COMMIT` or `CANCEL`: the runner makes each section a tra
 | An index, event, function, analyzer, access method or view that the schema removed | `REMOVE .. IF EXISTS` | 1 |
 | A new field that is not optional, on a table that was there | `DEFINE FIELD .. MIGRATE EXISTING ROWS AS .. USING <default>` | 1 |
 | A field type that does not take every old value (`string` to `int`) | `MIGRATE EXISTING ROWS .. USING <int> $value FALLBACK <default>` | 1 |
-| A wider field type (`int` to `option<int>`, `int` to `int \| string`) | `DEFINE FIELD OVERWRITE` | 1 |
+| A wider field type (`int` to `option<int>`, `int` to `int \| string`, `u8` to `u16`) | `DEFINE FIELD OVERWRITE` | 1 |
 | A field that the schema removed, with `DropData` | `REMOVE FIELD` (level 4 clears the old values) | 1 |
 | A table that the schema removed, with `DropData` | `REMOVE TABLE` | 1 |
 | A new or changed index on a table that section 1 writes to or migrates | `DEFINE INDEX OVERWRITE` | 2 |
 | A view over a table that section 1 migrates | `REMOVE TABLE` of the view, then its `DEFINE TABLE` in section 2 | 1 and 2 |
 | A changed analyzer | `DEFINE ANALYZER OVERWRITE`, then `REBUILD INDEX` of each full-text index that uses it | 1 and 2 |
+
+A sized number type is wider than another when it holds each of its values: `i8` to `i16`, `i32` or `int`; `u8` to `i16`, `u16`, `i32`, `u32`, `u64` or `int`; `i16` to `i32` or `int`; `u16` to `i32`, `u32`, `u64` or `int`; `i32` to `int`; `u32` to `u64` or `int`; `f32` to `float`. Any other change between number types, such as `int` to `u8`, migrates the rows with a cast.
+
+#### A snapshot from 0.0.3
+
+Version 0.0.3 wrote `TYPE int` and a range `ASSERT` for `I8`, `I16`, `I32`, `U8`, `U16`, `U32` and `U64`, and `TYPE float` for `F32`. The schema now writes the sized type. The first plan after the upgrade migrates each such field:
+
+```surql
+DEFINE FIELD OVERWRITE level ON gauge TYPE u8 MIGRATE EXISTING ROWS AS m_1a2b3c4d_gauge_level USING <u8> $value FALLBACK NONE
+```
+
+A value that does not fit the new type is set to the fallback. The old `ASSERT` kept the values in range, so each old value fits. Read the file before you run it.
 
 A value that the plan cannot pick gets a `-- reify: edit` line: a new required field with no default, a type with no cast (a record, a list), a value that does not cast with no default, and a `REFERENCE` field (SurrealDB 4 refuses `MIGRATE EXISTING ROWS` on it).
 
