@@ -44,6 +44,8 @@ INSERT INTO owner [{ address: { city: 'Oslo', line: 'Kirkeveien 8' }, email: 'ma
 COMMIT;
 ```
 
+This page shows each write with its values written in (`statement().map_ok(|st| st.inlined)`), so that you can read them. The session does not send these literals. It sends the key, the row, the rows of an insert and the ops of a patch as vars of the request, in CBOR: the first statement above goes as `CREATE $_1 CONTENT $_2 RETURN AFTER;`, with `$_1` the record id `owner:⟨jon⟩` and `$_2` the row. `request().map_ok(|r| r.to_script())` shows them as `LET` lines. A value of a patch from a live query goes back as it came, so a field of any type, such as a `duration`, is written back with its type.
+
 An optional field with no value (`mara` has no `phone`) is a key that the statement leaves out. The reply is read as `List(Owner)`: the rows as stored, in the order that you wrote them.
 
 Real results of running `create` twice, and `replace` for a key that has no row:
@@ -341,8 +343,8 @@ too_old = visits.delete_by(|p, v| v.seen < p.cutoff).prepare({ cutoff: cutoff })
 
 ```surql
 DELETE owner:⟨jon⟩ RETURN BEFORE;
-LET $before = d'2026-01-01T00:00:00Z';
-DELETE visit WHERE seen < $before RETURN BEFORE;
+LET $cutoff = d'2026-01-01T00:00:00Z';
+DELETE visit WHERE seen < $cutoff RETURN BEFORE;
 ```
 
 The result is the rows as they were before the delete. A key with no row gives `Ok([])`. The delete policies of the links apply: a row that another row links to is refused with `Reject`, and it is removed with `Cascade`. See [Links and delete policies](schema.md#links-and-delete-policies).

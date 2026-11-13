@@ -30,7 +30,10 @@ SELECT record::id(id) AS id, name AS name, phone ?? 'none' AS phone FROM owner W
 ```
 
 `in_city` and `owner_card` are ordinary Roc functions. The program calls them
-on its own rows too (`examples/main.roc`).
+on its own rows too (`examples/main.roc`). The text above is the readable
+form (`to_script`). The session sends the `SELECT` with `$city`, and the
+value `'Oslo'` as CBOR in the `vars` of the request, so a value never goes
+through SurrealQL text.
 
 **This package needs the reify fork of the Roc compiler.** `Code(f)` is a type
 of that fork. Stock Roc has no `Code` type, and these sources do not compile
@@ -1373,8 +1376,8 @@ the text must hold each kept and deleted part where the hunk starts.
 A plain query runs in a session too, and its result comes back as Roc
 values of the type of the query. `prepare(params)` is the one way to make a statement
 of a query or a write. It gives a `Surreal.Prepared(out)` that
-knows the type of its result. A query with no parameter takes `ready()` in place of `prepare({})`. `prepared.statement()` is its text for a script or a test (a `Statement`: `to_script()`, `block(header, directives)`), `prepared.request()` the text of the request, and `to_surql()` the text with a `$name` for each parameter. `Session.run!` sends its text with
-the RPC method `query` and reads the reply as `out`, with the readers of
+knows the type of its result. A query with no parameter takes `ready()` in place of `prepare({})`. `prepared.statement()` is its text for a script or a test (a `Statement`: `to_script()`, `block(header, directives)`), `prepared.request()` the request that a session sends (a `Surreal.Request`: the text with a `$name` for each value, `query()`, and the values as CBOR, `vars()`), and `to_surql()` the text with a `$name` for each parameter. `Session.run!` sends the request with
+the RPC method `query`, the values in its `vars`, and reads the reply as `out`, with the readers of
 "Decoding". The result is `{ session, result : Try(out, Surreal.Error) }`:
 a statement that fails is `Server(error)`, typed by the server's kind (see
 "Errors").
@@ -1407,7 +1410,7 @@ a statement that fails is `Server(error)`, typed by the server's kind (see
 | A write needs a `parser_for` of its row | The five writes read the stored row back, so the row type needs a `parser_for` (a nominal row declares `parser_for : _`) |
 | A row that a write returns | The row as stored: its `id` is a record id, and the ends of an edge are `in` and `out`. `Surreal.stored_row` reads the record id as its key, and `in` and `out` as `from` and `to`, as `DiffView` reads a row. A field that the database computes has the stored value |
 | The type is checked when the program compiles | `prepare` needs a `parser_for` of the result row, so a `prepare` of `Unchecked.select_star` is a type error |
-| The text is pure, and so is the reading | `request` is the text, and `result` reads the bytes of a reply. `Unchecked.query!` sends a text and gives the reply, not read, and `Unchecked.result` reads it. `run!` sends the text of a `Prepared` and reads its reply. `send!` and `await!` are its two halves, for requests in flight together |
+| The text is pure, and so is the reading | `request` is the text and its vars, and `result` reads the bytes of a reply. `Unchecked.query!` sends a text and gives the reply, not read, `Unchecked.send!` does the same for a `Request`, and `Unchecked.result` reads it. `run!` sends the text of a `Prepared` and reads its reply. `send!` and `await!` are its two halves, for requests in flight together |
 
 A plain query goes over RPC on either transport, also over HTTP: a `POST
 /rpc`, not `/sql`. A `POST /sql` with `Accept: application/cbor; v=2` also works
@@ -1646,7 +1649,8 @@ action in two permissions is a `BadSchema`. A system user is not checked.
 
 The access method is typed in full: the bodies are clauses, and the
 variables are the records `up` and `on`, which `Access.sign_up` and
-`sign_in` write with the derived encoder, so a variable that the signup
+`sign_in` write as the parameters of a query are written (a `Dec` is a
+decimal, an `Id` a record id), so a variable that the signup
 reads and the login does not send is a type error. What is left out: an
 access method `ON NAMESPACE` or `ON ROOT`, `TYPE JWT` and `TYPE BEARER`,
 `WITH JWT` keys of another issuer, an `AUTHENTICATE` clause, and a signup

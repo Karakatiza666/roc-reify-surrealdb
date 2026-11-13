@@ -29,14 +29,14 @@ fevered : Surreal.Watch(VitalLine)
 fevered = Surreal.from(vitals).filter(|v| v.temp_c > 39.0).select(vital_line).ready_live(definitions)
 ```
 
-From `examples/watch.roc`, `fevered`. The example calls a database function in the filter. This fragment uses a plain comparison. `watch.request()` gives the text that goes to the server, from a real run:
+From `examples/watch.roc`, `fevered`. The example calls a database function in the filter. This fragment uses a plain comparison. `watch.request()` gives the request that goes to the server. Its text (`query()`), from a real run:
 
 ```surql
 LIVE SELECT VALUE { row: { at: record::id(id)[1], kennel: record::id(id)[0], pulse: pulse, temp_c: temp_c }, now: temp_c > 39.0dec } FROM vital WHERE (temp_c > 39.0dec) OR ($before IS NOT NONE AND ($before.temp_c > 39.0dec));
 SELECT VALUE { ref: id, row: { at: record::id(id)[1], kennel: record::id(id)[0], pulse: pulse, temp_c: temp_c } } FROM vital WHERE temp_c > 39.0dec;
 ```
 
-The first statement is the watch. It reads the filter on the row after the write and on `$before`, the row before the write. So a row that leaves the filter is reported. The second statement is the snapshot: the rows in the result now. The `LIVE` comes first, so no write between the two is lost. A parameter gives a `LET $min = 39.0dec;` line before them.
+The first statement is the watch. It reads the filter on the row after the write and on `$before`, the row before the write. So a row that leaves the filter is reported. The second statement is the snapshot: the rows in the result now. The `LIVE` comes first, so no write between the two is lost. A parameter is a `$min` in the text, and its value goes in the `vars` of the request, as CBOR. The server fixes the value of each var when the `LIVE` starts: a later request, or a session parameter of the same name, does not change what the watch reads (checked on SurrealDB 4.0.1).
 
 Start the watch on a session:
 

@@ -84,7 +84,7 @@ in_city = |p, o| o.address.city == p.city
 Surreal.from(owners).filter_by(in_city).select(owner_card).prepare({ city: "Oslo" })
 ```
 
-`in_city` and `owner_card` are from `examples/main.roc`. The script:
+`in_city` and `owner_card` are from `examples/main.roc`. The script (`to_script`, the readable form; the session sends the `SELECT` with `$city`, and the value in the `vars` of the request):
 
 ```surql
 LET $city = 'Oslo';
@@ -93,7 +93,7 @@ SELECT record::id(id) AS id, name AS name, phone ?? 'none' AS phone FROM owner W
 
 The parameter record is typed by field name. If two clauses read `p.since` and `p.least`, the record is `{ least : .., since : .. }`, and `prepare` takes exactly that record. A wrong name or a wrong type is a compile error.
 
-Use a parameter for each value that changes between runs. A prepared statement keeps the text the same and only the `LET` values change. A live query also takes the parameter record (see [Live queries](live-queries.md#start-a-watch)).
+Use a parameter for each value that changes between runs. A prepared statement keeps the text the same and only the values in the `vars` change. A live query also takes the parameter record (see [Live queries](live-queries.md#start-a-watch)).
 
 ## Use values from around the function
 
@@ -146,7 +146,7 @@ A `Prepared` holds its statement, or the error that stops it: a clause with no S
 | --- | --- |
 | `prepared.checked()` | `Try(Prepared(out), Error)` |
 | `prepared.statement()` | `Try(Statement, Error)` |
-| `prepared.request()` | `Try(Str, Error)` |
+| `prepared.request()` | `Try(Request, Error)` |
 | `first.then(second)`, `Surreal.transaction([..])` | A `Prepared` that keeps the first error |
 | `session.send!(prepared)` | A ticket that holds the error. `await!` gives it |
 | `watch.checked()`, `watch.request()` | The same for a `Watch` |
@@ -454,7 +454,11 @@ For the totals of the same rows, end the chain with `totals` in place of the gro
 | --- | --- | --- |
 | `query.to_surql()` on a `Selected`, `Started`, `Limited` or `Totals` | `Try(Str, Error)` | `$name`, with no `LET` |
 | `prepared.statement()` and then `to_script()` | `Try(Str, Error)` | One `LET $name = value;` line for each parameter and each value from around the function, then the statement with a final `;` |
-| `prepared.request()` | `Try(Str, Error)` | The same text as `statement().map_ok(Statement.to_script)`. This is the text that a session sends |
+| `prepared.request()` | `Try(Request, Error)` | What a session sends: `query()` is the text with a `$name` for each value, and `vars()` the values as a CBOR map. `to_script()` is the same text as `statement().map_ok(Statement.to_script)` |
+
+A session does not send the `LET` form. It sends each value in the `vars` of the RPC `query` method, as CBOR, so a value never goes through SurrealQL text. This holds for the parameters, the values from around the function (`$_1`, `$_2`, ..), the rows and keys of a write (`CREATE $_1 CONTENT $_2`), the patches of `patch_at`, the terms of `search`, the probe of `nearest` and the times of `between`. Every statement of the request sees each name. A `LIVE SELECT` keeps the value of each var from the moment it starts (checked on SurrealDB 4.0.1). `to_surql` and the text of a view write the values of `search`, `nearest` and `between` in as literals, since a view is stored.
+
+A parameter may not have one of the names that SurrealDB sets (`auth`, `session`, `token`, `access`) or binds itself in a subquery, a closure or a write (`this`, `parent`, `before`, `after`, `input`, `event`, `value`). The statement holds an `Unsupported` error that names it.
 
 `to_surql`, `statement`, `request` and `checked` give `Err(Unsupported(why))` when a clause has no SurrealQL form. Put one `expect prepared.checked().is_ok()` for each query in your module, so that `roc test` finds a refusal. [Getting started](getting-started.md#print-the-surrealql) shows a script app that prints a query.
 

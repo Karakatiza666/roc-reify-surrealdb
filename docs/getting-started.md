@@ -164,9 +164,9 @@ You have two ways to get the text:
 | Call | Gives | Parameters |
 | --- | --- | --- |
 | `selected.to_surql()` | `Try(Str, Error)` | A `$name` for each one |
-| `prepared.request()` | `Try(Str, Error)` | A `LET $name = value;` line for each one, then the statement |
+| `prepared.request()` and then `to_script()` | `Try(Str, Error)` | A `LET $name = value;` line for each one, then the statement |
 
-`prepare({ city: "Oslo" })` gives the `Prepared`. `request()` gives its text. A query that reads no parameter takes `ready()` in place of `prepare({})`. Real output of the second way:
+`prepare({ city: "Oslo" })` gives the `Prepared`. `request()` gives the `Surreal.Request` that a session sends: the text with `$city` (`query()`), and the value of `city` as CBOR (`vars()`). The value never goes through SurrealQL text. `to_script()` gives the same request in readable form, with a `LET` line for each value, for a log or a script. A query that reads no parameter takes `ready()` in place of `prepare({})`. Real output of the second way:
 
 ```surql
 LET $city = 'Oslo';
@@ -181,7 +181,7 @@ A script app prints it. Both `to_surql` and `request` give a `Try`, so match on 
 # Fragment: uses `owners_in_city` from above.
 main! = |_args| {
 	match owners_in_city.prepare({ city: "Oslo" }).request() {
-		Ok(text) => echo!("${text}\n")
+		Ok(request) => echo!("${request.to_script()}\n")
 		Err(why) => echo!("not built: ${Str.inspect(why)}\n")
 	}
 	Ok({})

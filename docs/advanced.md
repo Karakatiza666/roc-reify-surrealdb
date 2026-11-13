@@ -4,7 +4,7 @@ This page shows what to do when the typed API has no form for your task. You sen
 
 | You want to | Use | Section |
 | --- | --- | --- |
-| Send SurrealQL text | `Surreal.Unchecked.query!` | [Raw SurrealQL](#raw-surrealql) |
+| Send SurrealQL text | `Surreal.Unchecked.query!`, `Surreal.Unchecked.send!` | [Raw SurrealQL](#raw-surrealql) |
 | Read a reply as a type of your choice | `Surreal.Unchecked.decode` | [Read the reply](#read-the-reply) |
 | Read every field of a table, or use `FETCH` | `Surreal.Unchecked.select_star`, `Surreal.Unchecked.fetch` | [Select every field](#select-every-field) |
 | Name a row of a table by text | `Surreal.Unchecked.id` | [Ids by table name](#ids-by-table-name) |
@@ -26,6 +26,16 @@ The module name `Unchecked` shows in the code that uses it. A reviewer sees each
 | Failure | `Surreal.Error` | The connection or a message failed (see [Connection errors](errors.md#connection-errors)). A failed call gives no session (see [Open a session](sessions.md#open-a-session)) |
 
 Nothing checks the text. The server answers a statement that it refuses with a reply, not with an `Err`. A syntax error gives `Ok` with the error inside the reply bytes.
+
+`Surreal.Unchecked.send!(session, request)` sends a `Surreal.Request`: a text with a `$name` for each value, and the values as CBOR in the `vars` of the request. `prepared.request()` gives one. `Surreal.Request.with_vars(text, params)` makes one from your own text and a parameter record, as `prepare` binds it. The value of each field is never written into the text:
+
+```roc
+# Fragment: uses `session`.
+request = Surreal.Request.with_vars("SELECT * FROM owner WHERE address.city = $city;", { city: "Oslo" })?
+made = Surreal.Unchecked.send!(session, request)?
+```
+
+`request.to_script()` gives the readable form, with a `LET` line for each value, for a log.
 
 Use raw text for a statement that the typed API does not have:
 
@@ -63,7 +73,7 @@ When the text came from a `Prepared`, use `Surreal.Unchecked.result(session, pre
 
 ```roc
 # Fragment: uses `session` and `prepared` (a `Prepared(List(Card))`).
-sent = Surreal.Unchecked.query!(session, prepared.request()?)?
+sent = Surreal.Unchecked.send!(session, prepared.request()?)?
 card_rows = Surreal.Unchecked.result(sent.session, prepared, sent.reply)
 ```
 

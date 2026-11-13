@@ -60,7 +60,7 @@ But you are trying to use it as:
     Surreal.Id(Vet)
 ```
 
-An `Id` is also a field type and a parameter type. A field `by : Surreal.Id(Patient)` gets the same existence check as a link (see [Links and delete policies](schema.md#links-and-delete-policies)). A parameter record `{ vet : Surreal.Id(Vet) }` fills a `$vet`, and `prepare({ vet: vets.id("ruth") })` writes `LET $vet = vet:⟨ruth⟩;`.
+An `Id` is also a field type and a parameter type. A field `by : Surreal.Id(Patient)` gets the same existence check as a link (see [Links and delete policies](schema.md#links-and-delete-policies)). A parameter record `{ vet : Surreal.Id(Vet) }` fills a `$vet`, and `prepare({ vet: vets.id("ruth") })` sends the record id `vet:⟨ruth⟩` as the var `$vet` (its readable form is `LET $vet = vet:⟨ruth⟩;`).
 
 To start a query at one record, give the id to `table.at(id)`. `vets.at(vets.id("ruth"))` reads `FROM vet:⟨ruth⟩`. An id of another table is refused. See [Writing queries](queries.md#start-a-query).
 
