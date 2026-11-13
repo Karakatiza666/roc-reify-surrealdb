@@ -116,7 +116,9 @@ Ql :: {}.{
 	## object of a geometry (`{ type: 'Point', coordinates: [1f, 2f] }`):
 	## its literal is that object, which SurrealDB reads as a geometry, and
 	## its CBOR is the geometry tag (88 to 94), since a plain object in a
-	## var stays an object (verified on 4.0.1).
+	## var stays an object (verified on 4.0.1). `Raw` is a value of the
+	## server that goes back to it as it came, such as the value of a live
+	## diff patch, with its literal for the readable form of a request.
 	Value := [
 		None,
 		Bool(Bool),
@@ -146,6 +148,7 @@ Ql :: {}.{
 		Timestamp({ secs : I64, nanos : U32 }),
 		Interval({ months : I32, days : I32, micros : I64 }),
 		Geometry(Value),
+		Raw({ cbor : Cbor.Value, literal : Str }),
 	]
 
 	## The value as source text: `'it\'s'`, `20dec`, `customer:⟨ada⟩`, `{ a: 1 }`.
@@ -184,6 +187,7 @@ Ql :: {}.{
 		}
 		Interval(i) => "<interval>'${Ql.interval_text(i)}'"
 		Geometry(geojson) => Ql.literal(geojson)
+		Raw(r) => r.literal
 	}
 
 	## The value as CBOR, as a request of SurrealDB 4 takes it in its
@@ -231,6 +235,7 @@ Ql :: {}.{
 		Timestamp(t) => Ok(Cbor.Value.Tag(190, Cbor.Value.Array([Cbor.Value.Int(Cbor.IntValue.from_i64(t.secs)), Ql.cbor_u64(t.nanos.to_u64())])))
 		Interval(i) => Ok(Cbor.Value.Tag(191, Cbor.Value.Array([Cbor.Value.Int(Cbor.IntValue.from_i64(i.months.to_i64())), Cbor.Value.Int(Cbor.IntValue.from_i64(i.days.to_i64())), Cbor.Value.Int(Cbor.IntValue.from_i64(i.micros))])))
 		Geometry(geojson) => Ql.cbor_geometry(geojson)
+		Raw(r) => Ok(r.cbor)
 	}
 
 	## The `vars` map of a request: one entry per name, each value as

@@ -271,7 +271,7 @@ quay : Surreal.Id(Kennel)
 quay = kennels.id("q")
 
 patch_script : Surreal.Id(Kennel), List(Surreal.Patch(Kennel)) -> Try(Str, Surreal.Error)
-patch_script = |id, patches| kennels.patch_at(id, patches).statement().map_ok(|st| st.surql)
+patch_script = |id, patches| kennels.patch_at(id, patches).statement().map_ok(|st| st.inlined)
 
 # The ops of the patches are one `PATCH`, in order, on the row of the key.
 expect patch_script(quay, [relabel]) == Ok("UPDATE kennel:⟨q⟩ PATCH [{ op: 'replace', path: '/label', value: 'Quay wing' }] RETURN AFTER")
@@ -303,8 +303,26 @@ retyped : Surreal.Patch(Kennel)
 retyped = kennel_patch("UPDATE", "q", [{ op: "replace", path: "/meta", value: Ok(Cbor.Value.Array(v2_values)) }])
 
 expect patch_script(quay, [retyped]) == Ok("UPDATE kennel:⟨q⟩ PATCH [{ op: 'replace', path: '/meta', value: [5u8, -3i8, -300i16, 65535u16, -70000i32, 4000000000u32, 18446744073709551615u64, 1.5f16, 0.25f32, <bigdecimal>'1.50', <regex>'a.*', <date>'2026-11-13', <time>'12:30:00.5', <timestamp>'2026-11-13T12:30:00.000000005', <interval>'P1M2DT3S'] }] RETURN AFTER")
-# A sized number outside its type is refused.
-expect patch_script(quay, [kennel_patch("UPDATE", "q", [{ op: "replace", path: "/n", value: Ok(Cbor.Value.Tag(181, int(300))) }])]) == Err(Unsupported("a patch with a value of the tag 181 outside its range as a value"))
+# A value of the patch goes back to the server as it came, in the vars:
+# a duration, a uuid and bytes too, which the ORM does not write itself.
+# The server checks it, as it checks any value.
+timed : Surreal.Patch(Kennel)
+timed = kennel_patch("UPDATE", "q", [{ op: "replace", path: "/every", value: Ok(Cbor.Value.Tag(14, Cbor.Value.Array([int(90), int(5)]))) }, { op: "add", path: "/raw", value: Ok(Cbor.Value.Array([Cbor.Value.Bytes([10, 255]), Cbor.Value.Tag(181, int(300))])) }])
+
+expect patch_script(quay, [timed]) == Ok("UPDATE kennel:⟨q⟩ PATCH [{ op: 'replace', path: '/every', value: 1m30s5ns }, { op: 'add', path: '/raw', value: [b\"0aff\", NONE] }] RETURN AFTER")
+expect
+	kennels.patch_at(quay, [timed]).request().map_ok(|r| (r.query(), r.vars()))
+		== Ok(
+			(
+				"UPDATE $_1 PATCH $_2 RETURN AFTER;",
+				Diff.vmap(
+					[
+						(Text("_1"), Tag(8, Array([Text("kennel"), Text("q")]))),
+						(Text("_2"), Array([Diff.vmap([(Text("op"), Text("replace")), (Text("path"), Text("/every")), (Text("value"), Tag(14, Array([int(90), int(5)])))]), Diff.vmap([(Text("op"), Text("add")), (Text("path"), Text("/raw")), (Text("value"), Array([Bytes([10, 255]), Tag(181, int(300))]))])])),
+					],
+				),
+			),
+		)
 
 # Refused when it is built: a patch of another row, of a delete, and a text diff.
 expect patch_script(kennels.id("a"), [relabel]) == Err(Unsupported("a patch is of another row than `kennel:⟨a⟩`"))

@@ -143,6 +143,11 @@ ready = |prepared| match prepared.checked() {
 request_of : Surreal.Prepared(out) -> Try(Str, Surreal.Error)
 request_of = |prepared| prepared.request().map_ok(|r| r.to_script())
 
+## The statements with the values written in: the text of a write before
+## its values became vars.
+inlined_of : Surreal.Prepared(out) -> Try(Str, Surreal.Error)
+inlined_of = |prepared| prepared.statement().map_ok(|st| "${st.inlined};")
+
 fevers : Surreal.Prepared(List(VitalLine))
 fevers = ready(Surreal.from(vitals).filter(|v| fever_fn.call2(v.temp_c, v.pulse)).select(vital_line).prepare({}))
 
@@ -268,13 +273,22 @@ expect busy_days.request().map_ok(|r| r.to_script()).map_ok(|t| t.starts_with("L
 
 # A write of one row returns the row as stored: after a create, a relate
 # and a replace, before a delete.
-expect request_of(kennels.create(quay)) == Ok("CREATE kennel:⟨q⟩ CONTENT { label: 'Quay', site: site:⟨oslo⟩ } RETURN AFTER;")
-expect request_of(kennels.edit(Replace(quay, quay_wing))) == Ok("UPDATE kennel:⟨q⟩ CONTENT { label: 'Quay wing', site: site:⟨oslo⟩ } RETURN AFTER;")
-expect request_of(kennels.edit(Delete(quay))) == Ok("DELETE kennel:⟨q⟩ RETURN BEFORE;")
-expect request_of(cares_for.create(ida_quay)) == Ok("RELATE carer:⟨ida⟩->cares_for:⟨ida_q⟩->kennel:⟨q⟩ CONTENT { lead: true } RETURN AFTER;")
+expect inlined_of(kennels.create(quay)) == Ok("CREATE kennel:⟨q⟩ CONTENT { label: 'Quay', site: site:⟨oslo⟩ } RETURN AFTER;")
+# What the session sends for a write: the key and the row are vars, and
+# the text names them. A key of a table and a link are record ids (tag 8).
+expect request_of(kennels.create(quay)) == Ok("LET $_1 = kennel:⟨q⟩;\nLET $_2 = { label: 'Quay', site: site:⟨oslo⟩ };\nCREATE $_1 CONTENT $_2 RETURN AFTER;")
+expect kennels.create(quay).request().map_ok(|r| r.query()) == Ok("CREATE $_1 CONTENT $_2 RETURN AFTER;")
+expect request_of(kennels.edit(Delete(quay))) == Ok("LET $_1 = kennel:⟨q⟩;\nDELETE $_1 RETURN BEFORE;")
+expect request_of(cares_for.create(ida_quay)) == Ok("LET $_1 = carer:⟨ida⟩;\nLET $_2 = cares_for:⟨ida_q⟩;\nLET $_3 = kennel:⟨q⟩;\nLET $_4 = { lead: true };\nRELATE $_1->$_2->$_3 CONTENT $_4 RETURN AFTER;")
+expect request_of(carers.insert(new_carers)) == Ok("LET $_1 = [{ id: 'kim', name: 'Kim' }, { id: 'lea', name: 'Lea' }];\nBEGIN;\nINSERT INTO carer $_1 RETURN AFTER;\nCOMMIT;")
+expect request_of(shifts.create_new({ label: "Early" })) == Ok("LET $_1 = { label: 'Early' };\nCREATE shift CONTENT $_1 RETURN AFTER;")
+expect request_of(tallies.merge_at(tallies.id("t1"), { label: "Merged" })) == Ok("LET $_1 = tally:⟨t1⟩;\nLET $_2 = { label: 'Merged' };\nUPDATE $_1 MERGE $_2 RETURN AFTER;")
+expect inlined_of(kennels.edit(Replace(quay, quay_wing))) == Ok("UPDATE kennel:⟨q⟩ CONTENT { label: 'Quay wing', site: site:⟨oslo⟩ } RETURN AFTER;")
+expect inlined_of(kennels.edit(Delete(quay))) == Ok("DELETE kennel:⟨q⟩ RETURN BEFORE;")
+expect inlined_of(cares_for.create(ida_quay)) == Ok("RELATE carer:⟨ida⟩->cares_for:⟨ida_q⟩->kennel:⟨q⟩ CONTENT { lead: true } RETURN AFTER;")
 
 # A write by key reads the one record: the key, or the row, and no other row.
-expect request_of(kennels.replace(quay_wing)) == Ok("UPDATE kennel:⟨q⟩ CONTENT { label: 'Quay wing', site: site:⟨oslo⟩ } RETURN AFTER;")
+expect inlined_of(kennels.replace(quay_wing)) == Ok("UPDATE kennel:⟨q⟩ CONTENT { label: 'Quay wing', site: site:⟨oslo⟩ } RETURN AFTER;")
 expect request_of(kennels.delete_at(kennels.id("q")).prepare({})) == Ok("DELETE kennel:⟨q⟩ RETURN BEFORE;")
 expect request_of(cares_for.delete_at(cares_for.id("ida_q")).prepare({})) == Ok("DELETE cares_for:⟨ida_q⟩ RETURN BEFORE;")
 expect request_of(kennels.update_at_by(kennels.id("q"), |p, k| { ..k, label: p.label }).prepare({ label: "Quay wing" })) == Ok("LET $label = 'Quay wing';\nUPDATE kennel:⟨q⟩ SET label = $label RETURN AFTER;")
@@ -286,10 +300,10 @@ expect oslo_site.request().map_ok(|r| r.to_script()) == Ok("SELECT area, record:
 expect oslo_value.request().map_ok(|r| r.to_script()) == Ok("SELECT VALUE { area: area, id: record::id(id), location: location, name: name } FROM site:⟨oslo⟩;")
 expect request_of(Surreal.from(sites).select(|r| r).prepare_one({})) == Err(Unsupported("`prepare_one` reads the row of one key, a query from `Table.at`; this query can return several rows: take `prepare`"))
 
-expect request_of(carers.upsert(kim_b)) == Ok("UPSERT carer:⟨kim⟩ CONTENT { name: 'Kim B' } RETURN AFTER;")
+expect inlined_of(carers.upsert(kim_b)) == Ok("UPSERT carer:⟨kim⟩ CONTENT { name: 'Kim B' } RETURN AFTER;")
 
 # An insert is one transaction.
-expect request_of(carers.insert(new_carers)) == Ok("BEGIN;\nINSERT INTO carer [{ id: 'kim', name: 'Kim' }, { id: 'lea', name: 'Lea' }] RETURN AFTER;\nCOMMIT;")
+expect inlined_of(carers.insert(new_carers)) == Ok("BEGIN;\nINSERT INTO carer [{ id: 'kim', name: 'Kim' }, { id: 'lea', name: 'Lea' }] RETURN AFTER;\nCOMMIT;")
 
 # An update and a delete of the rows that a clause keeps.
 expect request_of(remove_carers) == Ok("DELETE carer WHERE (IF record::id(id) = 'kim' THEN true ELSE record::id(id) = 'lea' END) RETURN BEFORE;")
@@ -298,7 +312,7 @@ expect request_of(remove_carers) == Ok("DELETE carer WHERE (IF record::id(id) = 
 expect request_of(relabel) == Ok("LET $key = 'q';\nLET $label = 'Quay wing';\nUPDATE kennel SET label = $label WHERE id = type::record('kennel', $key) RETURN AFTER;\nSELECT <-cares_for.len() AS carers, label AS label FROM kennel WHERE id = type::record('kennel', $key);")
 
 # A tag union: the arm in `kind`, one payload in `value`, two in the array `value`.
-expect request_of(payments.insert(paid)) == Ok("BEGIN;\nINSERT INTO payment [{ id: 'cash', pay: 'Cash' }, { id: 'card', pay: { kind: 'Card', last4: '4242' } }, { id: 'check', pay: { kind: 'Check', value: 7 } }, { id: 'wire', pay: { kind: 'Wire', value: ['eu', 9] } }] RETURN AFTER;\nCOMMIT;")
+expect inlined_of(payments.insert(paid)) == Ok("BEGIN;\nINSERT INTO payment [{ id: 'cash', pay: 'Cash' }, { id: 'card', pay: { kind: 'Card', last4: '4242' } }, { id: 'check', pay: { kind: 'Check', value: 7 } }, { id: 'wire', pay: { kind: 'Wire', value: ['eu', 9] } }] RETURN AFTER;\nCOMMIT;")
 expect payment_lines.request().map_ok(|r| r.to_script()) == Ok("SELECT (IF pay.kind = 'Card' THEN 1 ELSE IF pay = 'Cash' THEN 0 ELSE IF pay.kind = 'Check' THEN pay.value ELSE pay.value[1] END) AS amount, record::id(id) AS id FROM payment;")
 
 # A view is read-only, for a delete too.
@@ -445,9 +459,12 @@ label_taken = Index({ index: "bin_label_unique", value: "'Top'", record: "bin:b1
 
 # A transaction is one `BEGIN`, the statements of each part, one `COMMIT`:
 # the insert, a transaction of its own, has none of its own in it.
-expect request_of(twin_in_transaction) == Ok("BEGIN;\nCREATE bin:⟨b3⟩ CONTENT { label: 'Side' } RETURN AFTER;\nINSERT INTO bin [{ id: 'b4', label: 'Low' }, { id: 'b2', label: 'Top' }] RETURN AFTER;\nCOMMIT;")
-expect request_of(bins.insert([low_bin])) == Ok("BEGIN;\nINSERT INTO bin [{ id: 'b4', label: 'Low' }] RETURN AFTER;\nCOMMIT;")
-expect request_of(twin_then_rows) == Ok("CREATE bin:⟨b2⟩ CONTENT { label: 'Top' } RETURN AFTER;\nSELECT record::id(id) AS id, label FROM bin;")
+expect inlined_of(twin_in_transaction) == Ok("BEGIN;\nCREATE bin:⟨b3⟩ CONTENT { label: 'Side' } RETURN AFTER;\nINSERT INTO bin [{ id: 'b4', label: 'Low' }, { id: 'b2', label: 'Top' }] RETURN AFTER;\nCOMMIT;")
+# Two writes in one request: the values of the second are numbered after
+# those of the first.
+expect twin_in_transaction.request().map_ok(|r| r.query()) == Ok("BEGIN;\nCREATE $_1 CONTENT $_2 RETURN AFTER;\nINSERT INTO bin $_3 RETURN AFTER;\nCOMMIT;")
+expect inlined_of(bins.insert([low_bin])) == Ok("BEGIN;\nINSERT INTO bin [{ id: 'b4', label: 'Low' }] RETURN AFTER;\nCOMMIT;")
+expect inlined_of(twin_then_rows) == Ok("CREATE bin:⟨b2⟩ CONTENT { label: 'Top' } RETURN AFTER;\nSELECT record::id(id) AS id, label FROM bin;")
 
 # The insert, the second part, fails the transaction: the error is its
 # own, at its place, and the create before it is rolled back.
@@ -463,7 +480,7 @@ expect ready(twin_then_rows).result(twin_then_rows_reply) == Ok((Err(Server(labe
 expect ready(stock_up).result(stock_up_reply) == Ok((([side_bin], [low_bin]), List.concat(stock, [side_bin, low_bin])))
 
 # A transaction is one part of a batch: its failure is the error of its side.
-expect batch(twin_in_transaction, bin_rows).request().map_ok(|r| r.to_script()) == Ok("BEGIN;\nCREATE bin:⟨b3⟩ CONTENT { label: 'Side' } RETURN AFTER;\nINSERT INTO bin [{ id: 'b4', label: 'Low' }, { id: 'b2', label: 'Top' }] RETURN AFTER;\nCOMMIT;\nSELECT record::id(id) AS id, label FROM bin;")
+expect batch(twin_in_transaction, bin_rows).statement().map_ok(|st| "${st.inlined};") == Ok("BEGIN;\nCREATE bin:⟨b3⟩ CONTENT { label: 'Side' } RETURN AFTER;\nINSERT INTO bin [{ id: 'b4', label: 'Low' }, { id: 'b2', label: 'Top' }] RETURN AFTER;\nCOMMIT;\nSELECT record::id(id) AS id, label FROM bin;")
 
 # A list of writes of one type as one transaction (`Surreal.transaction`).
 all_of : List(Surreal.Prepared(a)) -> Surreal.Prepared(List(a))
@@ -478,7 +495,7 @@ rack_bin = { id: "b6", label: "Rack" }
 twins_in_list : Surreal.Prepared(List(List(Bin)))
 twins_in_list = all_of([bins.create(spare_bin), bins.create(twin_bin)])
 
-expect request_of(twins_in_list) == Ok("BEGIN;\nCREATE bin:⟨b5⟩ CONTENT { label: 'Spare' } RETURN AFTER;\nCREATE bin:⟨b2⟩ CONTENT { label: 'Top' } RETURN AFTER;\nCOMMIT;")
+expect inlined_of(twins_in_list) == Ok("BEGIN;\nCREATE bin:⟨b5⟩ CONTENT { label: 'Spare' } RETURN AFTER;\nCREATE bin:⟨b2⟩ CONTENT { label: 'Top' } RETURN AFTER;\nCOMMIT;")
 expect Surreal.transaction([]).request().map_ok(|r| r.to_script()) == Err(Unsupported("a transaction needs a statement"))
 
 # The second create fails all: the error is at its place. When all commit,
@@ -546,9 +563,9 @@ handover : { from : Surreal.Link(Shift), to : Surreal.Link(Shift), notes : Str }
 handover = { from: shifts.link(early.key()), to: shifts.link(late.key()), notes: "keys" }
 
 # A write of a row with no `id` has no key in its text.
-expect request_of(shifts.create_new({ label: "Early" })) == Ok("CREATE shift CONTENT { label: 'Early' } RETURN AFTER;")
-expect request_of(shifts.insert_new([{ label: "Late" }, { label: "Night" }])) == Ok("BEGIN;\nINSERT INTO shift [{ label: 'Late' }, { label: 'Night' }] RETURN AFTER;\nCOMMIT;")
-expect request_of(handovers.create_new(handover)) == Ok("RELATE shift:⟨01M7911XWVP2307M56XCDKCQWS⟩->handover->shift:⟨01M7911XWWTBV4SZQC1QV464QD⟩ CONTENT { notes: 'keys' } RETURN AFTER;")
+expect inlined_of(shifts.create_new({ label: "Early" })) == Ok("CREATE shift CONTENT { label: 'Early' } RETURN AFTER;")
+expect inlined_of(shifts.insert_new([{ label: "Late" }, { label: "Night" }])) == Ok("BEGIN;\nINSERT INTO shift [{ label: 'Late' }, { label: 'Night' }] RETURN AFTER;\nCOMMIT;")
+expect inlined_of(handovers.create_new(handover)) == Ok("RELATE shift:⟨01M7911XWVP2307M56XCDKCQWS⟩->handover->shift:⟨01M7911XWWTBV4SZQC1QV464QD⟩ CONTENT { notes: 'keys' } RETURN AFTER;")
 
 # The result is each row that the write made: the key that the server gave
 # it, as an `Id` of the table, and its other fields, in the order written.
@@ -577,7 +594,7 @@ expect ready(delete_shift(early)).result(delete_shift_reply) == Ok([{ id: early.
 expect ready(tasks.create_new(feed)).result(create_shift_reply).map_ok(|rows| rows.map(|r| r.id)) == Err(Wire("a row that a write of `task` made has no text key of `task`"))
 
 # A create and an insert of rows with no key, in one transaction.
-expect atomic(shifts.create_new({ label: "Early" }), shifts.insert_new([{ label: "Late" }])).request().map_ok(|r| r.to_script()) == Ok("BEGIN;\nCREATE shift CONTENT { label: 'Early' } RETURN AFTER;\nINSERT INTO shift [{ label: 'Late' }] RETURN AFTER;\nCOMMIT;")
+expect atomic(shifts.create_new({ label: "Early" }), shifts.insert_new([{ label: "Late" }])).statement().map_ok(|st| "${st.inlined};") == Ok("BEGIN;\nCREATE shift CONTENT { label: 'Early' } RETURN AFTER;\nINSERT INTO shift [{ label: 'Late' }] RETURN AFTER;\nCOMMIT;")
 
 # ------------------------------------------------ full-text and vector search
 
@@ -667,11 +684,11 @@ four = { id: "t4", label: "Four", hits: 12, meta: { a: 3, b: 4 }, tags: ["new"] 
 patch_ops : List(Surreal.Op)
 patch_ops = [Replace(["label"], Cbor.Value.Text("Patched")), Add(["tags", "-"], Cbor.Value.Text("p")), Replace(["meta", "b"], Cbor.Value.Int(7))]
 
-expect request_of(tallies.insert_or_update(incoming, bump)) == Ok("BEGIN;\nINSERT INTO tally [{ hits: 5, id: 't1', label: 'Uno', meta: { a: 1, b: 2 }, tags: [] }, { hits: 3, id: 't3', label: 'Three', meta: { a: 1, b: 2 }, tags: [] }] ON DUPLICATE KEY UPDATE hits = hits + $input.hits, label = $input.label RETURN AFTER;\nCOMMIT;")
-expect request_of(tallies.merge_at(tallies.id("t1"), { label: "Merged", meta: { a: 9.I64 } })) == Ok("UPDATE tally:⟨t1⟩ MERGE { label: 'Merged', meta: { a: 9 } } RETURN AFTER;")
-expect request_of(tallies.upsert_merge_at(tallies.id("t4"), { label: four.label, hits: four.hits, meta: four.meta, tags: four.tags })) == Ok("UPSERT tally:⟨t4⟩ MERGE { hits: 12, label: 'Four', meta: { a: 3, b: 4 }, tags: ['new'] } RETURN AFTER;")
-expect request_of(tallies.merge(|t| t.hits > 10, { tags: ["hot"] })) == Ok("UPDATE tally MERGE { tags: ['hot'] } WHERE hits > 10 RETURN AFTER;")
-expect request_of(tallies.patch_ops_at(tallies.id("t3"), patch_ops)) == Ok("UPDATE tally:⟨t3⟩ PATCH [{ op: 'replace', path: '/label', value: 'Patched' }, { op: 'add', path: '/tags/-', value: 'p' }, { op: 'replace', path: '/meta/b', value: 7 }] RETURN AFTER;")
+expect inlined_of(tallies.insert_or_update(incoming, bump)) == Ok("BEGIN;\nINSERT INTO tally [{ hits: 5, id: 't1', label: 'Uno', meta: { a: 1, b: 2 }, tags: [] }, { hits: 3, id: 't3', label: 'Three', meta: { a: 1, b: 2 }, tags: [] }] ON DUPLICATE KEY UPDATE hits = hits + $input.hits, label = $input.label RETURN AFTER;\nCOMMIT;")
+expect inlined_of(tallies.merge_at(tallies.id("t1"), { label: "Merged", meta: { a: 9.I64 } })) == Ok("UPDATE tally:⟨t1⟩ MERGE { label: 'Merged', meta: { a: 9 } } RETURN AFTER;")
+expect inlined_of(tallies.upsert_merge_at(tallies.id("t4"), { label: four.label, hits: four.hits, meta: four.meta, tags: four.tags })) == Ok("UPSERT tally:⟨t4⟩ MERGE { hits: 12, label: 'Four', meta: { a: 3, b: 4 }, tags: ['new'] } RETURN AFTER;")
+expect inlined_of(tallies.merge(|t| t.hits > 10, { tags: ["hot"] })) == Ok("UPDATE tally MERGE { tags: ['hot'] } WHERE hits > 10 RETURN AFTER;")
+expect inlined_of(tallies.patch_ops_at(tallies.id("t3"), patch_ops)) == Ok("UPDATE tally:⟨t3⟩ PATCH [{ op: 'replace', path: '/label', value: 'Patched' }, { op: 'add', path: '/tags/-', value: 'p' }, { op: 'replace', path: '/meta/b', value: 7 }] RETURN AFTER;")
 
 # The rows as stored, read as `Tally`.
 expect ready(tallies.insert(seed_tallies)).result(insert_tallies_reply) == Ok(seed_tallies)

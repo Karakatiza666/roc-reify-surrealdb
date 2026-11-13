@@ -332,20 +332,20 @@ edge1 = { id: "e1", from: customers.link("ada"), to: products.link("pen"), quant
 
 Edge : Purchased
 
-expect products.insert([pen, mug]).statement().map_ok(|st| st.surql) == Ok("BEGIN;\nINSERT INTO product [{ id: 'pen', price: 1.5dec, title: 'Pen' }, { id: 'mug', price: 4.0dec, title: 'O\\'Mug' }] RETURN AFTER;\nCOMMIT")
-expect products.insert([pen]).request().map_ok(|r| r.to_script()) == Ok("BEGIN;\nINSERT INTO product [{ id: 'pen', price: 1.5dec, title: 'Pen' }] RETURN AFTER;\nCOMMIT;")
-expect products.insert([]).statement().map_ok(|st| st.surql) == Ok("BEGIN;\nINSERT INTO product [] RETURN AFTER;\nCOMMIT")
-expect purchased.insert([edge1]).statement().map_ok(|st| st.surql) == Ok("BEGIN;\nINSERT RELATION INTO purchased [{ in: customer:⟨ada⟩, id: 'e1', quantity: 2, out: product:⟨pen⟩ }] RETURN AFTER;\nCOMMIT")
-expect products.create(pen).statement().map_ok(|st| st.surql) == Ok("CREATE product:⟨pen⟩ CONTENT { price: 1.5dec, title: 'Pen' } RETURN AFTER")
-expect products.upsert(mug).statement().map_ok(|st| st.surql) == Ok("UPSERT product:⟨mug⟩ CONTENT { price: 4.0dec, title: 'O\\'Mug' } RETURN AFTER")
-expect purchased.create(edge1).statement().map_ok(|st| st.surql) == Ok("RELATE customer:⟨ada⟩->purchased:⟨e1⟩->product:⟨pen⟩ CONTENT { quantity: 2 } RETURN AFTER")
+expect products.insert([pen, mug]).statement().map_ok(|st| st.inlined) == Ok("BEGIN;\nINSERT INTO product [{ id: 'pen', price: 1.5dec, title: 'Pen' }, { id: 'mug', price: 4.0dec, title: 'O\\'Mug' }] RETURN AFTER;\nCOMMIT")
+expect products.insert([pen]).statement().map_ok(|st| "${st.inlined};") == Ok("BEGIN;\nINSERT INTO product [{ id: 'pen', price: 1.5dec, title: 'Pen' }] RETURN AFTER;\nCOMMIT;")
+expect products.insert([]).statement().map_ok(|st| st.inlined) == Ok("BEGIN;\nINSERT INTO product [] RETURN AFTER;\nCOMMIT")
+expect purchased.insert([edge1]).statement().map_ok(|st| st.inlined) == Ok("BEGIN;\nINSERT RELATION INTO purchased [{ in: customer:⟨ada⟩, id: 'e1', quantity: 2, out: product:⟨pen⟩ }] RETURN AFTER;\nCOMMIT")
+expect products.create(pen).statement().map_ok(|st| st.inlined) == Ok("CREATE product:⟨pen⟩ CONTENT { price: 1.5dec, title: 'Pen' } RETURN AFTER")
+expect products.upsert(mug).statement().map_ok(|st| st.inlined) == Ok("UPSERT product:⟨mug⟩ CONTENT { price: 4.0dec, title: 'O\\'Mug' } RETURN AFTER")
+expect purchased.create(edge1).statement().map_ok(|st| st.inlined) == Ok("RELATE customer:⟨ada⟩->purchased:⟨e1⟩->product:⟨pen⟩ CONTENT { quantity: 2 } RETURN AFTER")
 
 # Rows whose keys the server makes: each row without its `id`, and the
 # rows of the result are `Created`, with the key that the server gave.
-expect products.create_new({ title: "Pen", price: 1.5 }).statement().map_ok(|st| st.surql) == Ok("CREATE product CONTENT { price: 1.5dec, title: 'Pen' } RETURN AFTER")
-expect products.insert_new([{ title: "Pen", price: 1.5 }, { title: "O'Mug", price: 4 }]).statement().map_ok(|st| st.surql) == Ok("BEGIN;\nINSERT INTO product [{ price: 1.5dec, title: 'Pen' }, { price: 4.0dec, title: 'O\\'Mug' }] RETURN AFTER;\nCOMMIT")
-expect purchased.create_new({ from: customers.link("ada"), to: products.link("01K8Z3"), quantity: 2 }).statement().map_ok(|st| st.surql) == Ok("RELATE customer:⟨ada⟩->purchased->product:⟨01K8Z3⟩ CONTENT { quantity: 2 } RETURN AFTER")
-expect purchased.insert_new([{ from: customers.link("ada"), to: products.link("pen"), quantity: 2 }]).statement().map_ok(|st| st.surql) == Ok("BEGIN;\nINSERT RELATION INTO purchased [{ in: customer:⟨ada⟩, quantity: 2, out: product:⟨pen⟩ }] RETURN AFTER;\nCOMMIT")
+expect products.create_new({ title: "Pen", price: 1.5 }).statement().map_ok(|st| st.inlined) == Ok("CREATE product CONTENT { price: 1.5dec, title: 'Pen' } RETURN AFTER")
+expect products.insert_new([{ title: "Pen", price: 1.5 }, { title: "O'Mug", price: 4 }]).statement().map_ok(|st| st.inlined) == Ok("BEGIN;\nINSERT INTO product [{ price: 1.5dec, title: 'Pen' }, { price: 4.0dec, title: 'O\\'Mug' }] RETURN AFTER;\nCOMMIT")
+expect purchased.create_new({ from: customers.link("ada"), to: products.link("01K8Z3"), quantity: 2 }).statement().map_ok(|st| st.inlined) == Ok("RELATE customer:⟨ada⟩->purchased->product:⟨01K8Z3⟩ CONTENT { quantity: 2 } RETURN AFTER")
+expect purchased.insert_new([{ from: customers.link("ada"), to: products.link("pen"), quantity: 2 }]).statement().map_ok(|st| st.inlined) == Ok("BEGIN;\nINSERT RELATION INTO purchased [{ in: customer:⟨ada⟩, quantity: 2, out: product:⟨pen⟩ }] RETURN AFTER;\nCOMMIT")
 expect orders.update(|o| o.total > 100, |o| { ..o, total: o.total * 0.9, payment: Cash }).to_surql() == Ok("UPDATE order SET payment = 'Cash', total = total * 0.9dec WHERE total > 100.0dec")
 expect orders.update(|o| o.total > 100, |o| o).to_surql() == Err(Unsupported("in the patch of `update`: this update changes no field"))
 expect orders.update(|o| o.total > 100, |o| { ..o, id: "x" }).to_surql() == Err(Unsupported("in the patch of `update`: an update cannot change `id`, the record key"))
@@ -435,21 +435,28 @@ expect customers.set_at_by(ada, |p, _| { name: p.name }).prepare({ name: "Ada L.
 expect customers.delete_at(ada).to_surql() == Ok("DELETE customer:⟨ada⟩")
 expect purchased.delete_at(Surreal.Unchecked.id("purchased", "p1")).to_surql() == Ok("DELETE purchased:⟨p1⟩")
 expect daily.delete_at(Surreal.Unchecked.id("reading_daily", "x")).to_surql() == Err(Unsupported("`reading_daily` is a view, and a view is read-only"))
-expect customers.replace({ id: "ada", name: "Ada", address: { city: "Rome" }, tags: [] }).request().map_ok(|r| r.to_script()) == Ok("UPDATE customer:⟨ada⟩ CONTENT { address: { city: 'Rome' }, name: 'Ada', tags: [] } RETURN AFTER;")
+expect customers.replace({ id: "ada", name: "Ada", address: { city: "Rome" }, tags: [] }).statement().map_ok(|st| "${st.inlined};") == Ok("UPDATE customer:⟨ada⟩ CONTENT { address: { city: 'Rome' }, name: 'Ada', tags: [] } RETURN AFTER;")
 # `insert_or_update`: the patch reads the new row at `$input` and the stored row by its fields.
-expect products.insert_or_update([pen, mug], |new, old| { ..old, price: old.price + new.price, title: new.title }).statement().map_ok(|st| st.surql) == Ok("BEGIN;\nINSERT INTO product [{ id: 'pen', price: 1.5dec, title: 'Pen' }, { id: 'mug', price: 4.0dec, title: 'O\\'Mug' }] ON DUPLICATE KEY UPDATE price = price + $input.price, title = $input.title RETURN AFTER;\nCOMMIT")
-expect products.insert_or_update([pen], |_, old| { ..old, price: old.price * 2 }).statement().map_ok(|st| st.surql) == Ok("BEGIN;\nINSERT INTO product [{ id: 'pen', price: 1.5dec, title: 'Pen' }] ON DUPLICATE KEY UPDATE price = price * 2.0dec RETURN AFTER;\nCOMMIT")
+expect products.insert_or_update([pen, mug], |new, old| { ..old, price: old.price + new.price, title: new.title }).statement().map_ok(|st| st.inlined) == Ok("BEGIN;\nINSERT INTO product [{ id: 'pen', price: 1.5dec, title: 'Pen' }, { id: 'mug', price: 4.0dec, title: 'O\\'Mug' }] ON DUPLICATE KEY UPDATE price = price + $input.price, title = $input.title RETURN AFTER;\nCOMMIT")
+expect products.insert_or_update([pen], |_, old| { ..old, price: old.price * 2 }).statement().map_ok(|st| st.inlined) == Ok("BEGIN;\nINSERT INTO product [{ id: 'pen', price: 1.5dec, title: 'Pen' }] ON DUPLICATE KEY UPDATE price = price * 2.0dec RETURN AFTER;\nCOMMIT")
 expect products.insert_or_update([pen], |_, old| { ..old, id: "x" }).statement().map_ok(|st| st.surql) == Err(Unsupported("in the patch of `insert_or_update`: an update cannot change `id`, the record key"))
 expect purchased.insert_or_update([edge1], |_, old| { ..old, quantity: 1 }).statement().map_ok(|st| st.surql) == Err(Unsupported("`insert_or_update` is not defined for the relation table `purchased`"))
 expect daily.insert_or_update([], |_, old| old).statement().map_ok(|st| st.surql) == Err(Unsupported("`reading_daily` is a view, and a view is read-only"))
 # `merge_at`: a record of the app with only the fields to change.
-expect customers.merge_at(ada, { name: "Ada L.", address: { city: "Rome" } }).statement().map_ok(|st| st.surql) == Ok("UPDATE customer:⟨ada⟩ MERGE { address: { city: 'Rome' }, name: 'Ada L.' } RETURN AFTER")
-expect customers.merge_at(ada, { tags: ["vip"] }).request().map_ok(|r| r.to_script()) == Ok("UPDATE customer:⟨ada⟩ MERGE { tags: ['vip'] } RETURN AFTER;")
+expect customers.merge_at(ada, { name: "Ada L.", address: { city: "Rome" } }).statement().map_ok(|st| st.inlined) == Ok("UPDATE customer:⟨ada⟩ MERGE { address: { city: 'Rome' }, name: 'Ada L.' } RETURN AFTER")
+expect customers.merge_at(ada, { tags: ["vip"] }).statement().map_ok(|st| "${st.inlined};") == Ok("UPDATE customer:⟨ada⟩ MERGE { tags: ['vip'] } RETURN AFTER;")
 expect customers.merge_at(ada, { id: "x" }).statement().map_ok(|st| st.surql) == Err(Unsupported("a merge cannot change `id`, the record key"))
 expect customers.merge_at(Surreal.Unchecked.id("order", "ada"), { name: "x" }).statement().map_ok(|st| st.surql) == Err(Unsupported("the id `order:⟨ada⟩` is of the table `order`, not of `customer`"))
 expect daily.merge_at(Surreal.Unchecked.id("reading_daily", "x"), { level: 1 }).statement().map_ok(|st| st.surql) == Err(Unsupported("`reading_daily` is a view, and a view is read-only"))
-expect customers.upsert_merge_at(ada, { name: "Ada" }).statement().map_ok(|st| st.surql) == Ok("UPSERT customer:⟨ada⟩ MERGE { name: 'Ada' } RETURN AFTER")
-expect customers.merge(|c| c.name == "Ada", { tags: ["vip"] }).statement().map_ok(|st| st.surql) == Ok("UPDATE customer MERGE { tags: ['vip'] } WHERE name = 'Ada' RETURN AFTER")
+expect customers.upsert_merge_at(ada, { name: "Ada" }).statement().map_ok(|st| st.inlined) == Ok("UPSERT customer:⟨ada⟩ MERGE { name: 'Ada' } RETURN AFTER")
+## A merge with a captured value in its condition: the captured value is
+## `$_1`, and the record to merge is numbered after it.
+merge_named : Str -> Surreal.Prepared(List(Customer))
+merge_named = |name| customers.merge(|c| c.name == name, { tags: ["vip"] })
+
+expect merge_named("Ada").request().map_ok(|r| r.to_script()) == Ok("LET $_1 = 'Ada';\nLET $_2 = { tags: ['vip'] };\nUPDATE customer MERGE $_2 WHERE name = $_1 RETURN AFTER;")
+
+expect customers.merge(|c| c.name == "Ada", { tags: ["vip"] }).statement().map_ok(|st| st.inlined) == Ok("UPDATE customer MERGE { tags: ['vip'] } WHERE name = 'Ada' RETURN AFTER")
 a_change : Diff.Op
 a_change = match Diff.TextPatch.parse("@@ -1 +1 @@\n-a\n+b\n") {
 	Ok(text_patch) => Change(["name"], text_patch)
@@ -457,10 +464,10 @@ a_change = match Diff.TextPatch.parse("@@ -1 +1 @@\n-a\n+b\n") {
 }
 
 # `patch_ops_at`: JSON Patch ops, the paths and values written as text.
-expect customers.patch_ops_at(ada, [Replace(["name"], Cbor.Value.Text("Ada L.")), Add(["tags", "-"], Cbor.Value.Text("vip")), Remove(["address", "zip"])]).statement().map_ok(|st| st.surql) == Ok("UPDATE customer:⟨ada⟩ PATCH [{ op: 'replace', path: '/name', value: 'Ada L.' }, { op: 'add', path: '/tags/-', value: 'vip' }, { op: 'remove', path: '/address/zip' }] RETURN AFTER")
-expect customers.patch_ops_at(ada, []).statement().map_ok(|st| st.surql) == Ok("UPDATE customer:⟨ada⟩ PATCH [] RETURN AFTER")
+expect customers.patch_ops_at(ada, [Replace(["name"], Cbor.Value.Text("Ada L.")), Add(["tags", "-"], Cbor.Value.Text("vip")), Remove(["address", "zip"])]).statement().map_ok(|st| st.inlined) == Ok("UPDATE customer:⟨ada⟩ PATCH [{ op: 'replace', path: '/name', value: 'Ada L.' }, { op: 'add', path: '/tags/-', value: 'vip' }, { op: 'remove', path: '/address/zip' }] RETURN AFTER")
+expect customers.patch_ops_at(ada, []).statement().map_ok(|st| st.inlined) == Ok("UPDATE customer:⟨ada⟩ PATCH [] RETURN AFTER")
 # A `/` or a `~` in a key is escaped in the path (RFC 6901), as SurrealDB 4 reads it.
-expect customers.patch_ops_at(ada, [Replace(["notes", "a/b"], Cbor.Value.Int(1)), Remove(["notes", "c~d"]), Remove(["~1"])]).statement().map_ok(|st| st.surql) == Ok("UPDATE customer:⟨ada⟩ PATCH [{ op: 'replace', path: '/notes/a~1b', value: 1 }, { op: 'remove', path: '/notes/c~0d' }, { op: 'remove', path: '/~01' }] RETURN AFTER")
+expect customers.patch_ops_at(ada, [Replace(["notes", "a/b"], Cbor.Value.Int(1)), Remove(["notes", "c~d"]), Remove(["~1"])]).statement().map_ok(|st| st.inlined) == Ok("UPDATE customer:⟨ada⟩ PATCH [{ op: 'replace', path: '/notes/a~1b', value: 1 }, { op: 'remove', path: '/notes/c~0d' }, { op: 'remove', path: '/~01' }] RETURN AFTER")
 expect customers.patch_ops_at(ada, [Replace(["id"], Cbor.Value.Text("x"))]).statement().map_ok(|st| st.surql) == Err(Unsupported("a patch cannot change `id`, the record key (the op is at `/id`)"))
 expect customers.patch_ops_at(ada, [Replace([], Cbor.Value.Null)]).statement().map_ok(|st| st.surql) == Err(Unsupported("a patch of a delete: delete the row with `delete_at`"))
 expect customers.patch_ops_at(ada, [a_change]).statement().map_ok(|st| st.surql) == Err(Unsupported("a `change` op is a text diff, and the ORM reads it and does not write it; replay the field with a `replace`"))
@@ -517,9 +524,9 @@ morning : Reading
 morning = { id: Surreal.time_key(pen_id, moment("2026-03-01T08:00:00Z")), level: 3 }
 
 # The key is the array `[series, time]` in a write and in the record id.
-expect readings.insert([morning]).statement().map_ok(|st| st.surql) == Ok("BEGIN;\nINSERT INTO reading [{ id: [product:⟨pen⟩, d'2026-03-01T08:00:00Z'], level: 3 }] RETURN AFTER;\nCOMMIT")
-expect readings.create(morning).statement().map_ok(|st| st.surql) == Ok("CREATE reading:[product:⟨pen⟩, d'2026-03-01T08:00:00Z'] CONTENT { level: 3 } RETURN AFTER")
-expect readings.upsert(morning).statement().map_ok(|st| st.surql) == Ok("UPSERT reading:[product:⟨pen⟩, d'2026-03-01T08:00:00Z'] CONTENT { level: 3 } RETURN AFTER")
+expect readings.insert([morning]).statement().map_ok(|st| st.inlined) == Ok("BEGIN;\nINSERT INTO reading [{ id: [product:⟨pen⟩, d'2026-03-01T08:00:00Z'], level: 3 }] RETURN AFTER;\nCOMMIT")
+expect readings.create(morning).statement().map_ok(|st| st.inlined) == Ok("CREATE reading:[product:⟨pen⟩, d'2026-03-01T08:00:00Z'] CONTENT { level: 3 } RETURN AFTER")
+expect readings.upsert(morning).statement().map_ok(|st| st.inlined) == Ok("UPSERT reading:[product:⟨pen⟩, d'2026-03-01T08:00:00Z'] CONTENT { level: 3 } RETURN AFTER")
 
 # A range of keys of one series.
 expect Surreal.from(readings).between(pen_id, moment("2026-03-01T00:00:00Z"), moment("2026-03-02T00:00:00Z")).select(|r| { at: r.id.time(), level: r.level }).to_surql() == Ok("SELECT record::id(id)[1] AS at, level AS level FROM reading:[product:⟨pen⟩, d'2026-03-01T00:00:00Z']..[product:⟨pen⟩, d'2026-03-02T00:00:00Z']")
@@ -567,7 +574,7 @@ unit_square = Surreal.Polygon.({ exterior: [Surreal.point(0, 0), Surreal.point(1
 # A geometry parameter is a `LET` of its GeoJSON object, which SurrealDB reads as a geometry.
 expect Surreal.from(sites).filter_by(|p, s| Surreal.Geo.inside(s.location.to_geometry(), p.area.to_geometry())).select_value(|s| s.name).prepare({ area: unit_square }).request().map_ok(|r| r.to_script()) == Ok("LET $area = { type: 'Polygon', coordinates: [[[0f, 0f], [1f, 0f], [1f, 1f], [0f, 0f]]] };\nSELECT VALUE name FROM site WHERE location INSIDE $area;")
 # A row with a geometry writes its GeoJSON object.
-expect sites.create({ id: "home", name: "Home", location: Surreal.point(10.75, 59.91), area: unit_square }).statement().map_ok(|st| st.surql) == Ok("CREATE site:⟨home⟩ CONTENT { area: { type: 'Polygon', coordinates: [[[0f, 0f], [1f, 0f], [1f, 1f], [0f, 0f]]] }, location: { type: 'Point', coordinates: [10.75f, 59.91f] }, name: 'Home' } RETURN AFTER")
+expect sites.create({ id: "home", name: "Home", location: Surreal.point(10.75, 59.91), area: unit_square }).statement().map_ok(|st| st.inlined) == Ok("CREATE site:⟨home⟩ CONTENT { area: { type: 'Polygon', coordinates: [[[0f, 0f], [1f, 0f], [1f, 1f], [0f, 0f]]] }, location: { type: 'Point', coordinates: [10.75f, 59.91f] }, name: 'Home' } RETURN AFTER")
 
 # ------------------------------------------------------ live queries
 
@@ -653,7 +660,7 @@ expect request_of(Surreal.Unchecked.select_star(Surreal.from(orders)).live({}, [
 expect request_of(Surreal.Unchecked.fetch(Surreal.Unchecked.select_star(Surreal.from(orders)), "customer").live({}, [])) == Err(Unsupported("a live query sends typed rows, and `Unchecked.select_star` has no row type; select the fields with `select`"))
 
 # A `-- live:` block for `check.py`: the roles of the `LIVE`s, the directives, the request, then each write.
-expect Surreal.from(readings).filter(|r| r.level > 5).select_value(|r| r.level).live({}, []).block("-- live: high", ["-- roc: [[]]"], readings.edit(Delete(morning)).statement().map_ok(|st| [st]) ?? []) == Ok("-- live: high\n-- roles: node\n-- roc: [[]]\nLIVE SELECT VALUE { row: level, now: level > 5 } FROM reading WHERE (level > 5) OR ($before IS NOT NONE AND ($before.level > 5));\nSELECT VALUE { ref: id, row: level } FROM reading WHERE level > 5;\n-- write\nDELETE reading:[product:⟨pen⟩, d'2026-03-01T08:00:00Z'] RETURN BEFORE;")
+expect Surreal.from(readings).filter(|r| r.level > 5).select_value(|r| r.level).live({}, []).block("-- live: high", ["-- roc: [[]]"], readings.edit(Delete(morning)).statement().map_ok(|st| [st]) ?? []) == Ok("-- live: high\n-- roles: node\n-- roc: [[]]\nLIVE SELECT VALUE { row: level, now: level > 5 } FROM reading WHERE (level > 5) OR ($before IS NOT NONE AND ($before.level > 5));\nSELECT VALUE { ref: id, row: level } FROM reading WHERE level > 5;\n-- write\nLET $_1 = reading:[product:⟨pen⟩, d'2026-03-01T08:00:00Z'];\nDELETE $_1 RETURN BEFORE;")
 
 # The raw events: the projection is the payload, and there is no `$before`.
 expect live_text(Surreal.from(readings).filter(|r| high_fn.call1(r.level)).select(reading_line).live_raw({})) == Ok("LIVE SELECT VALUE { level: level, product: record::id(id)[0] } FROM reading WHERE fn::high(level);")
@@ -668,10 +675,10 @@ expect live_text(Surreal.from(orders).select(order_line).query().live_diff({})) 
 expect live_text(Surreal.from(readings).between(pen_id, moment("2026-03-01T00:00:00Z"), moment("2026-03-02T00:00:00Z")).live_diff({})) == Err(Unsupported("a live query reads a whole table, not a range of keys; filter on `v.id.time()`"))
 
 # The writes of the Mirror: one statement for each kind of `Edit`.
-expect readings.edit(Create(morning)).statement().map_ok(|st| st.surql) == Ok("CREATE reading:[product:⟨pen⟩, d'2026-03-01T08:00:00Z'] CONTENT { level: 3 } RETURN AFTER")
-expect readings.edit(Replace(morning, { ..morning, level: 4 })).statement().map_ok(|st| st.surql) == Ok("UPDATE reading:[product:⟨pen⟩, d'2026-03-01T08:00:00Z'] CONTENT { level: 4 } RETURN AFTER")
-expect readings.edit(Delete(morning)).statement().map_ok(|st| st.surql) == Ok("DELETE reading:[product:⟨pen⟩, d'2026-03-01T08:00:00Z'] RETURN BEFORE")
-expect purchased.edit(Create({ id: "p1", from: customers.link("ada"), to: products.link("pen"), quantity: 2 })).statement().map_ok(|st| st.surql) == Ok("RELATE customer:⟨ada⟩->purchased:⟨p1⟩->product:⟨pen⟩ CONTENT { quantity: 2 } RETURN AFTER")
+expect readings.edit(Create(morning)).statement().map_ok(|st| st.inlined) == Ok("CREATE reading:[product:⟨pen⟩, d'2026-03-01T08:00:00Z'] CONTENT { level: 3 } RETURN AFTER")
+expect readings.edit(Replace(morning, { ..morning, level: 4 })).statement().map_ok(|st| st.inlined) == Ok("UPDATE reading:[product:⟨pen⟩, d'2026-03-01T08:00:00Z'] CONTENT { level: 4 } RETURN AFTER")
+expect readings.edit(Delete(morning)).statement().map_ok(|st| st.inlined) == Ok("DELETE reading:[product:⟨pen⟩, d'2026-03-01T08:00:00Z'] RETURN BEFORE")
+expect purchased.edit(Create({ id: "p1", from: customers.link("ada"), to: products.link("pen"), quantity: 2 })).statement().map_ok(|st| st.inlined) == Ok("RELATE customer:⟨ada⟩->purchased:⟨p1⟩->product:⟨pen⟩ CONTENT { quantity: 2 } RETURN AFTER")
 expect daily.edit(Delete({ product: pen_id, day: moment("2026-03-01T00:00:00Z"), readings: 1, high: 0 })).statement().map_ok(|st| st.surql) == Err(Unsupported("`reading_daily` is a view, and a view is read-only"))
 # The record of a row, and of a row of a view: its group key in name order.
 expect readings.ref(morning).map_ok(|r| r.to_str()) == Ok("reading:[product:⟨pen⟩, d'2026-03-01T08:00:00Z']")

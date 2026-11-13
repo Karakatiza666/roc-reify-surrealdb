@@ -1501,10 +1501,9 @@ Surreal :: {}.{
 				fields = keyless(t, row)?
 				statement = match t.kind {
 					Relation(_) => relate_fields(t, Err(Generated), fields)?
-					Normal | View => statement_of("CREATE ${Ql.ident(t.name)} CONTENT ${Ql.literal(Ql.Value.Object(fields))}")
+					Normal | View => valued("CREATE ${Ql.ident(t.name)} CONTENT ${fixed_mark(0)}", [Ql.Value.Object(fields)])
 				}
-				Statement.(made) = statement
-				Ok({ statement: statement_of("${made.surql}${return_clause(After)}"), slots: [], count: 1, atomic: No, read: read_created(t) })
+				Ok({ statement: then_text(statement, return_clause(After)), slots: [], count: 1, atomic: No, read: read_created(t) })
 			}
 			prepared_of(built({}))
 		}
@@ -1574,7 +1573,7 @@ Surreal :: {}.{
 				writable(t)?
 				record = record_at(t, row_id)?
 				items = ops.map_try(patch_item)?
-				Ok(statement_of("UPDATE ${record} PATCH [${Str.join_with(items, ", ")}]"))
+				Ok(valued("UPDATE ${fixed_mark(0)} PATCH ${fixed_mark(1)}", [record, Ql.Value.Array(items)]))
 			}
 			stored_write(t, built({}), After)
 		}
@@ -1605,8 +1604,8 @@ Surreal :: {}.{
 		merge = |Table.(t), condition, partial| {
 			built = |{}| {
 				keep = within_clause("the condition of `merge`", Translate.render(own, condition.graph(), [Translate.table_row(t.name, is_edge(t.kind))], spelled(condition, Translate.variable)))?
-				Statement.(made) = merge_write("UPDATE", t, Ql.ident(t.name), partial)?
-				Ok(statement_of("${made.surql} WHERE ${keep}"))
+				made = merge_write("UPDATE", t, Whole, partial)?
+				Ok(then_text(made, " WHERE ${keep}"))
 			}
 			keyed_write(t, built({}), slots_of(condition), After)
 		}
@@ -2784,7 +2783,12 @@ Surreal :: {}.{
 	## SurrealDB computes them, and Roc has no value for them. A captured
 	## value is `$_1`, `$_2`, .., numbered across the statements of a
 	## request.
-	Statement := { surql : Str, vars : List({ name : Str, value : Ql.Value }), inlined : Str, intrinsic : List(Str) }.{
+	##
+	## `fixed` holds the values of a write that the program knows only
+	## when it runs (a row, a key, a patch): the text names value `j` with
+	## `fixed_mark(j)`, and `prepared_of` makes each a slot after those of
+	## the clauses, so it is a var `$_k` too.
+	Statement := { surql : Str, vars : List({ name : Str, value : Ql.Value }), inlined : Str, intrinsic : List(Str), fixed : List(Ql.Value) }.{
 
 		## The readable form, for a log or a script: a `LET` line per
 		## parameter, then the statement. A session does not send it: it
@@ -2865,8 +2869,9 @@ Surreal :: {}.{
 	Slot : { at : U64, ty : Code.Ty, table : [Any, Of(Str)] }
 
 	## A slot of a statement: its type, the table a key must name, and its
-	## value once the chain's call gives it.
-	Bind : { ty : Code.Ty, table : [Any, Of(Str)], value : [Pending, Given(Code.Value)] }
+	## value once the chain's call gives it. A value of a write (a row, a
+	## key) is `Fixed` from the start: it is already a SurrealQL value.
+	Bind : { ty : Code.Ty, table : [Any, Of(Str)], value : [Pending, Given(Code.Value), Fixed(Ql.Value)] }
 
 	## What a terminal call builds. `statement` has a `Translate.slot_mark`
 	## for each captured value, and `slots` the type and the value of each,
@@ -3240,7 +3245,7 @@ Surreal :: {}.{
 		request = |watch| {
 			w = watch_of(watch)?
 			lines = w.lives.map(|l| "${l.surql};").append(w.snapshot)
-			statement = resolved({ statement: Statement.({ surql: Str.join_with(lines, "\n"), vars: w.lets, inlined: "", intrinsic: [] }), slots: w.slots, count: 0, atomic: No, read: |_| Ok({}) })?
+			statement = resolved({ statement: Statement.({ surql: Str.join_with(lines, "\n"), vars: w.lets, inlined: "", intrinsic: [], fixed: [] }), slots: w.slots, count: 0, atomic: No, read: |_| Ok({}) })?
 			statement.request()
 		}
 
@@ -4980,10 +4985,10 @@ key_range = |name, low, high| {
 ## The record id of `id` in the table `t`, its key escaped
 ## (`Ql.record_id`). An id of another table is refused: two tables
 ## can have the same row type.
-record_at : { name : Str, kind : TableKind }, Id(row) -> Try(Str, Error)
+record_at : { name : Str, kind : TableKind }, Id(row) -> Try(Ql.Value, Error)
 record_at = |t, Id.(i)|
 	if i.table == t.name {
-		Ok(Ql.record_id(t.name, i.key))
+		Ok(Ql.Value.Record({ table: t.name, key: i.key }))
 	} else {
 		Err(Unsupported("the id `${Ql.record_id(i.table, i.key)}` is of the table `${i.table}`, not of `${t.name}`"))
 	}
@@ -5022,14 +5027,15 @@ key_of = |t, key| {
 keyed_merge : Str, { name : Str, kind : TableKind }, Id(row), a -> Try(Statement, Error) where [a.encoder_for : Encode.Format -> (a, Encode.State -> Try(Encode.State, []))]
 keyed_merge = |verb, t, row_id, partial| {
 	record = record_at(t, row_id)?
-	merge_write(verb, t, record, partial)
+	merge_write(verb, t, Key(record), partial)
 }
 
 ## The `DELETE` of the record of a row.
 delete_of : { name : Str, kind : TableKind }, a -> Try(Statement, Error) where [a.encoder_for : Encode.Format -> (a, Encode.State -> Try(Encode.State, []))]
 delete_of = |t, row| {
 	writable(t)?
-	Ok(statement_of("DELETE ${ref_of(t, row)?.to_str()}"))
+	Ref.(at) = ref_of(t, row)?
+	Ok(valued("DELETE ${fixed_mark(0)}", [Ql.Value.Ref(at)]))
 }
 
 ## The graph of a clause that the database stores: a schema rule, an
@@ -5256,7 +5262,33 @@ set_list : List({ name : Str, surql : Str }) -> Str
 set_list = |sets| Str.join_with(sets.map(|a| "${a.name} = ${a.surql}"), ", ")
 
 statement_of : Str -> Statement
-statement_of = |surql| Statement.({ surql, vars: [], inlined: surql, intrinsic: [] })
+statement_of = |surql| Statement.({ surql, vars: [], inlined: surql, intrinsic: [], fixed: [] })
+
+## A statement of a write whose text names the value `j` of `values`
+## with `fixed_mark(j)`.
+valued : Str, List(Ql.Value) -> Statement
+valued = |surql, values| Statement.({ surql, vars: [], inlined: surql, intrinsic: [], fixed: values })
+
+## The mark of the value `j` of `Statement.fixed`: a slot mark from
+## `fixed_base` up, which `prepared_of` numbers after the slots of the
+## clauses.
+fixed_mark : U64 -> Str
+fixed_mark = |j| Translate.slot_mark(fixed_base + j)
+
+fixed_base : U64
+fixed_base = 1000000000
+
+## The statement with each value of `fixed` as a slot after the `binds`
+## of its clauses: a `Fixed` bind, and its mark numbered after them.
+fixed_slots : Statement, List(Bind) -> Try({ statement : Statement, binds : List(Bind) }, Error)
+fixed_slots = |Statement.(s), binds| {
+	n = binds.len()
+	renumber = |text| unmark(text, |k| Translate.slot_mark(if (k >= fixed_base) n + k - fixed_base else k))
+	surql = if (s.fixed.is_empty()) s.surql else renumber(s.surql)?
+	inlined = if (s.fixed.is_empty()) s.inlined else renumber(s.inlined)?
+	fixed = s.fixed.map(|v| { ty: Code.Ty.Record([]), table: Any, value: Fixed(v) })
+	Ok({ statement: Statement.({ ..s, surql, inlined, fixed: [] }), binds: binds.concat(fixed) })
+}
 
 ## The statement of a query, with the columns of its result that read an
 ## intrinsic.
@@ -5304,42 +5336,72 @@ content_write : Str, { name : Str, kind : TableKind }, a -> Try(Statement, Error
 content_write = |verb, t, row| {
 	writable(t)?
 	split = split_id(t, row)?
-	Ok(statement_of("${verb} ${Ql.record_ref(t.name, split.key)} CONTENT ${Ql.literal(Ql.Value.Object(split.fields))}"))
+	Ok(valued("${verb} ${fixed_mark(0)} CONTENT ${fixed_mark(1)}", [Ql.Value.Ref({ table: t.name, key: split.key }), Ql.Value.Object(split.fields)]))
 }
 
-## The `MERGE` of a record into the record at `target`: `verb` is
-## `UPDATE` or `UPSERT`. The fields of the record are those of its
-## encoding, the ends of an edge as `in` and `out`.
-merge_write : Str, { name : Str, kind : TableKind }, Str, a -> Try(Statement, Error) where [a.encoder_for : Encode.Format -> (a, Encode.State -> Try(Encode.State, []))]
+## The `MERGE` of a record into the record at `target`, the table or a
+## record id: `verb` is `UPDATE` or `UPSERT`. The fields of the record are
+## those of its encoding, the ends of an edge as `in` and `out`.
+merge_write : Str, { name : Str, kind : TableKind }, [Whole, Key(Ql.Value)], a -> Try(Statement, Error) where [a.encoder_for : Encode.Format -> (a, Encode.State -> Try(Encode.State, []))]
 merge_write = |verb, t, target, partial| {
 	writable(t)?
 	fields = ends_named(object_of(partial)?, t.kind)
 	if fields.any(|f| f.name == "id") {
 		return Err(Unsupported("a merge cannot change `id`, the record key"))
 	}
-	Ok(statement_of("${verb} ${target} MERGE ${Ql.literal(Ql.Value.Object(fields))}"))
+	match target {
+		Whole => Ok(valued("${verb} ${Ql.ident(t.name)} MERGE ${fixed_mark(0)}", [Ql.Value.Object(fields)]))
+		Key(key) => Ok(valued("${verb} ${fixed_mark(0)} MERGE ${fixed_mark(1)}", [key, Ql.Value.Object(fields)]))
+	}
 }
 
 ## One op of a JSON Patch for `UPDATE .. PATCH`: `{ op: 'replace', path:
-## '/n', value: 7 }`.
-patch_item : Op -> Try(Str, Error)
+## '/n', value: 7 }`. The value is the server's own, as it came in the
+## patch: it goes back in the vars as it is (`Ql.Value.Raw`), so a value
+## of any type is written back with its type.
+patch_item : Op -> Try(Ql.Value, Error)
 patch_item = |op| {
 	path = Diff.path_of(op)
 	if path.first() == Ok("id") {
 		return Err(Unsupported("a patch cannot change `id`, the record key (the op is at `${Diff.pointer_text(path)}`)"))
 	}
-	at = Ql.literal(Ql.Value.Str(Diff.pointer_text(path)))
-	given = |word, value| match value_of(value) {
-		Ok(v) => Ok("{ op: '${word}', path: ${at}, value: ${Ql.literal(v)} }")
-		Err(NoValue(why)) => Err(Unsupported("a patch with ${why} as a value"))
-	}
+	at = { name: "path", value: Ql.Value.Str(Diff.pointer_text(path)) }
+	given = |word, value| Ok(Ql.Value.Object([{ name: "op", value: Ql.Value.Str(word) }, at, { name: "value", value: raw_value(value) }]))
 	match op {
 		Add(_, value) => given("add", value)
 		Replace([], Null) => Err(Unsupported("a patch of a delete: delete the row with `delete_at`"))
 		Replace(_, value) => given("replace", value)
-		Remove(_) => Ok("{ op: 'remove', path: ${at} }")
+		Remove(_) => Ok(Ql.Value.Object([{ name: "op", value: Ql.Value.Str("remove") }, at]))
 		Change(_, _) => Err(Unsupported("a `change` op is a text diff, and the ORM reads it and does not write it; replay the field with a `replace`"))
 	}
+}
+
+## A value of the server as it came, for a var, with its literal for
+## the readable form: the literal of `value_of`, or of a type that the
+## ORM does not write (a duration, a uuid, bytes).
+raw_value : Cbor.Value -> Ql.Value
+raw_value = |value| Ql.Value.Raw({ cbor: value, literal: raw_literal(value) })
+
+raw_literal : Cbor.Value -> Str
+raw_literal = |value| match value_of(value) {
+	Ok(v) => Ql.literal(v)
+	Err(_) =>
+		match value {
+			Array(items) => "[${Str.join_with(items.map(raw_literal), ", ")}]"
+			Map(entries) =>
+				"{ ${Str.join_with(entries.to_list().map(|(k, v)| match k { Text(name) => "${Ql.member(name)}: ${raw_literal(v)}", _ => "${Ql.quote(Str.inspect(k))}: ${raw_literal(v)}" }), ", ")} }"
+			Tag(14, Array([Int(secs), Int(nanos)])) =>
+				match (secs.to_i128() * 1000000000 + nanos.to_i128()).to_u64_try() {
+					Ok(n) => Ql.duration(n)
+					Err(_) => "NONE"
+				}
+			Tag(37, Bytes(bytes)) => match Rpc.Uuid.from_bytes(bytes) {
+				Ok(u) => "u'${u.to_str()}'"
+				Err(_) => "NONE"
+			}
+			Bytes(bytes) => "b\"${Str.join_with(bytes.map(Rpc.hex_byte), "")}\""
+			_ => "NONE"
+		}
 }
 
 ## The `RELATE` of an edge between the rows of `from` and `to`
@@ -5358,11 +5420,10 @@ relate_fields = |t, key, fields| {
 	from = field_of(fields, "in")?
 	to = field_of(fields, "out")?
 	rest = fields.keep_if(|f| f.name != "in" and f.name != "out")
-	edge = match key {
-		Ok(k) => Ql.record_ref(t.name, k)
-		Err(Generated) => Ql.ident(t.name)
+	match key {
+		Ok(k) => Ok(valued("RELATE ${fixed_mark(0)}->${fixed_mark(1)}->${fixed_mark(2)} CONTENT ${fixed_mark(3)}", [from, Ql.Value.Ref({ table: t.name, key: k }), to, Ql.Value.Object(rest)]))
+		Err(Generated) => Ok(valued("RELATE ${fixed_mark(0)}->${Ql.ident(t.name)}->${fixed_mark(1)} CONTENT ${fixed_mark(2)}", [from, to, Ql.Value.Object(rest)]))
 	}
-	Ok(statement_of("RELATE ${Ql.literal(from)}->${edge}->${Ql.literal(to)} CONTENT ${Ql.literal(Ql.Value.Object(rest))}"))
 }
 
 ## The fields of a new row with no key (`Table.create_new`,
@@ -5381,7 +5442,11 @@ stored_write = |t, built, gives| keyed_write(t, built, [], gives)
 
 ## `stored_write` of a statement over the slots of its clauses.
 keyed_write : { name : Str, kind : TableKind }, Try(Statement, Error), List(Slot), [After, Before] -> Prepared(List(row)) where [row.Cbor.Readable(errs)]
-keyed_write = |t, built, slots, gives| prepared_of(built.map_ok(|Statement.(s)| { statement: Statement.({ ..s, surql: "${s.surql}${return_clause(gives)}", inlined: "${s.inlined}${return_clause(gives)}" }), slots, count: 1, atomic: No, read: read_stored(0, is_edge(t.kind)) }))
+keyed_write = |t, built, slots, gives| prepared_of(built.map_ok(|statement| { statement: then_text(statement, return_clause(gives)), slots, count: 1, atomic: No, read: read_stored(0, is_edge(t.kind)) }))
+
+## The statement with more text after it, its values kept.
+then_text : Statement, Str -> Statement
+then_text = |Statement.(s), more| Statement.({ ..s, surql: "${s.surql}${more}", inlined: "${s.inlined}${more}" })
 
 ## The spelling of a parameter for a clause of `code`: a captured value
 ## is a mark of its slot in the chain (`Translate.slotted`).
@@ -5422,16 +5487,16 @@ given_binds = |slots, given| {
 					Ok(v) => { next: acc.next + 1, binds: acc.binds.append({ ..b, value: Given(v) }) }
 					Err(_) => { ..acc, binds: acc.binds.append(b) }
 				}
-			Given(_) => { ..acc, binds: acc.binds.append(b) }
+			Given(_) | Fixed(_) => { ..acc, binds: acc.binds.append(b) }
 		},
 	)
 	Ok(filled.binds)
 }
 
-is_pending : [Pending, Given(Code.Value)] -> Bool
+is_pending : [Pending, Given(Code.Value), Fixed(Ql.Value)] -> Bool
 is_pending = |value| match value {
 	Pending => Bool.True
-	Given(_) => Bool.False
+	Given(_) | Fixed(_) => Bool.False
 }
 
 ## The slots of a statement from the slots its clauses read, in the order
@@ -5523,6 +5588,7 @@ resolved = |ready| {
 					(Of(name), _) => Err(Unsupported("a key of `${name}` that is not an id"))
 				}
 			}
+			Fixed(v) => Ok(v)
 			Pending => Err(Unsupported("a captured value that the chain did not give"))
 		},
 	)?
@@ -5589,7 +5655,11 @@ prepared_of : Try({ statement : Statement, slots : List(Slot), count : U64, atom
 prepared_of = |built| Prepared.(
 	Code.Bound.of(
 		match built {
-			Ok(b) => binds_of(b.slots).map_ok(|binds| { statement: b.statement, slots: binds, count: b.count, atomic: b.atomic, read: b.read })
+			Ok(b) =>
+				match binds_of(b.slots) {
+					Ok(clause_binds) => fixed_slots(b.statement, clause_binds).map_ok(|f| { statement: f.statement, slots: f.binds, count: b.count, atomic: b.atomic, read: b.read })
+					Err(e) => Err(e)
+				}
 			Err(e) => Err(e)
 		},
 	),
@@ -5633,6 +5703,7 @@ then_statement = |Statement.(a), Statement.(b)| {
 						surql: "${a.surql};\n${b.surql}",
 						vars: a.vars.concat(b.vars.keep_if(|l| !a.vars.any(|m| m.name == l.name))),
 						inlined: "${a.inlined};\n${b.inlined}",
+						fixed: a.fixed.concat(b.fixed),
 						# check.py compares the result of the last statement.
 						intrinsic: b.intrinsic,
 					},
@@ -5651,8 +5722,7 @@ insert_body = |t, new_rows, back| {
 		Relation(_) => "INSERT RELATION INTO"
 		Normal | View => "INSERT INTO"
 	}
-	literals = Str.join_with(objects.map(|fields| Ql.literal(Ql.Value.Object(fields))), ", ")
-	Ok(statement_of("${head} ${Ql.ident(t.name)} [${literals}]${back}"))
+	Ok(valued("${head} ${Ql.ident(t.name)} ${fixed_mark(0)}${back}", [Ql.Value.Array(objects.map(|fields| Ql.Value.Object(fields)))]))
 }
 
 ## The statement between `BEGIN` and `COMMIT`, its `LET`s before them.
@@ -5682,7 +5752,7 @@ bound_statement = |render, params| {
 			Err(_) => Translate.variable(name)
 		},
 	)?
-	Ok(Statement.({ surql, vars: lets, inlined, intrinsic: [] }))
+	Ok(Statement.({ surql, vars: lets, inlined, intrinsic: [], fixed: [] }))
 }
 
 ## The `LET` of each field of the parameter record, by name.
