@@ -354,6 +354,10 @@ rollup = |rows| {
 expect same_rows(fevers.result(fevers_reply), kept_vitals.keep_if(|v| fever(v.temp_c, v.pulse)).map(vital_line))
 
 # The whole rows, with the key as the array `[kennel, time]`.
+# The range of a time series: the series and the two times are vars, and
+# the text names the range with them.
+expect kennel_a_rows.request().map_ok(|r| r.query().contains("FROM vital:[$_1, $_2]..[$_1, $_3]")) == Ok(Bool.True)
+expect inlined_of(kennel_a_rows).map_ok(|t| t.contains("FROM vital:[kennel:⟨a⟩, d'")) == Ok(Bool.True)
 expect kennel_a_rows.result(kennel_a_rows_reply).map_ok(|rows| rows.map(facts)) == Ok(kept_vitals.keep_if(|v| v.id.within(kennels.id("a"), day_start, day_end)).map(facts))
 
 # The `LET` has a result, which is not read.
@@ -633,9 +637,12 @@ close_notes = Surreal.from(case_notes).nearest(case_vectors, cough, Exact(2)).se
 close_coughs : Surreal.Prepared(List(Str))
 close_coughs = Surreal.from(case_notes).filter(|n| n.id != "n3").nearest(case_vectors, cough, Approx({ k: 1, ef: 40 })).select_value(|(n, _)| n.id).prepare({})
 
-expect request_of(ranked_notes) == Ok("SELECT record::id(id) AS id, search::highlight('*', '*', 1) AS marked, search::score(1) AS score FROM case_note WHERE body @1@ 'fever' ORDER BY score DESC;")
-expect request_of(close_notes) == Ok("SELECT vector::distance::knn() AS distance, record::id(id) AS id FROM case_note WHERE embedding <|2,EUCLIDEAN|> [0.1f, 0.8f] ORDER BY distance;")
-expect request_of(close_coughs) == Ok("SELECT VALUE record::id(id) FROM case_note WHERE (id != case_note:⟨n3⟩) AND (embedding <|1,40|> [0.1f, 0.8f]);")
+expect inlined_of(ranked_notes) == Ok("SELECT record::id(id) AS id, search::highlight('*', '*', 1) AS marked, search::score(1) AS score FROM case_note WHERE body @1@ 'fever' ORDER BY score DESC;")
+expect inlined_of(close_notes) == Ok("SELECT vector::distance::knn() AS distance, record::id(id) AS id FROM case_note WHERE embedding <|2,EUCLIDEAN|> [0.1f, 0.8f] ORDER BY distance;")
+expect inlined_of(close_coughs) == Ok("SELECT VALUE record::id(id) FROM case_note WHERE (id != case_note:⟨n3⟩) AND (embedding <|1,40|> [0.1f, 0.8f]);")
+# The terms of a search and the probe of a KNN are vars, as any value.
+expect request_of(ranked_notes) == Ok("LET $_1 = 'fever';\nSELECT record::id(id) AS id, search::highlight('*', '*', 1) AS marked, search::score(1) AS score FROM case_note WHERE body @1@ $_1 ORDER BY score DESC;")
+expect request_of(close_coughs) == Ok("LET $_1 = [0.1f, 0.8f];\nSELECT VALUE record::id(id) FROM case_note WHERE (id != case_note:⟨n3⟩) AND (embedding <|1,40|> $_1);")
 
 # The notes as stored, with their embeddings.
 expect ready(case_notes.insert(seed_case_notes)).result(insert_case_notes_reply) == Ok(seed_case_notes)

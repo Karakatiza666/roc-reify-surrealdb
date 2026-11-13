@@ -971,7 +971,7 @@ expect Surreal.from(reviews).search(review_text, "sturdy").select_value(|(r, _)|
 expect Surreal.from(reviews).nearest(review_vectors, [1, 0], Exact(2)).select_value(|(r, _)| r.id).live({}, []).request().map_ok(|r| r.to_script()) == Err(Unsupported("a live query has no full-text or vector search: a search reads its index, and a notice is of one written row; watch the rows with a `filter`, and search them when a notice comes"))
 
 # A prepared search, with a parameter of another filter.
-expect Surreal.from(reviews).search(review_text, "sturdy").filter_by(|p, (r, _)| r.product.id == p.product).select_value(|(r, _)| r.id).prepare({ product: pen_id }).request().map_ok(|r| r.to_script()) == Ok("LET $product = product:⟨pen⟩;\nSELECT VALUE record::id(id) FROM review WHERE (text @1@ 'sturdy') AND (product = $product);")
+expect Surreal.from(reviews).search(review_text, "sturdy").filter_by(|p, (r, _)| r.product.id == p.product).select_value(|(r, _)| r.id).prepare({ product: pen_id }).request().map_ok(|r| r.to_script()) == Ok("LET $product = product:⟨pen⟩;\nLET $_1 = 'sturdy';\nSELECT VALUE record::id(id) FROM review WHERE (text @1@ $_1) AND (product = $product);")
 
 # The types of CBOR v2 in a clause. `==` and `<` compare the fields of the
 # backing, so a `date` is its days and a `time` its nanoseconds; a captured

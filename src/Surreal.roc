@@ -1457,7 +1457,7 @@ Surreal :: {}.{
 					if !view.slots.is_empty() {
 						crash stored_message("a view")
 					}
-					Selected.render(Selected.(view), Translate.variable)
+					inline_fixed(Selected.render(Selected.(view), Translate.variable), view.fixed)
 				}
 			}
 			Def.({ source: { name: t.name, row_ty: stored_graph(per_group, "a view").root_row().result, kind: Types.Kind.View(select) }, rules: [], problems: [] })
@@ -2162,6 +2162,7 @@ Surreal :: {}.{
 		filters : List(Filter),
 		watched : List(Watched),
 		slots : List(Slot),
+		fixed : List(Ql.Value),
 	}.{
 
 		## The cut of filters, projections and keys (see `Surreal.code_primitives`).
@@ -2245,11 +2246,12 @@ Surreal :: {}.{
 		## `Analyzer.matches`. A live query refuses it.
 		search : Query(p, row), FullText(row), Str -> Query(p, (row, Hit))
 		search = |Query.(q), FullText.(f), terms| {
+			mark = fixed_mark(q.fixed.len())
 			clause = |at, _| match at {
-				Now => Ok(Translate.Binding.Infix("${f.path?} @1@ ${Ql.quote(terms)}"))
+				Now => Ok(Translate.Binding.Infix("${f.path?} @1@ ${mark}"))
 				Before => Err(live_search)
 			}
-			Query.({ ..q, source: paired(q.source, f.table, "1"), filters: q.filters.append(clause) })
+			Query.({ ..q, source: paired(q.source, f.table, "1"), filters: q.filters.append(clause), fixed: q.fixed.append(Ql.Value.Str(terms)) })
 		}
 
 		## The `k` rows whose vector is nearest the probe, by the vector
@@ -2262,6 +2264,7 @@ Surreal :: {}.{
 		## A live query refuses it.
 		nearest : Query(p, row), VectorIndex(row), List(F64), Knn -> Query(p, (row, Near))
 		nearest = |Query.(q), VectorIndex.(v), probe, knn| {
+			mark = fixed_mark(q.fixed.len())
 			clause = |at, _| match at {
 				Now => {
 					if probe.len() != v.dimension {
@@ -2271,11 +2274,11 @@ Surreal :: {}.{
 						Approx({ k, ef }) => "${k.to_str()},${ef.to_str()}"
 						Exact(k) => "${k.to_str()},${distance_name(v.distance)}"
 					}
-					Ok(Translate.Binding.Infix("${v.path?} <|${how}|> ${Ql.literal(Ql.Value.Array(probe.map(|x| Ql.Value.Float(x))))}"))
+					Ok(Translate.Binding.Infix("${v.path?} <|${how}|> ${mark}"))
 				}
 				Before => Err(live_search)
 			}
-			Query.({ ..q, source: paired(q.source, v.table, "vector::distance::knn()"), filters: q.filters.append(clause) })
+			Query.({ ..q, source: paired(q.source, v.table, "vector::distance::knn()"), filters: q.filters.append(clause), fixed: q.fixed.append(Ql.Value.Array(probe.map(|x| Ql.Value.Float(x)))) })
 		}
 
 		## The rows of one series of a time series with `from <= time < to`:
@@ -2284,12 +2287,16 @@ Surreal :: {}.{
 		between : Query(p, { id : TimeKey(s), ..others }), s, Datetime, Datetime -> Query(p, { id : TimeKey(s), ..others }) where [s.encoder_for : Encode.Format -> (s, Encode.State -> Try(Encode.State, []))]
 		between = |Query.(q), series, from, to| {
 			range = match q.target {
-				Whole(name) => key_range(name, TimeKey.({ series, time: from }), TimeKey.({ series, time: to }))
+				Whole(name) => key_range(name, q.fixed.len(), TimeKey.({ series, time: from }), TimeKey.({ series, time: to }))
 				Range(_) => Err(Unsupported("a query takes one `between`"))
 				Record(_) => Err(Unsupported("`between` reads a range of keys of a table, and this query reads the record of one key"))
 				Sub(_) => Err(Unsupported("`between` reads a range of keys of a table, and this query reads a subquery"))
 			}
-			Query.({ ..q, target: Range(range) })
+			values = match range {
+				Ok(r) => r.values
+				Err(_) => []
+			}
+			Query.({ ..q, target: Range(range.map_ok(|r| r.text)), fixed: q.fixed.concat(values) })
 		}
 
 		## The columns of the result. The function returns a record, and its
@@ -2422,7 +2429,10 @@ Surreal :: {}.{
 
 		## The statement, `GROUP ALL`.
 		to_surql : Totals(p, out) -> Try(Str, Error)
-		to_surql = |Totals.(selected)| Selected.render(selected, Translate.variable).map_ok(group_all)
+		to_surql = |Totals.(selected)| {
+			Selected.(s) = selected
+			inline_fixed(Selected.render(selected, Translate.variable).map_ok(group_all), s.fixed)
+		}
 
 		## As `Selected.prepare`, and the result is the row itself: the
 		## database always gives one.
@@ -2472,6 +2482,7 @@ Surreal :: {}.{
 		limit : [Unlimited, Limit(Try(Str, Error))],
 		start : [FromFirst, Start(Try(Str, Error))],
 		slots : List(Slot),
+		fixed : List(Ql.Value),
 	}.{
 
 		## The cut of a filter of the result rows (see `Surreal.code_primitives`).
@@ -2527,8 +2538,8 @@ Surreal :: {}.{
 		query = |selected| {
 			Selected.(s) = selected
 			match (s.rows.over, s.order, s.limit, s.start, s.fetches) {
-				(Projected(fields), [], Unlimited, FromFirst, []) => Query.({ target: s.target, source: fields, filters: s.filters, watched: s.watched, slots: s.slots })
-				_ => Query.({ target: Sub(|param| Selected.render(selected, param).map_ok(|inner| "(${inner})")), source: { now: Ok(s.rows.nested), before: Err(Unsupported("a row of a subquery has no `$before`")), reach: Translate.Reach.Nothing }, filters: [], watched: [], slots: s.slots })
+				(Projected(fields), [], Unlimited, FromFirst, []) => Query.({ target: s.target, source: fields, filters: s.filters, watched: s.watched, slots: s.slots, fixed: s.fixed })
+				_ => Query.({ target: Sub(|param| Selected.render(selected, param).map_ok(|inner| "(${inner})")), source: { now: Ok(s.rows.nested), before: Err(Unsupported("a row of a subquery has no `$before`")), reach: Translate.Reach.Nothing }, filters: [], watched: [], slots: s.slots, fixed: s.fixed })
 			}
 		}
 
@@ -2545,7 +2556,10 @@ Surreal :: {}.{
 
 		## The statement with a `$name` for each parameter it reads.
 		to_surql : Selected(p, out) -> Try(Str, Error)
-		to_surql = |selected| Selected.render(selected, Translate.variable)
+		to_surql = |selected| {
+			Selected.(s) = selected
+			inline_fixed(Selected.render(selected, Translate.variable), s.fixed)
+		}
 
 		## The statement with a `LET` for each field of the parameter
 		## record, and the type of its result: the result rows, each read
@@ -3120,7 +3134,7 @@ Surreal :: {}.{
 	from : Table(row) -> Query(p, row)
 	from = |Table.(t)| {
 		edge = is_edge(t.kind)
-		Query.({ target: Whole(t.name), source: { now: Ok(Translate.table_row(t.name, edge)), before: Ok(Translate.document("$before", edge)), reach: Translate.row_reach(edge) }, filters: [], watched: [], slots: [] })
+		Query.({ target: Whole(t.name), source: { now: Ok(Translate.table_row(t.name, edge)), before: Ok(Translate.document("$before", edge)), reach: Translate.row_reach(edge) }, filters: [], watched: [], slots: [], fixed: [] })
 	}
 
 	# ======================================================= live queries
@@ -4974,12 +4988,16 @@ ascii_runs = |bytes, by_class| {
 	if ($current.is_empty()) $runs else $runs.append($current)
 }
 
-## The keys from `low` to `high`, `high` left out: `t:[s, lo]..[s, hi]`.
-key_range : Str, TimeKey(s), TimeKey(s) -> Try(Str, Error) where [s.encoder_for : Encode.Format -> (s, Encode.State -> Try(Encode.State, []))]
-key_range = |name, low, high| {
-	lo = Encode.value_of(low)?
-	hi = Encode.value_of(high)?
-	Ok("${Ql.record_ref(name, lo)}..${Ql.literal(hi)}")
+## The keys from `low` to `high`, `high` left out: `t:[s, lo]..[s, hi]`,
+## where the series and the two times are values of the query, from the
+## place `first` of its `fixed` on.
+key_range : Str, U64, TimeKey(s), TimeKey(s) -> Try({ text : Str, values : List(Ql.Value) }, Error) where [s.encoder_for : Encode.Format -> (s, Encode.State -> Try(Encode.State, []))]
+key_range = |name, first, low, high| match (Encode.value_of(low)?, Encode.value_of(high)?) {
+	(Array([series, lo]), Array([_, hi])) => {
+		mark = |j| fixed_mark(first + j)
+		Ok({ text: "${Ql.ident(name)}:[${mark(0)}, ${mark(1)}]..[${mark(0)}, ${mark(2)}]", values: [series, lo, hi] })
+	}
+	_ => Err(Unsupported("a time key is the array of its series and its time"))
 }
 
 ## The record id of `id` in the table `t`, its key escaped
@@ -5068,7 +5086,7 @@ writable = |t| match t.kind {
 }
 
 ## A `Selected` of a query. `shape` is its columns, and its result row as one value.
-selected_of : { target : Target, filters : List(Filter), source : Rows, watched : List(Watched), slots : List(Slot) }, { columns : Clause, value : Clause, intrinsic : List(Str) }, ResultOrder, List(Clause), ResultRow -> Selected(p, out)
+selected_of : { target : Target, filters : List(Filter), source : Rows, watched : List(Watched), slots : List(Slot), fixed : List(Ql.Value) }, { columns : Clause, value : Clause, intrinsic : List(Str) }, ResultOrder, List(Clause), ResultRow -> Selected(p, out)
 selected_of = |q, shape, results, groups, rows| Selected.(
 	{
 		target: q.target,
@@ -5085,6 +5103,7 @@ selected_of = |q, shape, results, groups, rows| Selected.(
 		limit: Unlimited,
 		start: FromFirst,
 		slots: q.slots,
+		fixed: q.fixed,
 	},
 )
 
@@ -5293,7 +5312,29 @@ fixed_slots = |Statement.(s), binds| {
 ## The statement of a query, with the columns of its result that read an
 ## intrinsic.
 with_intrinsic : Statement, Selected(p, out) -> Statement
-with_intrinsic = |Statement.(st), Selected.(s)| Statement.({ ..st, intrinsic: s.intrinsic })
+with_intrinsic = |Statement.(st), Selected.(s)| Statement.({ ..st, intrinsic: s.intrinsic, fixed: s.fixed })
+
+## The text of a query with each of its run-time values (`fixed`)
+## written in as its literal: the form of `to_surql`, and of a view,
+## which SurrealDB stores.
+inline_fixed : Try(Str, Error), List(Ql.Value) -> Try(Str, Error)
+inline_fixed = |text, fixed|
+	if fixed.is_empty() {
+		text
+	} else {
+		unmark(
+			text?,
+			|k|
+				if k >= fixed_base {
+					match fixed.get(k - fixed_base) {
+						Ok(v) => Ql.literal(v)
+						Err(_) => "NONE"
+					}
+				} else {
+					Translate.slot_mark(k)
+				},
+		)
+	}
 
 ## The columns of the record a clause returns whose value reads an
 ## intrinsic of `Surreal`, by their Roc names: the translator's own
