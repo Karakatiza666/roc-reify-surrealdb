@@ -490,7 +490,7 @@ expect ready(all_of([bins.create(spare_bin), bins.create(rack_bin)])).result(spa
 # of the unique index applies, and the index again, over two bins with one
 # label, fails with the error of the index.
 migrate : List(Surreal.Defined), List(Surreal.Defined) -> Surreal.Prepared({})
-migrate = |old, new| match Surreal.plan(Surreal.schema(old) ?? "", new, V3).map_ok(|p| p.prepare(DropData)) {
+migrate = |old, new| match Surreal.plan(Surreal.schema(old) ?? "", new).map_ok(|p| p.prepare(DropData)) {
 	Ok(Ok([one])) => one
 	_ => crash "the schemas of client.roc translate, and each migration is one section"
 }
@@ -506,7 +506,7 @@ expect migrate(pinned, loose).result(unpin_labels_reply) == Ok({})
 expect migrate(loose, pinned).result(pin_labels_again_reply) == Err(Server(label_taken))
 
 # A migration with no statement has no section, so nothing is sent.
-expect Surreal.plan(Surreal.schema(loose) ?? "", loose, V3).map_ok(|p| p.prepare(DropData).map_ok(|all| all.len())) == Ok(Ok(0))
+expect Surreal.plan(Surreal.schema(loose) ?? "", loose).map_ok(|p| p.prepare(DropData).map_ok(|all| all.len())) == Ok(Ok(0))
 
 # ------------------------------------------- keys that the server makes
 

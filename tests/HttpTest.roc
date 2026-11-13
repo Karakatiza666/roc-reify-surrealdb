@@ -184,7 +184,7 @@ expect twins_in_list.result(twins_in_list_http).map_err(
 expect spares_in_list.result(spares_in_list_http) == Ok([[{ id: "b5", label: "Spare" }], [{ id: "b6", label: "Rack" }]])
 
 migrate : List(Surreal.Defined), List(Surreal.Defined) -> Surreal.Prepared({})
-migrate = |old, new| match Surreal.plan(Surreal.schema(old) ?? "", new, V3).map_ok(|p| p.prepare(DropData)) {
+migrate = |old, new| match Surreal.plan(Surreal.schema(old) ?? "", new).map_ok(|p| p.prepare(DropData)) {
 	Ok(Ok([one])) => one
 	_ => crash "the schemas of client.roc translate, and each migration is one section"
 }

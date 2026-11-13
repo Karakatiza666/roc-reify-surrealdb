@@ -396,7 +396,7 @@ loose_defs = [bins.define().done(), placements.define().done()]
 ## has one section here. An app runs migration files with
 ## `Session.migrate!` (see `migrate.roc`); a test runs a plan directly.
 migrate : List(Surreal.Defined), List(Surreal.Defined) -> Try(Surreal.Prepared({}), Surreal.Error)
-migrate = |old, new| match Surreal.plan(Surreal.schema(old)?, new, V3)?.prepare(DropData)? {
+migrate = |old, new| match Surreal.plan(Surreal.schema(old)?, new)?.prepare(DropData)? {
 	[one] => Ok(one)
 	_ => Err(Unsupported("this migration is not one section"))
 }

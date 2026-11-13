@@ -1800,26 +1800,20 @@ Surreal :: {}.{
 	schema : List(Defined) -> Try(Str, Error)
 	schema = |defined| Schema.script(defined)
 
-	## The server that a migration file is for: `V4` is SurrealDB 4 at
-	## compatibility level 4 (`MIGRATE EXISTING ROWS`, sections), `V3` is
-	## SurrealDB 3.3 and SurrealDB 4 at level 3 (`UPDATE` fills). An app
-	## keeps it as a constant; each file records it in its header.
-	MigrationTarget : Migrate.Target
-
 	## What a person reads before a migration file runs (`Plan.warnings`).
 	## Each is a `-- warning:` line of the file.
 	Warning : Migrate.Warning
 
 	## The diff from the snapshot `from` (the text of `schema` that the
 	## migrations make, "" for an empty database) to the schema `to`, for
-	## `target`. Only a statement that is new or changed is in it, so an
-	## index or a view that did not change is not built again. A rename is
-	## a drop and a definition.
-	plan : Str, List(Defined), MigrationTarget -> Try(Plan, Error)
-	plan = |from, to, target| {
+	## SurrealDB 4 at compatibility level 4. Only a statement that is new
+	## or changed is in it, so an index or a view that did not change is
+	## not built again. A rename is a drop and a definition.
+	plan : Str, List(Defined) -> Try(Plan, Error)
+	plan = |from, to| {
 		old = Migrate.lines(from)
 		new = Schema.script_lines(to)?
-		Ok(Plan.({ p: { steps: Schema.migration_steps(old, new, Schema.field_infos(to)?), target, old, new, from, replaces: [] } }))
+		Ok(Plan.({ p: { steps: Schema.migration_steps(old, new, Schema.field_infos(to)?), old, new, from, replaces: [] } }))
 	}
 
 	## Whether the snapshot is the schema: `Ok` with the tables and fields
@@ -1828,28 +1822,23 @@ Surreal :: {}.{
 	## file needs. For an `expect` next to the schema.
 	check : Str, List(Defined) -> Try({ pending_drops : List(Str) }, Error)
 	check = |snapshot, defined| {
-		planned = Surreal.plan(snapshot, defined, V4)?
+		planned = Surreal.plan(snapshot, defined)?
 		match planned.statements(KeepData).join() {
 			[] => Ok({ pending_drops: planned.dropped() })
 			pending => Err(Migration({ name: "", problem: Unplanned(pending) }))
 		}
 	}
 
-	## The text of a file that raises a database on SurrealDB 4 from
-	## compatibility level 3 to 4. Run it as the last `V3` file.
-	raise_compatibility : Str
-	raise_compatibility = "ALTER DATABASE COMPATIBILITY 4;"
-
 	## The steps of `plan`. A removed index, event, function, analyzer,
 	## access or view loses no row, and always runs. A dropped table or
 	## field loses its data, so it runs only with `DropData`. With
 	## `KeepData` it stays in the database and in the snapshot.
 	##
-	## | Change | `V3` | `V4` |
-	## | --- | --- | --- |
-	## | New field that is not optional, on a table that was there | `DEFINE FIELD`, then `UPDATE .. SET f = <DEFAULT> WHERE f IS NONE` | `DEFINE FIELD .. MIGRATE EXISTING ROWS AS .. USING <DEFAULT>` |
-	## | A type that does not take every old value | `DEFINE FIELD`, then `UPDATE .. SET f = <type> f` | `MIGRATE EXISTING ROWS .. USING <type> $value FALLBACK <DEFAULT>` |
-	## | Dropped field (`DropData`) | `REMOVE FIELD`, then `UPDATE .. UNSET f` | `REMOVE FIELD` (level 4 clears the values) |
+	## | Change | Statement |
+	## | --- | --- |
+	## | New field that is not optional, on a table that was there | `DEFINE FIELD .. MIGRATE EXISTING ROWS AS .. USING <DEFAULT>` |
+	## | A type that does not take every old value | `MIGRATE EXISTING ROWS .. USING <type> $value FALLBACK <DEFAULT>` |
+	## | Dropped field (`DropData`) | `REMOVE FIELD` (level 4 clears the values) |
 	##
 	## With no `DEFAULT`, or no cast, the file has a `-- reify: edit` line
 	## and a placeholder: the runner refuses it until a person writes the
@@ -1920,9 +1909,6 @@ Surreal :: {}.{
 		checksum : Migration -> Str
 		checksum = |Migration.(m)| m.file.checksum
 
-		target : Migration -> MigrationTarget
-		target = |Migration.(m)| m.file.target
-
 		## The count of the sections: each is one transaction.
 		sections : Migration -> U64
 		sections = |Migration.(m)| m.file.sections.len()
@@ -1933,18 +1919,19 @@ Surreal :: {}.{
 	}
 
 	## Reads a migration file: its header (`-- reify-surrealdb migration
-	## <name> target <V3|V4> from <hash> [replaces <name> ..]`) must name
+	## <name> target V4 from <hash> [replaces <name> ..]`) must name
 	## `name`. A `-- reify: edit` line is a `Migration` error with `Edit`;
 	## a `BEGIN`, `COMMIT` or `CANCEL` is a `Text` error, as the runner
 	## makes each section a transaction, and so is an index on a table
-	## that the same section of a `V4` file writes to.
+	## that the same section writes to. A file with `target V3`, for
+	## SurrealDB 3 (0.0.3 and before), is a `Migration` error with `Legacy`.
 	migration : Str, Str -> Try(Migration, Error)
 	migration = |name, text| Migrate.parse(name, text).map_ok(|file| Migration.({ file: file }))
 
 	## What `Session.migrate!` did: the files it ran, the squashed files
-	## it recorded and did not run, the records of the history that no
-	## file of the list has (a newer app applied them), and the server.
-	Applied : { ran : List(Str), adopted : List(Str), ahead : List(Str), server : [V3x, V4x(U64)] }
+	## it recorded and did not run, and the records of the history that no
+	## file of the list has (a newer app applied them).
+	Applied : { ran : List(Str), adopted : List(Str), ahead : List(Str) }
 
 	# ======================================================== queries
 
@@ -3751,14 +3738,16 @@ Surreal :: {}.{
 		## the first section is created once, so one of them fails on it,
 		## reads the history again and goes on; no section runs twice. A
 		## file that the database applied and whose text changed, a file
-		## before an applied one, a `V4` file on a server that cannot run
-		## it and a squashed file over a part of its files are `Migration`
-		## errors, and nothing runs.
+		## before an applied one and a squashed file over a part of its
+		## files are `Migration`
+		## errors, and nothing runs. So is a database below compatibility
+		## level 4 (`Level`): a SurrealDB 3 datastore that was upgraded to
+		## SurrealDB 4 stays at level 3 until `ALTER DATABASE COMPATIBILITY 4`.
 		migrate! : Session, List(Migration) => Try({ session : Session, applied : Applied }, Error)
 		migrate! = |session, migrations| {
 			files = migrations.map(|Migration.(m)| m.file)
 			start = migration_state!(session)?
-			decided = Migrate.decide(start.history, files, start.server)?
+			decided = Migrate.decide(start.history, files, start.level)?
 			var $session = start.session
 			var $ran = []
 			var $adopted = []
@@ -3788,7 +3777,7 @@ Surreal :: {}.{
 						}
 				}
 			}
-			Ok({ session: $session, applied: { ran: $ran, adopted: $adopted, ahead: decided.ahead, server: start.server } })
+			Ok({ session: $session, applied: { ran: $ran, adopted: $adopted, ahead: decided.ahead } })
 		}
 
 		## Ends the live queries of a watch with the RPC method `kill`. Their
@@ -6455,9 +6444,10 @@ outcome_at = |outcomes, place| match outcomes.get(place) {
 	Err(_) => Err(Wire("the reply to the migration history has ${outcomes.len().to_str()} results"))
 }
 
-## The history table, the server and the history (`Migrate.bootstrap`).
-## Two runners that make the table at once can conflict: it tries again.
-migration_state! : Session => Try({ session : Session, history : List(Migrate.Row), server : Migrate.Server }, Error)
+## The history table, the compatibility level and the history
+## (`Migrate.bootstrap`). Two runners that make the table at once can
+## conflict: it tries again.
+migration_state! : Session => Try({ session : Session, history : List(Migrate.Row), level : U64 }, Error)
 migration_state! = |session| {
 	var $session = session
 	var $tries = 0
@@ -6473,7 +6463,7 @@ migration_state! = |session| {
 				level = outcome_at(got.outcomes, count - 2)?
 				history : List(Migrate.Row)
 				history = outcome_at(got.outcomes, count - 1)?
-				return Ok({ session: $session, history, server: Migrate.server_of(level) })
+				return Ok({ session: $session, history, level: Migrate.level_of(level)? })
 			}
 		}
 		$tries = $tries + 1

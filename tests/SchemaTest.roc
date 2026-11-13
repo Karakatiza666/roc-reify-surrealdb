@@ -971,8 +971,12 @@ products_v2 : Surreal.Table(ProductV2)
 products_v2 = Surreal.table("product")
 
 ## The plan from the snapshot of `old` to `new`.
-plan_of : List(Surreal.Defined), List(Surreal.Defined), Surreal.MigrationTarget -> Try(Surreal.Plan, Surreal.Error)
-plan_of = |old, new, target| Surreal.plan(Surreal.schema(old)?, new, target)
+plan_of : List(Surreal.Defined), List(Surreal.Defined) -> Try(Surreal.Plan, Surreal.Error)
+plan_of = |old, new| Surreal.plan(Surreal.schema(old)?, new)
+
+## The start of the hash of the snapshot of `old`: the name of a `MIGRATE`.
+seed_of : List(Surreal.Defined) -> Str
+seed_of = |old| Str.from_utf8(Crypto.SHA256.hash((Surreal.schema(old) ?? "").to_utf8()).to_hex().to_utf8().take_first(8)) ?? ""
 
 ## The customer loses its unique email and its check; the product loses
 ## `label` and `readonly`, and gets `sku`.
@@ -983,26 +987,26 @@ moved_new : List(Surreal.Defined)
 moved_new = [customers.define().done(), products_v2.define().default(|p| p.stock, 0).done()]
 
 moved : Try(Surreal.Plan, Surreal.Error)
-moved = plan_of(moved_old, moved_new, V3)
+moved = plan_of(moved_old, moved_new)
 
 expect moved.map_ok(|m| m.dropped()) == Ok(["product.label"])
-expect moved.map_ok(|m| m.statements(DropData)) == Ok([["REMOVE INDEX IF EXISTS customer_email_unique ON customer", "REMOVE FIELD IF EXISTS label ON product", "UPDATE product UNSET label RETURN NONE", "DEFINE FIELD OVERWRITE name ON customer TYPE string", "DEFINE FIELD OVERWRITE sku ON product TYPE string", "UPDATE product SET sku = NONE WHERE sku IS NONE RETURN NONE", "DEFINE FIELD OVERWRITE title ON product TYPE string"]])
+expect moved.map_ok(|m| m.statements(DropData)) == Ok([["REMOVE INDEX IF EXISTS customer_email_unique ON customer", "REMOVE FIELD IF EXISTS label ON product", "DEFINE FIELD OVERWRITE name ON customer TYPE string", "DEFINE FIELD OVERWRITE sku ON product TYPE string MIGRATE EXISTING ROWS AS m_${seed_of(moved_old)}_product_sku USING NONE", "DEFINE FIELD OVERWRITE title ON product TYPE string"]])
 
 # `sku` has no default: the plan cannot pick its value, so `prepare` refuses it.
 expect moved.map_ok(|m| m.prepare(DropData).is_err()) == Ok(Bool.True)
 
 # `KeepData` keeps the field and its data.
-expect moved.map_ok(|m| m.statements(KeepData)) == Ok([["REMOVE INDEX IF EXISTS customer_email_unique ON customer", "DEFINE FIELD OVERWRITE name ON customer TYPE string", "DEFINE FIELD OVERWRITE sku ON product TYPE string", "UPDATE product SET sku = NONE WHERE sku IS NONE RETURN NONE", "DEFINE FIELD OVERWRITE title ON product TYPE string"]])
+expect moved.map_ok(|m| m.statements(KeepData)) == Ok([["REMOVE INDEX IF EXISTS customer_email_unique ON customer", "DEFINE FIELD OVERWRITE name ON customer TYPE string", "DEFINE FIELD OVERWRITE sku ON product TYPE string MIGRATE EXISTING ROWS AS m_${seed_of(moved_old)}_product_sku USING NONE", "DEFINE FIELD OVERWRITE title ON product TYPE string"]])
 
 # A dropped table takes its fields, indexes and events with it, and the
 # same schema gives no statement and no section.
-expect plan_of([customer_def, product_def, order_def, purchased_def], [customer_def, product_def, order_def], V3).map_ok(|m| (m.dropped(), m.statements(KeepData), m.statements(DropData))) == Ok((["purchased"], [], [["REMOVE TABLE IF EXISTS purchased"]]))
-expect plan_of([customer_def, product_def], [customer_def, product_def], V4).map_ok(|m| (m.statements(DropData), m.is_empty(DropData))) == Ok(([], Bool.True))
-expect plan_of([customer_def, product_def], [customer_def, product_def], V4).map_ok(|m| m.prepare(DropData).map_ok(|all| all.len())) == Ok(Ok(0))
-expect plan_of([customer_def, product_def, order_def, purchased_def], [customer_def, product_def, order_def], V3).map_ok(|m| m.prepare(DropData).map_ok(|all| all.map(|p| p.request() ?? ""))) == Ok(Ok(["BEGIN;\nREMOVE TABLE IF EXISTS purchased;\nCOMMIT;"]))
+expect plan_of([customer_def, product_def, order_def, purchased_def], [customer_def, product_def, order_def]).map_ok(|m| (m.dropped(), m.statements(KeepData), m.statements(DropData))) == Ok((["purchased"], [], [["REMOVE TABLE IF EXISTS purchased"]]))
+expect plan_of([customer_def, product_def], [customer_def, product_def]).map_ok(|m| (m.statements(DropData), m.is_empty(DropData))) == Ok(([], Bool.True))
+expect plan_of([customer_def, product_def], [customer_def, product_def]).map_ok(|m| m.prepare(DropData).map_ok(|all| all.len())) == Ok(Ok(0))
+expect plan_of([customer_def, product_def, order_def, purchased_def], [customer_def, product_def, order_def]).map_ok(|m| m.prepare(DropData).map_ok(|all| all.map(|p| p.request() ?? ""))) == Ok(Ok(["BEGIN;\nREMOVE TABLE IF EXISTS purchased;\nCOMMIT;"]))
 
 # A schema that does not translate is its error.
-expect plan_of([customer_def], [orders.define().done()], V4).is_err()
+expect plan_of([customer_def], [orders.define().done()]).is_err()
 
 # A default is taken from the schema value, not from the text: a text
 # with clause words in it and a record are whole.
@@ -1021,8 +1025,7 @@ tags0 = Surreal.table("tag")
 tags1 : Surreal.Table(Tag1)
 tags1 = Surreal.table("tag")
 
-expect plan_of([tags0.define().done()], [tags1.define().default(|t| t.meta, { a: 1, b: "q VALUE r" }).done()], V3).map_ok(|m| m.statements(KeepData).join().keep_if(|l| l.starts_with("UPDATE"))) == Ok(["UPDATE tag SET meta = { a: 1, b: 'q VALUE r' } WHERE meta IS NONE RETURN NONE", "UPDATE tag SET note = 'x ASSERT y DEFAULT z' WHERE note IS NONE RETURN NONE"])
-expect plan_of([tags0.define().done()], [tags1.define().default(|t| t.meta, { a: 1, b: "q VALUE r" }).done()], V4).map_ok(|m| m.statements(KeepData).join().keep_if(|l| l.contains("MIGRATE")).map(|l| l.split_first(" USING ").map_ok(|p| p.after) ?? "")) == Ok(["{ a: 1, b: 'q VALUE r' }", "'x ASSERT y DEFAULT z'"])
+expect plan_of([tags0.define().done()], [tags1.define().default(|t| t.meta, { a: 1, b: "q VALUE r" }).done()]).map_ok(|m| m.statements(KeepData).join().keep_if(|l| l.contains("MIGRATE")).map(|l| l.split_first(" USING ").map_ok(|p| p.after) ?? "")) == Ok(["{ a: 1, b: 'q VALUE r' }", "'x ASSERT y DEFAULT z'"])
 
 # A `U64` is an `int` that is not negative: a value above the range of an
 # `int` is a decimal, and the type refuses it.

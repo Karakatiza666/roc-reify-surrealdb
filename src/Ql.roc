@@ -34,10 +34,11 @@ Ql :: {}.{
 	## | `Changed` | The database applied the file, and its text changed after that (the checksum) |
 	## | `OutOfOrder` | The file is not applied, and a later file of the list is |
 	## | `Edit` | The file still has a `-- reify: edit` line: write the value it asks for, then remove the line |
-	## | `Text(why)` | The runner does not read the file: its header, a `BEGIN` or `COMMIT`, an index and a write on one table in one section of a `V4` file, two files with one name |
-	## | `Target(t)` | A `V4` file and a server that cannot run it: SurrealDB 3, or a database at compatibility level 3 |
+	## | `Text(why)` | The runner does not read the file: its header, a `BEGIN` or `COMMIT`, an index and a write on one table in one section, two files with one name |
+	## | `Legacy` | The header has `target V3`: a file for SurrealDB 3, from 0.0.3 or before. With 0.0.3, raise the database to level 4 and squash the files into one `V4` file that `replaces` them; then upgrade |
+	## | `Level(l)` | The database is at a compatibility level below 4 (`found`), such as a SurrealDB 3 datastore upgraded to SurrealDB 4. `name` is "". Raise it with `ALTER DATABASE COMPATIBILITY 4` |
 	## | `Unplanned(statements)` | `Surreal.check`: the schema has changes that no migration file has |
-	MigrationProblem : [Changed, OutOfOrder, Edit, Text(Str), Target({ file : Str, server : Str }), Unplanned(List(Str))]
+	MigrationProblem : [Changed, OutOfOrder, Edit, Text(Str), Legacy, Level({ found : U64 }), Unplanned(List(Str))]
 
 	## Why the server refused a request or a statement: the `kind` of its
 	## error, and for the kind `Internal` (and a `Validation` of a type),

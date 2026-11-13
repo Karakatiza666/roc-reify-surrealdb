@@ -1,22 +1,18 @@
 import Ql
 import Schema
 
-# Migrations, pure: the statements of a plan for a target, in sections; the
+# Migrations, pure: the statements of a plan, in sections; the
 # text of a migration file and what the runner reads from it; and what the
 # runner does for each file, from the history. `Surreal` runs it.
 Migrate :: {}.{
-
-	## The server that a file is for: `V4` is SurrealDB 4 at compatibility
-	## level 4, `V3` is SurrealDB 3.3 and SurrealDB 4 at level 3.
-	Target : [V3, V4]
 
 	## What a plan does with a table or a field that the schema dropped.
 	Mode : [KeepData, DropData]
 
 	## The diff from the snapshot `from` (its statements `old`) to the
-	## statements `new` of a schema, for `target`. `replaces` names the
-	## files that a squashed file takes the place of.
-	Plan : { steps : List(Schema.Step), target : Migrate.Target, old : List(Str), new : List(Str), from : Str, replaces : List(Str) }
+	## statements `new` of a schema. `replaces` names the files that a
+	## squashed file takes the place of.
+	Plan : { steps : List(Schema.Step), old : List(Str), new : List(Str), from : Str, replaces : List(Str) }
 
 	## A statement of a section, and what a person must write in it first.
 	Item : { line : Str, edit : Try(Str, [NoEdit]) }
@@ -34,16 +30,11 @@ Migrate :: {}.{
 	]
 
 	## A migration file as the runner reads it: each section is the text
-	## between two `-- reify: commit` lines. `raises` is true when it has
-	## `ALTER DATABASE COMPATIBILITY 4`.
-	File : { name : Str, target : Migrate.Target, replaces : List(Str), sections : List(Str), checksum : Str, raises : Bool }
+	## between two `-- reify: commit` lines.
+	File : { name : Str, replaces : List(Str), sections : List(Str), checksum : Str }
 
 	## A record of the history table `_reify_migration`.
 	Row : { name : Str, checksum : Str, sections : U64, done : U64 }
-
-	## The server, as `INFO FOR DB` gives its compatibility level: none on
-	## SurrealDB 3, 3 or 4 on SurrealDB 4.
-	Server : [V3x, V4x(U64)]
 
 	## What the runner does with a file: run its sections from `from`
 	## (counted from 1), or record a squashed file whose replaced files
@@ -68,7 +59,6 @@ Migrate :: {}.{
 	## no statement has no section.
 	sections : Migrate.Plan, Migrate.Mode -> List(List(Migrate.Item))
 	sections = |p, mode| {
-		v4 = p.target == V4
 		drop = mode == DropData
 		moved = Migrate.migrated(p)
 		touched = moved.concat(
@@ -85,7 +75,7 @@ Migrate :: {}.{
 			(e.kind == "INDEX" and touched.contains(e.on)) or (e.kind == "TABLE" and views.contains(e.name))
 		}
 		seed = Migrate.hash(p.from).to_utf8().take_first(8)
-		context = { v4, drop, seed: Str.from_utf8(seed) ?? "" }
+		context = { drop, seed: Str.from_utf8(seed) ?? "" }
 		existed = p.old.map(Schema.entry)
 		removed_views = views.keep_if(|v| existed.any(|e| e.kind == "TABLE" and e.name == v)).map(|v| Migrate.plain("REMOVE TABLE IF EXISTS ${v}"))
 		first = removed_views.concat(
@@ -110,7 +100,7 @@ Migrate :: {}.{
 	plain : Str -> Migrate.Item
 	plain = |line| { line, edit: Err(NoEdit) }
 
-	## The tables that a `MIGRATE` (`V4`) or an `UPDATE` (`V3`) converts.
+	## The tables that a `MIGRATE` converts.
 	migrated : Migrate.Plan -> List(Str)
 	migrated = |p| p.steps.keep_oks(
 		|s| match s {
@@ -120,16 +110,12 @@ Migrate :: {}.{
 		},
 	)
 
-	## The views over a table that a `V4` plan migrates: SurrealDB 4
-	## refuses `MIGRATE EXISTING ROWS` on such a table (verified).
+	## The views over a table that a plan migrates: SurrealDB 4 refuses
+	## `MIGRATE EXISTING ROWS` on such a table (verified).
 	rebuilt_views : Migrate.Plan -> List(Str)
 	rebuilt_views = |p| {
 		moved = Migrate.migrated(p)
-		if p.target == V4 {
-			p.new.map(Schema.entry).keep_if(|e| e.kind == "TABLE" and Schema.is_view(e.line) and moved.contains(Migrate.view_source(e.line))).map(|e| e.name)
-		} else {
-			[]
-		}
+		p.new.map(Schema.entry).keep_if(|e| e.kind == "TABLE" and Schema.is_view(e.line) and moved.contains(Migrate.view_source(e.line))).map(|e| e.name)
 	}
 
 	## The table after the first `FROM` of a view.
@@ -167,18 +153,12 @@ Migrate :: {}.{
 		).map(|e| "REBUILD INDEX IF EXISTS ${e.name} ON ${e.on}")
 	}
 
-	## The statements of one step, for the target.
-	items : Schema.Step, { v4 : Bool, drop : Bool, seed : Str } -> List(Migrate.Item)
+	## The statements of one step.
+	items : Schema.Step, { drop : Bool, seed : Str } -> List(Migrate.Item)
 	items = |step, c| match step {
 		Define(line) | Remove(line) => [Migrate.plain(line)]
-		DropField(f) if c.drop =>
-			if c.v4 {
-				# Level 4 clears the old values itself (verified).
-				[Migrate.plain("REMOVE FIELD IF EXISTS ${f.path} ON ${f.table}")]
-			} else {
-				# A row that keeps a field with no definition refuses its next write (verified).
-				[Migrate.plain("REMOVE FIELD IF EXISTS ${f.path} ON ${f.table}"), Migrate.plain("UPDATE ${f.table} UNSET ${f.path} RETURN NONE")]
-			}
+		# Level 4 clears the old values itself (verified).
+		DropField(f) if c.drop => [Migrate.plain("REMOVE FIELD IF EXISTS ${f.path} ON ${f.table}")]
 		DropTable(t) if c.drop => [Migrate.plain("REMOVE TABLE IF EXISTS ${t}")]
 		DropField(_) | DropTable(_) => []
 		Fill(f) => {
@@ -187,34 +167,24 @@ Migrate :: {}.{
 				Ok(_) => Err(NoEdit)
 				Err(NoDefault) => Ok("write the value that the rows of `${f.table}` get for `${f.path}` in place of NONE")
 			}
-			if c.v4 {
-				[{ line: Migrate.migrating(f.line, c.seed, f.table, f.path, "USING ${value}"), edit: Migrate.referenced(f.line, edit) }]
-			} else {
-				[Migrate.plain(f.line), { line: "UPDATE ${f.table} SET ${f.path} = ${value} WHERE ${f.path} IS NONE RETURN NONE", edit }]
-			}
+			[{ line: Migrate.migrating(f.line, c.seed, f.table, f.path, "USING ${value}"), edit: Migrate.referenced(f.line, edit) }]
 		}
 		Retype(r) => {
 			to = Schema.unwrapped(r.to)
 			cast = Migrate.castable(to.inner)
 			convert = "write how an old value of `${r.table}.${r.path}` (${r.from}) becomes a ${r.to}"
-			if c.v4 {
-				fallback = match r.value {
-					Ok(v) => Ok(v)
-					Err(_) if to.optional => Ok("NONE")
-					Err(_) => Err(NoValue)
-				}
-				using = if (cast) "<${to.inner}> $value" else "$value"
-				edit = match (cast, fallback) {
-					(Bool.False, _) => Ok("${convert}, in place of $value")
-					(_, Err(_)) => Ok("write the value of `${r.table}.${r.path}` for a row whose old value does not convert, in place of the NONE after FALLBACK")
-					_ => Err(NoEdit)
-				}
-				[{ line: Migrate.migrating(r.line, c.seed, r.table, r.path, "USING ${using} FALLBACK ${fallback ?? "NONE"}"), edit: Migrate.referenced(r.line, edit) }]
-			} else if cast {
-				[Migrate.plain(r.line), Migrate.plain("UPDATE ${r.table} SET ${r.path} = <${to.inner}> ${r.path} WHERE ${r.path} IS NOT NONE RETURN NONE")]
-			} else {
-				[Migrate.plain(r.line), { line: "UPDATE ${r.table} SET ${r.path} = ${r.path} RETURN NONE", edit: Ok("${convert}, in place of the value after =") }]
+			fallback = match r.value {
+				Ok(v) => Ok(v)
+				Err(_) if to.optional => Ok("NONE")
+				Err(_) => Err(NoValue)
 			}
+			using = if (cast) "<${to.inner}> $value" else "$value"
+			edit = match (cast, fallback) {
+				(Bool.False, _) => Ok("${convert}, in place of $value")
+				(_, Err(_)) => Ok("write the value of `${r.table}.${r.path}` for a row whose old value does not convert, in place of the NONE after FALLBACK")
+				_ => Err(NoEdit)
+			}
+			[{ line: Migrate.migrating(r.line, c.seed, r.table, r.path, "USING ${using} FALLBACK ${fallback ?? "NONE"}"), edit: Migrate.referenced(r.line, edit) }]
 		}
 	}
 
@@ -353,19 +323,15 @@ Migrate :: {}.{
 		Dropped(name) => "`${name}` is not in the schema: DropData removes it and its data, KeepData keeps both"
 	}
 
-	target_name : Migrate.Target -> Str
-	target_name = |t| match t {
-		V3 => "V3"
-		V4 => "V4"
-	}
-
 	## The text of a migration file: the header, the warnings as
 	## comments, then the sections, split by `-- reify: commit`. A
 	## statement that needs a value has a `-- reify: edit` line before it.
+	## The header names the target `V4`, SurrealDB 4 at compatibility
+	## level 4: the one target there is, kept in the text for a later one.
 	file : Str, Migrate.Plan, Migrate.Mode -> Str
 	file = |name, p, mode| {
 		replaces = if (p.replaces.is_empty()) "" else " replaces ${Str.join_with(p.replaces, " ")}"
-		header = "-- reify-surrealdb migration ${name} target ${Migrate.target_name(p.target)} from ${Migrate.hash(p.from)}${replaces}"
+		header = "-- reify-surrealdb migration ${name} target V4 from ${Migrate.hash(p.from)}${replaces}"
 		warns = Migrate.warnings(p).map(|w| "-- warning: ${Migrate.warning_text(w)}")
 		body = Migrate.sections(p, mode).map(
 			|part| part.join_map(
@@ -381,9 +347,10 @@ Migrate :: {}.{
 	# ------------------------------------------------------------ files
 
 	## A migration file, read: the header, the sections, the checksum.
-	## A `-- reify: edit` line, a `BEGIN`, `COMMIT` or `CANCEL`, and, in a
-	## `V4` file, an index and a write on one table in one section are
-	## refused.
+	## A `-- reify: edit` line, a `BEGIN`, `COMMIT` or `CANCEL`, and an
+	## index and a write on one table in one section are refused. The
+	## header must have `target V4`. A file with `target V3` (written by
+	## 0.0.3 and before, for SurrealDB 3) is `Legacy`.
 	parse : Str, Str -> Try(Migrate.File, Ql.Error)
 	parse = |name, text| {
 		fail = |problem| Err(Migration({ name, problem }))
@@ -402,10 +369,10 @@ Migrate :: {}.{
 			Ok(at) => rest.drop_first(at + 1)
 			Err(_) => []
 		}
-		target = match after("target").first() {
-			Ok("V3") => V3
-			Ok("V4") => V4
-			_ => return fail(Text("the header has no `target V3` or `target V4`"))
+		match after("target").first() {
+			Ok("V4") => {}
+			Ok("V3") => return fail(Legacy)
+			_ => return fail(Text("the header has no `target V4`"))
 		}
 		replaces = after("replaces")
 		if !replaces.all(Migrate.is_name) {
@@ -423,15 +390,13 @@ Migrate :: {}.{
 			[[]],
 			|acc, l| if (l.trim() == "-- reify: commit") acc.append([]) else acc.drop_last(1).append((acc.last() ?? []).append(l)),
 		)
-		if target == V4 {
-			for (part, k) in parts.map_with_index(|p, k| (p, k)) {
-				match Migrate.index_with_writes(part) {
-					Ok(t) => return fail(Text("section ${(k + 1).to_str()} defines an index on `${t}` and writes to it or migrates it: SurrealDB 4 refuses that in one transaction, so put the index in a later section"))
-					Err(_) => {}
-				}
+		for (part, k) in parts.map_with_index(|p, k| (p, k)) {
+			match Migrate.index_with_writes(part) {
+				Ok(t) => return fail(Text("section ${(k + 1).to_str()} defines an index on `${t}` and writes to it or migrates it: SurrealDB 4 refuses that in one transaction, so put the index in a later section"))
+				Err(_) => {}
 			}
 		}
-		Ok({ name, target, replaces, sections: parts.map(|p| Str.join_with(p, "\n")), checksum, raises: text.with_ascii_uppercased().contains("ALTER DATABASE COMPATIBILITY 4") })
+		Ok({ name, replaces, sections: parts.map(|p| Str.join_with(p, "\n")), checksum })
 	}
 
 	## Letters, digits, `_`, `-` and `.`: a key of a record id as it is.
@@ -470,15 +435,19 @@ Migrate :: {}.{
 
 	# ------------------------------------------------------------ runner
 
-	## What the runner does, from the history and the server: each file
+	## What the runner does, from the history and the compatibility level
+	## of the database, which must be 4 (else `Level`): each file
 	## that is not applied runs, a partly applied one goes on from its
 	## next section, and a squashed file whose replaced files the
 	## database applied is recorded only. `ahead` names the records of the
 	## history that no file of the list has or replaces: a newer app
 	## applied them.
-	decide : List(Migrate.Row), List(Migrate.File), Migrate.Server -> Try({ actions : List(Migrate.Action), ahead : List(Str) }, Ql.Error)
-	decide = |history, files, server| {
+	decide : List(Migrate.Row), List(Migrate.File), U64 -> Try({ actions : List(Migrate.Action), ahead : List(Str) }, Ql.Error)
+	decide = |history, files, level| {
 		fail = |name, problem| Err(Migration({ name, problem }))
+		if level < 4 {
+			return fail("", Level({ found: level }))
+		}
 		names = files.map(|f| f.name)
 		match names.find_first(|n| names.keep_if(|m| m == n).len() > 1) {
 			Ok(n) => return fail(n, Text("two files of the list have this name"))
@@ -489,7 +458,6 @@ Migrate :: {}.{
 		row = |n| history.find_first(|h| h.name == n)
 		applied = history.map(|h| h.name)
 		complete = history.keep_if(|h| h.done >= h.sections).map(|h| h.name)
-		var $server = server
 		var $actions = []
 		for (f, at) in files.map_with_index(|f, at| (f, at)) {
 			match row(f.name) {
@@ -498,9 +466,7 @@ Migrate :: {}.{
 						return fail(f.name, Changed)
 					}
 					if h.done < h.sections {
-						Migrate.runs_on(f, $server)?
 						$actions = $actions.append(Run({ name: f.name, from: h.done + 1 }))
-						$server = Migrate.after(f, $server)
 					}
 				}
 				Err(_) =>
@@ -514,27 +480,12 @@ Migrate :: {}.{
 						if later {
 							return fail(f.name, OutOfOrder)
 						}
-						Migrate.runs_on(f, $server)?
 						$actions = $actions.append(Run({ name: f.name, from: 1 }))
-						$server = Migrate.after(f, $server)
 					}
 			}
 		}
 		Ok({ actions: $actions, ahead })
 	}
-
-	## A `V4` file needs SurrealDB 4 at level 4: at level 3 a dropped
-	## field keeps its values, and SurrealDB 3 cannot read `MIGRATE`.
-	runs_on : Migrate.File, Migrate.Server -> Try({}, Ql.Error)
-	runs_on = |f, server| match (f.target, server) {
-		(V4, V3x) => Err(Migration({ name: f.name, problem: Target({ file: "V4", server: "SurrealDB 3" }) }))
-		(V4, V4x(level)) if level < 4 => Err(Migration({ name: f.name, problem: Target({ file: "V4", server: "SurrealDB 4 at compatibility level ${level.to_str()}: raise it first (Surreal.raise_compatibility)" }) }))
-		_ => Ok({})
-	}
-
-	## The server after a file that raises the level.
-	after : Migrate.File, Migrate.Server -> Migrate.Server
-	after = |f, server| if f.raises V4x(4) else server
 
 	## The record of a file in the history.
 	record : Str -> Str
@@ -550,7 +501,7 @@ Migrate :: {}.{
 		last = k == count
 		mark = if k == 1 {
 			applied = if (last) ", applied_at: time::now()" else ""
-			"CREATE ${Migrate.record(f.name)} CONTENT { checksum: '${f.checksum}', target: '${Migrate.target_name(f.target)}', sections: ${count.to_str()}, done: 1, kind: 'run'${applied} } RETURN NONE;"
+			"CREATE ${Migrate.record(f.name)} CONTENT { checksum: '${f.checksum}', target: 'V4', sections: ${count.to_str()}, done: 1, kind: 'run'${applied} } RETURN NONE;"
 		} else {
 			applied = if (last) ", applied_at = time::now()" else ""
 			"IF (SELECT VALUE done FROM ONLY ${Migrate.record(f.name)}) != ${(k - 1).to_str()} { THROW 'reify: another runner applied section ${k.to_str()} of ${f.name}' };\nUPDATE ${Migrate.record(f.name)} SET done = ${k.to_str()}${applied} RETURN NONE;"
@@ -563,17 +514,19 @@ Migrate :: {}.{
 	adopt : Migrate.File -> Str
 	adopt = |f| {
 		count = f.sections.len().to_str()
-		"CREATE ${Migrate.record(f.name)} CONTENT { checksum: '${f.checksum}', target: '${Migrate.target_name(f.target)}', sections: ${count}, done: ${count}, kind: 'squash', applied_at: time::now() } RETURN NONE;"
+		"CREATE ${Migrate.record(f.name)} CONTENT { checksum: '${f.checksum}', target: 'V4', sections: ${count}, done: ${count}, kind: 'squash', applied_at: time::now() } RETURN NONE;"
 	}
 
 	## The history table, the level of the server and the history, in one
 	## request. Each `DEFINE` is `IF NOT EXISTS`, so it costs nothing after
-	## the first run. The last two results are the level and the rows.
+	## the first run. The last two results are the level and the rows. A
+	## history of 0.0.3 or before keeps its `target` type, `'V3' | 'V4'`,
+	## which takes the `'V4'` that the runner writes.
 	bootstrap : Str
 	bootstrap =
 		\\DEFINE TABLE IF NOT EXISTS _reify_migration SCHEMAFULL PERMISSIONS NONE;
 		\\DEFINE FIELD IF NOT EXISTS checksum ON _reify_migration TYPE string;
-		\\DEFINE FIELD IF NOT EXISTS target ON _reify_migration TYPE 'V3' | 'V4';
+		\\DEFINE FIELD IF NOT EXISTS target ON _reify_migration TYPE 'V4';
 		\\DEFINE FIELD IF NOT EXISTS sections ON _reify_migration TYPE int;
 		\\DEFINE FIELD IF NOT EXISTS done ON _reify_migration TYPE int;
 		\\DEFINE FIELD IF NOT EXISTS kind ON _reify_migration TYPE 'run' | 'squash';
@@ -581,10 +534,11 @@ Migrate :: {}.{
 		\\RETURN <string> ((INFO FOR DB).compatibility ?? 'none');
 		\\SELECT record::id(id) AS name, checksum, sections, done FROM _reify_migration;
 
-	## The server from the level that `bootstrap` reads.
-	server_of : Str -> Migrate.Server
-	server_of = |level| match U64.from_str(level) {
-		Ok(n) => V4x(n)
-		Err(_) => V3x
+	## The compatibility level that `bootstrap` reads. SurrealDB 3 has no
+	## level: `none`, and the error says that it is not SurrealDB 4.
+	level_of : Str -> Try(U64, Ql.Error)
+	level_of = |level| match U64.from_str(level) {
+		Ok(n) => Ok(n)
+		Err(_) => Err(Wire("INFO FOR DB has no compatibility level (`${level}`): the server is not SurrealDB 4"))
 	}
 }

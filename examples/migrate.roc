@@ -39,11 +39,6 @@ schema = [bins.define().default(|b| b.size, 1).index(|b| b.size).done()]
 
 # ------------------------------------------------------------- the files
 
-## The server that the files are for: `V4` for SurrealDB 4 at compatibility
-## level 4, `V3` for SurrealDB 3.3.
-db_target : Surreal.MigrationTarget
-db_target = V4
-
 ## The folder of `snapshot` and of the files, from where `roc` runs.
 folder : Str
 folder = "examples/db"
@@ -60,7 +55,7 @@ expect migrations.is_ok()
 ## Writes the next file and the new snapshot.
 plan! : Str, [KeepData, DropData] => Try({}, Str)
 plan! = |name, mode| {
-	planned = Surreal.plan(snapshot, schema, db_target).map_err(Str.inspect)?
+	planned = Surreal.plan(snapshot, schema).map_err(Str.inspect)?
 	if planned.is_empty(mode) {
 		return say!("The snapshot is the schema: no file to write.")
 	}
@@ -93,7 +88,7 @@ checked = |result| match result {
 squash! : Str => Try({}, Str)
 squash! = |name| {
 	names = migrations.map_err(Str.inspect)?.map(|m| m.name())
-	base = Surreal.plan("", schema, db_target).map_err(Str.inspect)?
+	base = Surreal.plan("", schema).map_err(Str.inspect)?
 	file = "${folder}/migrations/${name}.surql"
 	Path.unix(file).write_utf8!(base.replacing(names).to_file(name, DropData)).map_err(Str.inspect)?
 	Path.unix("${folder}/schema.surql").write_utf8!(base.snapshot(DropData)).map_err(Str.inspect)?
