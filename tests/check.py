@@ -2,7 +2,12 @@
 """Run the scripts that `roc examples/main.roc`, `roc tests/BuiltinsTest.roc`, `roc examples/monitoring.roc` and `roc examples/search.roc` print against SurrealDB and check every block.
 
 Blocks are separated by one blank line; a block has no blank line inside.
-Line 1 of a block is its header, then directive lines, then SurrealQL:
+Line 1 of a block is its header, then directive lines, then SurrealQL. A
+`-- vars: <hex>` line holds the CBOR map of the values of the `$name`s of the
+text, as the Roc session sends it: each block runs as an RPC `query` over
+HTTP with these vars. A `-- query:` block with vars ends with a `-- script`
+line and the same statements in readable form, a `LET` per value: it runs
+on `/sql` too, and must give the same result.
   -- schema | -- seed: T | -- accepts: N      all statements must be OK
   -- query: N | -- write: N                   last statement result is compared
        `-- roc: <SurrealQL literal>` (one line), `-- ordered` (else multiset),
@@ -353,6 +358,7 @@ def check_live(server, url, user, password, directives, body, record=None):
     """
     parts = body.split("\n-- write\n")
     request, writes = parts[0], parts[1:]
+    variables = directives.get("vars")
     roles = directives.get("roles", "").split(", ")
     statements = request.split("\n")
     lives = [i for i, line in enumerate(statements) if line.startswith("LIVE ")]
@@ -362,7 +368,7 @@ def check_live(server, url, user, password, directives, body, record=None):
     if record:
         session.recorded = []
     try:
-        reply = session.call("query", [request])
+        reply = session.call("query", [request] + ([] if variables is None else [Raw(variables)]))
         if "error" in reply:
             return f"database error: {reply['error']}"
         results = reply["result"]
@@ -431,7 +437,10 @@ def split_block(block):
     lines = block.strip().split("\n")
     directives = {}
     body = []
-    for line in lines[1:]:
+    for at, line in enumerate(lines[1:], 1):
+        if line == "-- script":
+            directives["script"] = "\n".join(lines[at + 1:])
+            break
         if line == "-- ordered":
             directives["ordered"] = True
         elif line.startswith("-- roc: "):
@@ -488,10 +497,21 @@ def check_block(server, header, directives, body, args):
         return None
     if kind not in ("schema", "seed", "query", "write", "rejects", "accepts"):
         return "unknown block header"
-    statements, error = server.run(body)
+    statements, error = server.rpc(body, directives.get("vars"))
     if error:
         return error
     errors = [s["result"] for s in statements if s["status"] != "OK"]
+    if kind == "query" and "script" in directives and not errors:
+        # The same statements with a `LET` for each value: both printers
+        # of a value, on one real query, must give the same result.
+        scripted, error = server.run(directives["script"])
+        if error or scripted[-1]["status"] != "OK":
+            return f"the -- script form failed: {error or scripted[-1]['result']}"
+        by_vars, by_lets = normal(statements[-1]["result"]), normal(scripted[-1]["result"])
+        if not directives.get("ordered") and isinstance(by_vars, list) and isinstance(by_lets, list):
+            by_vars, by_lets = sorted(by_vars, key=key), sorted(by_lets, key=key)
+        if by_vars != by_lets:
+            return f"with vars {json.dumps(by_vars)}, with LET {json.dumps(by_lets)}"
     if kind == "rejects":
         if not errors:
             return "the database accepted this write"

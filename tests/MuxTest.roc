@@ -60,8 +60,8 @@ watch_b = match Surreal.from(mux_b).select(|r| r).live({}, []).checked() {
 }
 
 # The recorder sends these texts (`MUX_WATCH` in `check.py`).
-expect watch_a.request() == Ok("LIVE SELECT VALUE { row: { id: record::id(id), v: v }, now: true } FROM mux_a;\nSELECT VALUE { ref: id, row: { id: record::id(id), v: v } } FROM mux_a;")
-expect watch_b.request() == Ok("LIVE SELECT VALUE { row: { id: record::id(id), v: v }, now: true } FROM mux_b;\nSELECT VALUE { ref: id, row: { id: record::id(id), v: v } } FROM mux_b;")
+expect watch_a.request().map_ok(|r| r.to_script()) == Ok("LIVE SELECT VALUE { row: { id: record::id(id), v: v }, now: true } FROM mux_a;\nSELECT VALUE { ref: id, row: { id: record::id(id), v: v } } FROM mux_a;")
+expect watch_b.request().map_ok(|r| r.to_script()) == Ok("LIVE SELECT VALUE { row: { id: record::id(id), v: v }, now: true } FROM mux_b;\nSELECT VALUE { ref: id, row: { id: record::id(id), v: v } } FROM mux_b;")
 
 live_a : Surreal.Live(Row)
 live_a = match watch_a.start(start_a) {

@@ -2778,30 +2778,85 @@ Surreal :: {}.{
 	}
 
 	## A statement ready for a driver: the text with a `$name` per parameter,
-	## the value each name is bound to, and the same text with the values
-	## written in. `surql` has no final `;`. `intrinsic` names the columns of
-	## its result that read an intrinsic (`intrinsic_columns`): SurrealDB
-	## computes them, and Roc has no value for them. A captured value is
-	## `$_1`, `$_2`, .., numbered across the statements of a request.
-	Statement := { surql : Str, lets : List({ name : Str, value : Ql.Value }), inlined : Str, intrinsic : List(Str) }.{
+	## the value each name is bound to (`vars`), and the same text with the
+	## values written in. `surql` has no final `;`. `intrinsic` names the
+	## columns of its result that read an intrinsic (`intrinsic_columns`):
+	## SurrealDB computes them, and Roc has no value for them. A captured
+	## value is `$_1`, `$_2`, .., numbered across the statements of a
+	## request.
+	Statement := { surql : Str, vars : List({ name : Str, value : Ql.Value }), inlined : Str, intrinsic : List(Str) }.{
 
-		## What a script holds: a `LET` line per parameter, then the statement.
+		## The readable form, for a log or a script: a `LET` line per
+		## parameter, then the statement. A session does not send it: it
+		## sends `request`, whose values are CBOR, not SurrealQL text.
 		to_script : Statement -> Str
 		to_script = |Statement.(s)| {
-			lets = s.lets.map(|l| "LET $${l.name} = ${Ql.literal(l.value)};")
+			lets = let_lines(s.vars)
 			Str.join_with(if (s.surql.is_empty()) lets else lets.append("${s.surql};"), "\n")
 		}
 
+		## What a session sends: the text with a `$name` per parameter, and
+		## the value of each as CBOR in the `vars` of the request
+		## (`Ql.cbor`). A value with no CBOR form is an error.
+		request : Statement -> Try(Request, Error)
+		request = |Statement.(s)| Request.of(if (s.surql.is_empty()) "" else "${s.surql};", s.vars)
+
 		## One block of a script that `check.py` runs: the header line, the
-		## directive lines (`-- ordered`, `-- roc: ..`), then the script. A
-		## statement whose result has columns that read an intrinsic says so
-		## in `-- intrinsic: a, b`: a `-- roc:` literal may leave those out,
-		## and only those.
+		## directive lines (`-- ordered`, `-- roc: ..`), the CBOR of the vars
+		## in hex (`-- vars:`), then the text. A statement whose result has
+		## columns that read an intrinsic says so in `-- intrinsic: a, b`: a
+		## `-- roc:` literal may leave those out, and only those. A query
+		## block with vars ends with `-- script` and the `LET` form
+		## (`to_script`): `check.py` runs both, and requires the same result.
 		block : Statement, Str, List(Str) -> Str
 		block = |Statement.(s), header, directives| {
 			named = if (s.intrinsic.is_empty()) [] else ["-- intrinsic: ${Str.join_with(s.intrinsic, ", ")}"]
-			Str.join_with(List.concat([header], named).concat(directives).append(Statement.(s).to_script()), "\n")
+			match Statement.(s).request() {
+				Ok(r) => {
+					script = if (s.vars.is_empty() or !header.starts_with("-- query")) [] else ["-- script", Statement.(s).to_script()]
+					Str.join_with(List.concat([header], named).concat(directives).concat(r.vars_lines()).append(r.query()).concat(script), "\n")
+				}
+				Err(e) => "-- unsupported ${header.drop_prefix("-- ")}: ${Str.inspect(e)}"
+			}
 		}
+	}
+
+	## One `query` request: SurrealQL text with a `$name` for each value,
+	## and the value of each name as CBOR, which the request sends in its
+	## `vars` (`Ql.cbor`). A value never goes through SurrealQL text, and
+	## every statement of the text sees each name. `to_script` is the same
+	## request in readable form, with a `LET` for each name, for a log.
+	## `Prepared.request` and `Watch.request` make one, and
+	## `Unchecked.send!` sends one.
+	Request :: { query : Str, vars : Cbor.Value, named : List({ name : Str, value : Ql.Value }) }.{
+
+		## The request of this text and these values.
+		of : Str, List({ name : Str, value : Ql.Value }) -> Try(Request, Error)
+		of = |query, named| Ok(Request.({ query, vars: Ql.vars(named)?, named }))
+
+		## A request of the app's own text, with a `$name` for each field of
+		## the parameter record. The names that SurrealDB protects or binds
+		## itself are refused, as by `prepare`.
+		with_vars : Str, p -> Try(Request, Error) where [p.encoder_for : Encode.Format -> (p, Encode.State -> Try(Encode.State, []))]
+		with_vars = |text, params| Request.of(text, lets_of(params)?)
+
+		## The text, with a `$name` for each value.
+		query : Request -> Str
+		query = |Request.(r)| r.query
+
+		## The CBOR map of the values, by name: the second parameter of the
+		## RPC `query`.
+		vars : Request -> Cbor.Value
+		vars = |Request.(r)| r.vars
+
+		## The readable form: a `LET $name = <literal>;` line for each
+		## value, then the text. It runs on `/sql` with the same result.
+		to_script : Request -> Str
+		to_script = |Request.(r)| Str.join_with(let_lines(r.named).append(r.query), "\n")
+
+		## The `-- vars:` line of a `check.py` block, when there is a value.
+		vars_lines : Request -> List(Str)
+		vars_lines = |Request.(r)| if (r.named.is_empty()) [] else ["-- vars: ${Str.join_with(Cbor.encode(r.vars).map(Rpc.hex_byte), "")}"]
 	}
 
 	## The type of a captured value of a clause, by its place among the
@@ -2858,18 +2913,18 @@ Surreal :: {}.{
 		}
 
 		## The statement, for a script or a `check.py` block: in a
-		## transaction, between `BEGIN` and `COMMIT`, with a `LET` for each
+		## transaction, between `BEGIN` and `COMMIT`, with a var for each
 		## parameter and each captured value.
 		statement : Prepared(out) -> Try(Statement, Error)
 		statement = |prepared| ready_statement(ready_of(prepared)?)
 
-		## The text of the `query` request: a `LET` line for each
-		## parameter, then the statements.
-		request : Prepared(out) -> Try(Str, Error)
-		request = |prepared| prepared.statement().map_ok(Statement.to_script)
+		## The `query` request: the statements, with a `$name` for each
+		## parameter and each captured value, and their values as CBOR
+		## `vars`. Its `to_script` is the readable form with `LET` lines.
+		request : Prepared(out) -> Try(Request, Error)
+		request = |prepared| prepared.statement()?.request()
 
-		## The reply to `request`, read as `out`. The result of a `LET` is
-		## not read. A request that the server refused, or a statement that
+		## The reply to `request`, read as `out`. A request that the server refused, or a statement that
 		## failed, is a `Server` error, by its kind; a unique index is an
 		## `Index`, since no schema is known here (`Session.run!` reads it
 		## as the session knows it). Pure.
@@ -2880,12 +2935,12 @@ Surreal :: {}.{
 		result_in : Prepared(out), List(U8), List(Schema.Known) -> Try(out, Error)
 		result_in = |prepared, bytes, indexes| {
 			ready = ready_of(prepared)?
-			Statement.(s) = ready_statement(ready)?
-			outcomes = query_outcomes(bytes, s.lets.len() + ready_size(ready), indexes)?
-			read_all(ready, outcomes.drop_first(s.lets.len()))
+			_ = ready_statement(ready)?
+			outcomes = query_outcomes(bytes, ready_size(ready), indexes)?
+			read_all(ready, outcomes)
 		}
 
-		## This statement, then the other, in one request: the `LET`s of
+		## This statement, then the other, in one request: the vars of
 		## both, which must give a name one value, then the statements of
 		## each, a transaction with its `BEGIN` and `COMMIT`. The captured
 		## values of the second are numbered after those of the first. Each
@@ -3020,7 +3075,16 @@ Surreal :: {}.{
 		query! : Session, Str => Try({ session : Session, reply : List(U8) }, Error)
 		query! = |session, text| {
 			Session.(s) = session
-			sent = post_request!(session, Cbor.encode(Rpc.query(s.next_id, text)))?
+			sent = post_request!(session, Cbor.encode(Rpc.query(s.next_id, text, Cbor.Value.Map(Cbor.ValueMap.empty()))))?
+			reply_for!(sent, s.next_id)
+		}
+
+		## `query!` of a request with vars: `Prepared.request`, or the app's
+		## own text with a parameter record (`Request.with_vars`).
+		send! : Session, Request => Try({ session : Session, reply : List(U8) }, Error)
+		send! = |session, request| {
+			Session.(s) = session
+			sent = post_request!(session, Cbor.encode(Rpc.query(s.next_id, request.query(), request.vars())))?
 			reply_for!(sent, s.next_id)
 		}
 
@@ -3165,17 +3229,19 @@ Surreal :: {}.{
 			Ok(watch)
 		}
 
-		## One `query` request: the `LET`s, the `LIVE`s, then the snapshot.
-		## The `LIVE`s come first, so no write between them and the
-		## snapshot is lost: the snapshot holds it, and a notice reports it
-		## again (`step` gives `Updated`). A captured value is a `LET` too,
-		## and the server fixes its value when the `LIVE` starts.
-		request : Watch(out) -> Try(Str, Error)
+		## One `query` request: the `LIVE`s, then the snapshot, with a var
+		## for each parameter and each captured value. The `LIVE`s come
+		## first, so no write between them and the snapshot is lost: the
+		## snapshot holds it, and a notice reports it again (`step` gives
+		## `Updated`). The server fixes the value of each var when the
+		## `LIVE` starts (verified: a later request or a session parameter
+		## of the same name does not change it).
+		request : Watch(out) -> Try(Request, Error)
 		request = |watch| {
 			w = watch_of(watch)?
-			lines = w.lives.map(|l| "${l.surql};").append("${w.snapshot};")
-			statement = resolved({ statement: Statement.({ surql: Str.join_with(lines, "\n"), lets: w.lets, inlined: "", intrinsic: [] }), slots: w.slots, count: 0, atomic: No, read: |_| Ok({}) })?
-			Ok(statement.to_script().drop_suffix(";"))
+			lines = w.lives.map(|l| "${l.surql};").append(w.snapshot)
+			statement = resolved({ statement: Statement.({ surql: Str.join_with(lines, "\n"), vars: w.lets, inlined: "", intrinsic: [] }), slots: w.slots, count: 0, atomic: No, read: |_| Ok({}) })?
+			statement.request()
 		}
 
 		## A `-- live:` block for `check.py`. `directives` hold the
@@ -3184,7 +3250,7 @@ Surreal :: {}.{
 		block = |watch, header, directives, writes| {
 			w = watch_of(watch)?
 			roles = w.lives.map(|l| role_name(l.role))
-			Ok(live_block(header, roles, directives, [watch.request()?], writes))
+			Ok(live_block(header, roles, directives, watch.request(), writes))
 		}
 
 		## Sort one notice into the changes of the result, by whether its
@@ -3228,9 +3294,8 @@ Surreal :: {}.{
 		start : Watch(out), List(U8) -> Try({ live : Live(out), view : View(out) }, Error) where [out.Cbor.Readable(errs)]
 		start = |watch, bytes| {
 			w = watch_of(watch)?
-			let_count = w.lets.len() + w.slots.len()
-			results = query_results(bytes, let_count + w.lives.len() + 1, [])?
-			ids = results.drop_first(let_count).take_first(w.lives.len()).map_try(uuid_of)?
+			results = query_results(bytes, w.lives.len() + 1, [])?
+			ids = results.take_first(w.lives.len()).map_try(uuid_of)?
 			lives = List.map2(w.lives, ids, |l, id| { id, role: l.role })
 			entries : List({ ref : Ref, row : Cbor.Value })
 			entries = read_cbor(Cbor.encode(results.last() ?? Cbor.Value.Null))?
@@ -3274,22 +3339,22 @@ Surreal :: {}.{
 
 	}
 
-	## A raw live query (`Selected.live_raw`): the `LET` of each parameter
-	## and one `LIVE SELECT`. It has no snapshot.
+	## A raw live query (`Selected.live_raw`): one `LIVE SELECT`, with a var
+	## for each parameter. It has no snapshot.
 	RawWatch(out) :: { lets : List({ name : Str, value : Ql.Value }), live : Str }.{
-		request : RawWatch(out) -> Try(Str, Error)
-		request = |RawWatch.(w)| Ok(Str.join_with(let_lines(w.lets).append("${w.live};"), "\n"))
+		request : RawWatch(out) -> Try(Request, Error)
+		request = |RawWatch.(w)| Request.of("${w.live};", w.lets)
 
 		## A `-- live:` block for `check.py`, with the `-- roc:` literal of
 		## `Mirror.events_literal` in `directives`.
 		block : RawWatch(out), Str, List(Str), List(Statement) -> Str
-		block = |watch, header, directives, writes| live_block(header, ["raw"], directives, [watch.request() ?? ""], writes)
+		block = |watch, header, directives, writes| live_block(header, ["raw"], directives, watch.request(), writes)
 
 		## The reply to `request`, read: the watch that runs, with the uuid
 		## of the `LIVE`. There is no snapshot, so the view is `{}`.
 		start : RawWatch(out), List(U8) -> Try({ live : RawLive(out), view : {} }, Error)
 		start = |RawWatch.(w), bytes| {
-			results = query_results(bytes, w.lets.len() + 1, [])?
+			results = query_results(bytes, 1, [])?
 			id = uuid_of(results.last() ?? Cbor.Value.Null)?
 			Ok({ live: RawLive.({ watch: RawWatch.(w), lives: [{ id, role: Node }] }), view: {} })
 		}
@@ -3320,21 +3385,21 @@ Surreal :: {}.{
 		}
 	}
 
-	## A live query of patches of the stored rows (`Query.live_diff`): the
-	## `LET` of each parameter and one `LIVE SELECT DIFF`.
+	## A live query of patches of the stored rows (`Query.live_diff`): one
+	## `LIVE SELECT DIFF`, with a var for each parameter.
 	DiffWatch(row) :: { lets : List({ name : Str, value : Ql.Value }), live : Str }.{
-		request : DiffWatch(row) -> Try(Str, Error)
-		request = |DiffWatch.(w)| Ok(Str.join_with(let_lines(w.lets).append("${w.live};"), "\n"))
+		request : DiffWatch(row) -> Try(Request, Error)
+		request = |DiffWatch.(w)| Request.of("${w.live};", w.lets)
 
 		block : DiffWatch(row), Str, List(Str), List(Statement) -> Str
-		block = |watch, header, directives, writes| live_block(header, ["diff"], directives, [watch.request() ?? ""], writes)
+		block = |watch, header, directives, writes| live_block(header, ["diff"], directives, watch.request(), writes)
 
 		## The reply to `request`, read: the watch that runs, with the uuid
 		## of the `LIVE`, and an empty view that its patches fill
 		## (`DiffView.apply`).
 		start : DiffWatch(row), List(U8) -> Try({ live : DiffLive(row), view : DiffView(row) }, Error)
 		start = |DiffWatch.(w), bytes| {
-			results = query_results(bytes, w.lets.len() + 1, [])?
+			results = query_results(bytes, 1, [])?
 			id = uuid_of(results.last() ?? Cbor.Value.Null)?
 			Ok({ live: DiffLive.({ watch: DiffWatch.(w), lives: [{ id, role: Node }] }), view: DiffView.empty({}) })
 		}
@@ -3819,7 +3884,7 @@ Surreal :: {}.{
 		## the view it starts from: the snapshot of a `Watch`, an empty
 		## `DiffView`, `{}` of a raw watch. A notice that comes before the
 		## reply stays in the inbox. `next!` reads what the watch gives.
-		live! : Session, watch => Try({ session : Session, live : live, view : view }, Error) where [watch.request : watch -> Try(Str, Error), watch.start : watch, List(U8) -> Try({ live : live, view : view }, Error), live.lives : live -> Lives]
+		live! : Session, watch => Try({ session : Session, live : live, view : view }, Error) where [watch.request : watch -> Try(Request, Error), watch.start : watch, List(U8) -> Try({ live : live, view : view }, Error), live.lives : live -> Lives]
 		live! = |session, watch| {
 			got = start!(session, watch.request()?)?
 			started = watch.start(got.reply)?
@@ -3893,8 +3958,8 @@ Surreal :: {}.{
 		send! = |session, prepared| {
 			Session.(s) = session
 			match prepared.request() {
-				Ok(text) => {
-					sent = post_request!(session, Cbor.encode(Rpc.query(s.next_id, text)))?
+				Ok(request) => {
+					sent = post_request!(session, Cbor.encode(Rpc.query(s.next_id, request.query(), request.vars())))?
 					Ok({ session: sent, ticket: Ticket.({ id: Ok(s.next_id) }) })
 				}
 				Err(e) => Ok({ session, ticket: Ticket.({ id: Err(e) }) })
@@ -5191,7 +5256,7 @@ set_list : List({ name : Str, surql : Str }) -> Str
 set_list = |sets| Str.join_with(sets.map(|a| "${a.name} = ${a.surql}"), ", ")
 
 statement_of : Str -> Statement
-statement_of = |surql| Statement.({ surql, lets: [], inlined: surql, intrinsic: [] })
+statement_of = |surql| Statement.({ surql, vars: [], inlined: surql, intrinsic: [] })
 
 ## The statement of a query, with the columns of its result that read an
 ## intrinsic.
@@ -5470,7 +5535,7 @@ resolved = |ready| {
 			Err(_) => "NONE"
 		},
 	)?
-	Ok(Statement.({ ..s, surql, lets: s.lets.concat(lets), inlined }))
+	Ok(Statement.({ ..s, surql, vars: s.vars.concat(lets), inlined }))
 }
 
 ## The text with each `Translate.slot_mark` replaced by `spell(k)`.
@@ -5558,7 +5623,7 @@ read_all = |p, outcomes| {
 then_statement : Statement, Statement -> Try(Statement, Error)
 then_statement = |Statement.(a), Statement.(b)| {
 	text = |l| Ql.literal(l.value)
-	clash = b.lets.find_first(|l| a.lets.any(|m| m.name == l.name and text(m) != text(l)))
+	clash = b.vars.find_first(|l| a.vars.any(|m| m.name == l.name and text(m) != text(l)))
 	match clash {
 		Ok(l) => Err(Unsupported("`$${l.name}` is bound to two different values in one script"))
 		Err(_) =>
@@ -5566,7 +5631,7 @@ then_statement = |Statement.(a), Statement.(b)| {
 				Statement.(
 					{
 						surql: "${a.surql};\n${b.surql}",
-						lets: a.lets.concat(b.lets.keep_if(|l| !a.lets.any(|m| m.name == l.name))),
+						vars: a.vars.concat(b.vars.keep_if(|l| !a.vars.any(|m| m.name == l.name))),
 						inlined: "${a.inlined};\n${b.inlined}",
 						# check.py compares the result of the last statement.
 						intrinsic: b.intrinsic,
@@ -5617,7 +5682,7 @@ bound_statement = |render, params| {
 			Err(_) => Translate.variable(name)
 		},
 	)?
-	Ok(Statement.({ surql, lets, inlined, intrinsic: [] }))
+	Ok(Statement.({ surql, vars: lets, inlined, intrinsic: [] }))
 }
 
 ## The `LET` of each field of the parameter record, by name.
@@ -5767,10 +5832,13 @@ event_value = |event| {
 ## One `-- live:` block for `check.py`: the header, the role of each
 ## `LIVE` statement in order, the directives, the request, then each
 ## write after a `-- write` line.
-live_block : Str, List(Str), List(Str), List(Str), List(Statement) -> Str
-live_block = |header, roles, directives, request, writes| {
-	lines = [header, "-- roles: ${Str.join_with(roles, ", ")}"].concat(directives).concat(request)
-	Str.join_with(writes.fold(lines, |acc, w| acc.append("-- write").append(w.to_script())), "\n")
+live_block : Str, List(Str), List(Str), Try(Request, Error), List(Statement) -> Str
+live_block = |header, roles, directives, built, writes| match built {
+	Ok(request) => {
+		lines = [header, "-- roles: ${Str.join_with(roles, ", ")}"].concat(directives).concat(request.vars_lines()).append(request.query())
+		Str.join_with(writes.fold(lines, |acc, w| acc.append("-- write").append(w.to_script())), "\n")
+	}
+	Err(e) => "-- unsupported ${header.drop_prefix("-- ")}: ${Str.inspect(e)}"
 }
 
 ## The options of each read of the server's CBOR: a tag 6 (NONE)
@@ -6207,13 +6275,13 @@ post_request! = |Session.(s), request| {
 	Ok(Session.({ ..s, connection: sent.connection, next_id: s.next_id + 1, inbox }))
 }
 
-## Sends the text of a watch, and reads its reply. The notices that
+## Sends the request of a watch, and reads its reply. The notices that
 ## come before the reply are held (`Inbox.start`).
-start! : Session, Str => Try({ session : Session, reply : List(U8) }, Error)
-start! = |session, text| {
+start! : Session, Request => Try({ session : Session, reply : List(U8) }, Error)
+start! = |session, request| {
 	Session.(s) = session
 	_ = push_of(session)?
-	sent = post_request!(Session.({ ..s, inbox: s.inbox.start() }), Cbor.encode(Rpc.query(s.next_id, text)))?
+	sent = post_request!(Session.({ ..s, inbox: s.inbox.start() }), Cbor.encode(Rpc.query(s.next_id, request.query(), request.vars())))?
 	reply_for!(sent, s.next_id)
 }
 

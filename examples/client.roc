@@ -757,7 +757,7 @@ login = Root({ ns: "roc", db: "roc_surreal", user: "root", pass: "root" })
 Run : { session : Surreal.Session, failures : U64, record : [Keep(Str), Drop] }
 
 ## Sends one prepared statement and reads its result. When the app
-## records, it sends the request with `query!` and saves the reply before
+## records, it sends the request with `send!` and saves the reply before
 ## it reads it; else it runs it with `run!`. A statement that fails is an
 ## error in the result, and the session goes on; a `Transport` or
 ## `WebSocket` error ends
@@ -767,7 +767,7 @@ send! = |run, name, prepared| match run.record {
 	Keep(folder) => {
 		match prepared.request() {
 			Ok(request) => {
-				done = Surreal.Unchecked.query!(run.session, request).map_err(Str.inspect)?
+				done = Surreal.Unchecked.send!(run.session, request).map_err(Str.inspect)?
 				Path.unix("${folder}/${name}.cbor").write_bytes!(done.reply).map_err(Str.inspect)?
 				Ok({ session: done.session, result: Surreal.Unchecked.result(done.session, prepared, done.reply) })
 			}

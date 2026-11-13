@@ -16,7 +16,11 @@ uuid = [1, 35, 69, 103, 137, 171, 205, 239, 1, 35, 69, 103, 137, 171, 205, 239]
 
 expect Rpc.signin(1, { user: "root", pass: "root" }) == { id: 1, method: "signin", params: [{ user: "root", pass: "root" }] }
 expect Rpc.use_db(2, "roc", "roc_surreal") == { id: 2, method: "use", params: ["roc", "roc_surreal"] }
-expect Rpc.query(3, "LIVE SELECT DIFF FROM vital;") == { id: 3, method: "query", params: ["LIVE SELECT DIFF FROM vital;"] }
+expect Rpc.query(3, "LIVE SELECT DIFF FROM vital;", Cbor.Value.Map(Cbor.ValueMap.empty())) == { id: 3, method: "query", params: [Cbor.Value.Text("LIVE SELECT DIFF FROM vital;")] }
+
+# The vars of a query are its second parameter: a map of each name.
+expect Rpc.query(3, "RETURN $n", Diff.vmap([(Text("n"), Int(5))])) == { id: 3, method: "query", params: [Cbor.Value.Text("RETURN $n"), Diff.vmap([(Text("n"), Int(5))])] }
+expect Cbor.encode(Rpc.query(3, "RETURN $n", Diff.vmap([(Text("n"), Int(5))]))) == [163, 98, 105, 100, 3, 102, 109, 101, 116, 104, 111, 100, 101, 113, 117, 101, 114, 121, 102, 112, 97, 114, 97, 109, 115, 130, 105, 82, 69, 84, 85, 82, 78, 32, 36, 110, 161, 97, 110, 5]
 expect Rpc.authenticate(4, "eyJ.a.b") == { id: 4, method: "authenticate", params: ["eyJ.a.b"] }
 expect Rpc.invalidate(5) == { id: 5, method: "invalidate", params: [] }
 

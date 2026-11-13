@@ -498,7 +498,7 @@ customer_table = Surreal.table("customer")
 customers_at : List(Address) -> Surreal.Prepared(List(Customer))
 customers_at = |places| Surreal.from(customer_table).filter(|c| places.contains(c.address)).ready()
 
-expect customers_at([{ city: "Paris" }, { city: "Rome", zip: "00100" }]).request() == Ok("LET $_1 = [{ city: 'Paris' }, { city: 'Rome', zip: '00100' }];\nSELECT address, born, record::id(id) AS id, name, tags FROM customer WHERE address IN $_1;")
+expect customers_at([{ city: "Paris" }, { city: "Rome", zip: "00100" }]).request().map_ok(|r| r.to_script()) == Ok("LET $_1 = [{ city: 'Paris' }, { city: 'Rome', zip: '00100' }];\nSELECT address, born, record::id(id) AS id, name, tags FROM customer WHERE address IN $_1;")
 
 # A direct `==` over a captured address compares the optional `zip` by
 # presence, then by value. The compiler gives that as a switch on each
@@ -508,13 +508,13 @@ expect customers_at([{ city: "Paris" }, { city: "Rome", zip: "00100" }]).request
 customer_at : Address -> Surreal.Prepared(List(Customer))
 customer_at = |place| Surreal.from(customer_table).filter(|c| c.address == place).ready()
 
-expect customer_at({ city: "Rome", zip: "00100" }).request() == Ok("LET $_1 = { city: 'Rome', zip: '00100' };\nSELECT address, born, record::id(id) AS id, name, tags FROM customer WHERE (address.city = $_1.city) AND (address.zip = $_1.zip);")
-expect customer_at({ city: "Paris" }).request() == Ok("LET $_1 = { city: 'Paris' };\nSELECT address, born, record::id(id) AS id, name, tags FROM customer WHERE (address.city = $_1.city) AND (address.zip = $_1.zip);")
+expect customer_at({ city: "Rome", zip: "00100" }).request().map_ok(|r| r.to_script()) == Ok("LET $_1 = { city: 'Rome', zip: '00100' };\nSELECT address, born, record::id(id) AS id, name, tags FROM customer WHERE (address.city = $_1.city) AND (address.zip = $_1.zip);")
+expect customer_at({ city: "Paris" }).request().map_ok(|r| r.to_script()) == Ok("LET $_1 = { city: 'Paris' };\nSELECT address, born, record::id(id) AS id, name, tags FROM customer WHERE (address.city = $_1.city) AND (address.zip = $_1.zip);")
 
 customer_not_at : Address -> Surreal.Prepared(List(Customer))
 customer_not_at = |place| Surreal.from(customer_table).filter(|c| c.address != place).ready()
 
-expect customer_not_at({ city: "Paris" }).request() == Ok("LET $_1 = { city: 'Paris' };\nSELECT address, born, record::id(id) AS id, name, tags FROM customer WHERE (address.city != $_1.city) OR (address.zip != $_1.zip);")
+expect customer_not_at({ city: "Paris" }).request().map_ok(|r| r.to_script()) == Ok("LET $_1 = { city: 'Paris' };\nSELECT address, born, record::id(id) AS id, name, tags FROM customer WHERE (address.city != $_1.city) OR (address.zip != $_1.zip);")
 expect where_(TranslateTest.describe1(customers, |c| c.born > new_year)) == Ok("born > d'2020-01-01T00:00:00Z'")
 # A constant read twice is a kept definition, so it stays where the normal
 # form puts it, on the left.
@@ -833,7 +833,7 @@ sample_table = Surreal.table("sample")
 floor_by : Surreal.Duration -> Surreal.Prepared(List(Sample))
 floor_by = |span| Surreal.from(sample_table).filter(|s| Surreal.Time.floor(s.at, span) < s.at).ready()
 
-expect floor_by(Surreal.Time.hours(1)).request() == Ok("LET $_1 = 1h;\nSELECT at, d, decs, email, f, grid, record::id(id) AS id, m, n, nums, opt, other, ranks, scores, text, times, words FROM sample WHERE time::floor(at, $_1) < at;")
+expect floor_by(Surreal.Time.hours(1)).request().map_ok(|r| r.to_script()) == Ok("LET $_1 = 1h;\nSELECT at, d, decs, email, f, grid, record::id(id) AS id, m, n, nums, opt, other, ranks, scores, text, times, words FROM sample WHERE time::floor(at, $_1) < at;")
 
 # A captured time key is the array of its series and its time, as its
 # record id writes it, and a captured `U128` is an int when it fits.
@@ -1062,8 +1062,8 @@ site_table = Surreal.table("site")
 near_to : Surreal.Point -> Surreal.Prepared(List(Site))
 near_to = |here| Surreal.from(site_table).filter(|s| Surreal.Geo.distance(s.location, here) < 10).ready()
 
-expect near_to(oslo).request() == Ok("LET $_1 = { type: 'Point', coordinates: [10.75f, 59.91f] };\nSELECT area, record::id(id) AS id, location, near, path FROM site WHERE geo::distance(location, $_1) < 10f;")
-expect inside_of(square).request() == Ok("LET $_1 = { type: 'Polygon', coordinates: [[[0f, 0f], [1f, 0f], [1f, 1f], [0f, 0f]]] };\nSELECT area, record::id(id) AS id, location, near, path FROM site WHERE location INSIDE $_1;")
+expect near_to(oslo).request().map_ok(|r| r.to_script()) == Ok("LET $_1 = { type: 'Point', coordinates: [10.75f, 59.91f] };\nSELECT area, record::id(id) AS id, location, near, path FROM site WHERE geo::distance(location, $_1) < 10f;")
+expect inside_of(square).request().map_ok(|r| r.to_script()) == Ok("LET $_1 = { type: 'Polygon', coordinates: [[[0f, 0f], [1f, 0f], [1f, 1f], [0f, 0f]]] };\nSELECT area, record::id(id) AS id, location, near, path FROM site WHERE location INSIDE $_1;")
 
 inside_of : Surreal.Polygon -> Surreal.Prepared(List(Site))
 inside_of = |area| Surreal.from(site_table).filter(|s| Surreal.Geo.inside(s.location.to_geometry(), area.to_geometry())).ready()
@@ -1088,7 +1088,7 @@ expect with_params(TranslateTest.describe2([{ probe: [1.0, 2.0] }], embeddeds, |
 similar_to : List(F64) -> Surreal.Prepared(List(Embedded))
 similar_to = |probe| Surreal.from(embedded_table).filter(|e| Surreal.Vector.similarity_cosine(e.vec, probe) > 0.9).ready()
 
-expect similar_to([0.5, 0.5]).request() == Ok("LET $_1 = [0.5f, 0.5f];\nSELECT record::id(id) AS id, other, vec FROM embedded WHERE vector::similarity::cosine(vec, $_1) > 0.9f;")
+expect similar_to([0.5, 0.5]).request().map_ok(|r| r.to_script()) == Ok("LET $_1 = [0.5f, 0.5f];\nSELECT record::id(id) AS id, other, vec FROM embedded WHERE vector::similarity::cosine(vec, $_1) > 0.9f;")
 
 # The Roc meanings: the sums run from the first element, as SurrealDB's
 # do, so the results are the server's to the bit (`search.roc`,

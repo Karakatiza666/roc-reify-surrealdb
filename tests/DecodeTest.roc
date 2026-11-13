@@ -9,6 +9,7 @@ import internal.Surreal
 import internal.Diff
 import cbor.Cbor
 import "fixtures/fevered/00.cbor" as fevered_reply : List(U8)
+import "fixtures/hotter_than/00.cbor" as hotter_than_reply : List(U8)
 import "fixtures/fevered/01.cbor" as fevered_1 : List(U8)
 import "fixtures/fevered/02.cbor" as fevered_2 : List(U8)
 import "fixtures/fevered/03.cbor" as fevered_3 : List(U8)
@@ -204,6 +205,15 @@ expect unattended_start.view.members().contains(ref_of_kennel("b"))
 # A refused statement and a refused request.
 expect fevered.start(failed_statement).map_ok(|_| {}) == Err(Server(NotFound({ what: "Table", name: "nothing_here", message: "The table 'nothing_here' does not exist" })))
 expect fevered.start(unknown_method).map_ok(|_| {}) == Err(Server(NotFound({ what: "Method", name: "unknown", message: "Method not found" })))
+
+# A watch with a parameter: its value is a var of the request, not a
+# `LET`, so the reply has no result for it. The first result is the uuid.
+hotter_than : Surreal.Watch(VitalLine)
+hotter_than = Surreal.from(vitals).filter_by(|p, v| v.temp_c > p.limit).select(vital_line).live({ limit: 39.2 }, [])
+
+expect hotter_than.request().map_ok(|r| (r.query().starts_with("LIVE SELECT VALUE "), r.to_script().starts_with("LET $limit = 39.2dec;\nLIVE SELECT VALUE "))) == Ok((Bool.True, Bool.True))
+expect hotter_than.request().map_ok(|r| Cbor.encode(r.vars())) == Ok([0xa1, 0x65, 0x6c, 0x69, 0x6d, 0x69, 0x74, 0xca, 0x64, 0x33, 0x39, 0x2e, 0x32])
+expect hotter_than.start(hotter_than_reply).map_ok(|s| (s.live.lives().map(|l| l.role), s.view.rows())) == Ok(([Node], [line_at("a", "2026-03-01T14:30:00Z", 90, 39.5)]))
 
 # A reply of another request has fewer results.
 expect unattended.start(fevered_reply).map_ok(|_| {}) == Err(Wire("a reply of 2 results to 3 statements"))

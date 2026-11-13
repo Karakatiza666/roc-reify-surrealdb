@@ -3,8 +3,8 @@ import cbor.Cbor
 # The requests of SurrealDB's RPC protocol that a live session sends, as
 # records. A request is one WebSocket message: `{ id, method, params }`,
 # which `Cbor.encode` writes with the derived `encoder_for`. A parameter of
-# a query is in its text as a `LET`, as `prepare` writes it, so only `kill`
-# holds a tagged CBOR value: the uuid of the live query.
+# a query is a `$name` in its text, and its value is in the `vars` of the
+# request, as `Ql.cbor` prints it. `kill` holds the uuid of the live query.
 Rpc :: {}.{
 
 	## The uuid of a live query: CBOR tag 37 and a byte string of 16 bytes.
@@ -65,9 +65,18 @@ Rpc :: {}.{
 	use_db : U64, Str, Str -> { id : U64, method : Str, params : List(Str) }
 	use_db = |id, ns, db| { id, method: "use", params: [ns, db] }
 
-	## `query`: one text of statements, such as `Watch.request`.
-	query : U64, Str -> { id : U64, method : Str, params : List(Str) }
-	query = |id, text| { id, method: "query", params: [text] }
+	## `query`: one text of statements, such as `Watch.request`, and the
+	## map of its vars: the value of each `$name` of the text. Every
+	## statement of the text sees them, and no later request does. A map
+	## with no entry is left out.
+	query : U64, Str, Cbor.Value -> { id : U64, method : Str, params : List(Cbor.Value) }
+	query = |id, text, vars| {
+		params = match vars {
+			Map(m) if m.to_list().is_empty() => [Cbor.Value.Text(text)]
+			_ => [Cbor.Value.Text(text), vars]
+		}
+		{ id, method: "query", params }
+	}
 
 	## `kill`: the end of a live query. SurrealDB sends `KILLED` for it.
 	kill : U64, Uuid -> { id : U64, method : Str, params : List(Uuid) }

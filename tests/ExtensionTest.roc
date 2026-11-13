@@ -46,7 +46,7 @@ binary = |op| |call| match call.args {
 }
 
 script : Surreal.Prepared(List(Reading)) -> Try(Str, Ql.Error)
-script = |prepared| prepared.request()
+script = |prepared| prepared.request().map_ok(|r| r.to_script())
 
 inlined : Surreal.Prepared(List(Reading)) -> Try(Str, Ql.Error)
 inlined = |prepared| prepared.statement().map_ok(|st| st.inlined)

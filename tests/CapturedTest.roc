@@ -31,7 +31,7 @@ pets : Surreal.Table(Pet)
 pets = Surreal.table("pet")
 
 script : Surreal.Prepared(out) -> Str
-script = |prepared| match prepared.request() {
+script = |prepared| match prepared.request().map_ok(|r| r.to_script()) {
 	Ok(text) => text
 	Err(e) => "error: ${Str.inspect(e)}"
 }

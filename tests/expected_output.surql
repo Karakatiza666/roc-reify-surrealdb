@@ -102,6 +102,9 @@ COMMIT;
 -- query: owners_in_city
 -- ordered
 -- roc: [{ id: 'jon', name: 'Jon Berg', phone: 'none' }, { id: 'mara', name: 'Mara Ito', phone: '555-0142' }]
+-- vars: a16463697479644f736c6f
+SELECT record::id(id) AS id, name AS name, phone ?? 'none' AS phone FROM owner WHERE address.city = $city ORDER BY id;
+-- script
 LET $city = 'Oslo';
 SELECT record::id(id) AS id, name AS name, phone ?? 'none' AS phone FROM owner WHERE address.city = $city ORDER BY id;
 
@@ -124,6 +127,9 @@ SELECT record::id(id) AS id, specialty AS specialty, years AS years FROM vet:⟨
 
 -- query: vet_by_key
 -- roc: [{ id: 'ruth', specialty: 'General', years: 12u8 }]
+-- vars: a1636b65796472757468
+SELECT record::id(id) AS id, specialty AS specialty, years AS years FROM vet WHERE id = type::record('vet', $key);
+-- script
 LET $key = 'ruth';
 SELECT record::id(id) AS id, specialty AS specialty, years AS years FROM vet WHERE id = type::record('vet', $key);
 
@@ -142,6 +148,9 @@ SELECT record::id(id) AS id, vaccines.map(|$v1| $v1.vet.name) AS vets FROM patie
 -- query: recent_visits
 -- ordered
 -- roc: [{ bill: 89.1dec, id: 'v4', patient: 'Bo', vet: 'Ruth Okafor' }, { bill: 140.0dec, id: 'v5', patient: 'Mimi', vet: 'Sam Petrov' }, { bill: 43.5dec, id: 'v6', patient: 'Kiwi', vet: 'Ruth Okafor' }, { bill: 60.0dec, id: 'v7', patient: 'Zed', vet: 'Sam Petrov' }]
+-- vars: a16573696e6365cc821a69a3818000
+SELECT fee + math::sum(items.map(|$v1| <decimal>$v1.doses * $v1.medication.unit_price)) AS bill, record::id(id) AS id, patient.name AS patient, vet.name AS vet FROM visit WHERE $since <= seen ORDER BY id;
+-- script
 LET $since = d'2026-03-01T00:00:00Z';
 SELECT fee + math::sum(items.map(|$v1| <decimal>$v1.doses * $v1.medication.unit_price)) AS bill, record::id(id) AS id, patient.name AS patient, vet.name AS vet FROM visit WHERE $since <= seen ORDER BY id;
 
@@ -195,21 +204,33 @@ SELECT record::id(id) AS id, owner.{ address, email, id: record::id(id), name, p
 
 -- query: cheaper_than
 -- roc: [{ form: 'tablet', id: 'amoxicillin', label: 'Amoxicillin (tablet)', name: 'Amoxicillin', stock: 200i32, unit_price: 0.8dec }, { form: 'tablet', id: 'aspirin', label: 'Aspirin (tablet)', name: 'Aspirin', stock: 500i32, unit_price: 0.2dec }]
+-- vars: a1625f31ca63302e39
+SELECT form, record::id(id) AS id, label, name, stock, unit_price FROM medication WHERE unit_price < $_1;
+-- script
 LET $_1 = 0.9dec;
 SELECT form, record::id(id) AS id, label, name, stock, unit_price FROM medication WHERE unit_price < $_1;
 
 -- query: owners_at
 -- roc: [{ address: { city: 'Oslo', line: 'Storgata 4', zip: '0155' }, email: 'jon@example.org', id: 'jon', name: 'Jon Berg', tags: ['new'] }, { address: { city: 'Lyon', line: 'Rue Merciere 9' }, email: 'lena@example.org', id: 'lena', name: 'Lena Roux', phone: '555-0188', tags: [] }]
+-- vars: a1625f3182a26463697479644c796f6e646c696e656e527565204d657263696572652039a36463697479644f736c6f646c696e656a53746f72676174612034637a69706430313535
+SELECT address, email, record::id(id) AS id, name, phone, referred_by, tags FROM owner WHERE address IN $_1;
+-- script
 LET $_1 = [{ city: 'Lyon', line: 'Rue Merciere 9' }, { city: 'Oslo', line: 'Storgata 4', zip: '0155' }];
 SELECT address, email, record::id(id) AS id, name, phone, referred_by, tags FROM owner WHERE address IN $_1;
 
 -- query: owner_at, with a zip
 -- roc: [{ address: { city: 'Oslo', line: 'Storgata 4', zip: '0155' }, email: 'jon@example.org', id: 'jon', name: 'Jon Berg', tags: ['new'] }]
+-- vars: a1625f31a36463697479644f736c6f646c696e656a53746f72676174612034637a69706430313535
+SELECT address, email, record::id(id) AS id, name, phone, referred_by, tags FROM owner WHERE (address.city = $_1.city) AND (address.line = $_1.line) AND (address.zip = $_1.zip);
+-- script
 LET $_1 = { city: 'Oslo', line: 'Storgata 4', zip: '0155' };
 SELECT address, email, record::id(id) AS id, name, phone, referred_by, tags FROM owner WHERE (address.city = $_1.city) AND (address.line = $_1.line) AND (address.zip = $_1.zip);
 
 -- query: owner_at, with no zip
 -- roc: [{ address: { city: 'Lyon', line: 'Rue Merciere 9' }, email: 'lena@example.org', id: 'lena', name: 'Lena Roux', phone: '555-0188', tags: [] }]
+-- vars: a1625f31a26463697479644c796f6e646c696e656e527565204d657263696572652039
+SELECT address, email, record::id(id) AS id, name, phone, referred_by, tags FROM owner WHERE (address.city = $_1.city) AND (address.line = $_1.line) AND (address.zip = $_1.zip);
+-- script
 LET $_1 = { city: 'Lyon', line: 'Rue Merciere 9' };
 SELECT address, email, record::id(id) AS id, name, phone, referred_by, tags FROM owner WHERE (address.city = $_1.city) AND (address.line = $_1.line) AND (address.zip = $_1.zip);
 
@@ -342,8 +363,7 @@ SELECT record::id(id) AS id, label AS label, stock AS stock FROM medication ORDE
 -- write: restock
 -- ordered
 -- roc: [{ id: 'amoxicillin', label: 'Amoxicillin (tablet)', stock: 200i32 }, { id: 'aspirin', label: 'Aspirin (tablet)', stock: 500i32 }, { id: 'gabapentin', label: 'Gabapentin (capsule)', stock: 140i32 }, { id: 'ivermectin', label: 'Ivermectin (injection)', stock: 115i32 }, { id: 'meloxicam', label: 'Meloxicam (liquid)', stock: 100i32 }]
-LET $add = 100i32;
-LET $floor = 60i32;
+-- vars: a263616464d8b8186465666c6f6f72d8b8183c
 UPDATE medication SET stock = <int>stock + <int>$add WHERE stock < $floor RETURN AFTER;
 SELECT record::id(id) AS id, label AS label, stock AS stock FROM medication ORDER BY id;
 
@@ -396,7 +416,7 @@ SELECT record::id(id) AS id, out.name AS patient, in.name AS vet FROM treats ORD
 -- write: retention
 -- ordered
 -- roc: [{ id: 'v3' }, { id: 'v4' }, { id: 'v6' }]
-LET $before = d'2026-02-15T00:00:00Z';
+-- vars: a1666265666f7265cc821a69910c8000
 DELETE visit WHERE seen < $before RETURN BEFORE;
 SELECT record::id(id) AS id FROM visit ORDER BY id;
 

@@ -1009,7 +1009,7 @@ expect moved.map_ok(|m| m.statements(KeepData)) == Ok([["REMOVE INDEX IF EXISTS 
 expect plan_of([customer_def, product_def, order_def, purchased_def], [customer_def, product_def, order_def]).map_ok(|m| (m.dropped(), m.statements(KeepData), m.statements(DropData))) == Ok((["purchased"], [], [["REMOVE TABLE IF EXISTS purchased"]]))
 expect plan_of([customer_def, product_def], [customer_def, product_def]).map_ok(|m| (m.statements(DropData), m.is_empty(DropData))) == Ok(([], Bool.True))
 expect plan_of([customer_def, product_def], [customer_def, product_def]).map_ok(|m| m.prepare(DropData).map_ok(|all| all.len())) == Ok(Ok(0))
-expect plan_of([customer_def, product_def, order_def, purchased_def], [customer_def, product_def, order_def]).map_ok(|m| m.prepare(DropData).map_ok(|all| all.map(|p| p.request() ?? ""))) == Ok(Ok(["BEGIN;\nREMOVE TABLE IF EXISTS purchased;\nCOMMIT;"]))
+expect plan_of([customer_def, product_def, order_def, purchased_def], [customer_def, product_def, order_def]).map_ok(|m| m.prepare(DropData).map_ok(|all| all.map(|p| p.request().map_ok(|r| r.to_script()) ?? ""))) == Ok(Ok(["BEGIN;\nREMOVE TABLE IF EXISTS purchased;\nCOMMIT;"]))
 
 # A schema that does not translate is its error.
 expect plan_of([customer_def], [orders.define().done()]).is_err()
