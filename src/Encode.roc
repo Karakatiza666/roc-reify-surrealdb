@@ -93,7 +93,7 @@ Encode :: {}.{
 		## A value of a SurrealDB type that has no Roc type, written by the
 		## encoders of `Surreal.Regex`, `Surreal.Date` and the like.
 		encode_value : Ql.Value, Encode.State -> Try(Encode.State, [])
-		encode_value = |value, state| Ok(state.append(Value(value)))
+		encode_value = |given, state| Ok(state.append(Value(given)))
 
 		## Each field pushes its name, then its value. A field that is absent
 		## pushes nothing, so the key is left out.
@@ -312,10 +312,10 @@ Encode :: {}.{
 
 	## Encode a value the way a row is written.
 	value_of : a -> Try(Ql.Value, Ql.Error) where [a.encoder_for : Encode.Format -> (a, Encode.State -> Try(Encode.State, []))]
-	value_of = |value| {
+	value_of = |given| {
 		Shape : a
 		encode = Shape.encoder_for(Encode.Format.Surreal)
-		match encode(value, []) {
+		match encode(given, []) {
 			Ok([one]) => Ok(Encode.value(one))
 			Ok(_) => Err(BadSchema("an encoder wrote other than one value"))
 		}

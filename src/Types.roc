@@ -262,10 +262,10 @@ Types :: {}.{
 	## of the target sees the same type as a read of the link.
 	site_of : Code.Ty -> Try({ target : Code.Ty, is_id : Bool }, [NotASite])
 	site_of = |ty| {
-		site = Types.unwrap(ty)
-		match site {
+		unwrapped = Types.unwrap(ty)
+		match unwrapped {
 			Named(name, args, _) => match Types.nominal(name) {
-				Link => Ok({ target: Types.unfold(Types.row_of(Types.link_name, args), Types.link_name, site), is_id: Bool.False })
+				Link => Ok({ target: Types.unfold(Types.row_of(Types.link_name, args), Types.link_name, unwrapped), is_id: Bool.False })
 				Id => Ok({ target: Types.row_of(Types.id_name, args), is_id: Bool.True })
 				_ => Err(NotASite)
 			}

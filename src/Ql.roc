@@ -279,8 +279,8 @@ Ql :: {}.{
 		if !separators.all(|(at, b)| bytes.get(at) == Ok(b)) or bytes.last() != Ok(90) {
 			return Err(bad)
 		}
-		fraction = bytes.drop_first(19).drop_last(1)
-		nanos = match fraction {
+		tail = bytes.drop_first(19).drop_last(1)
+		nanos = match tail {
 			[] => 0
 			[46, .. as digits] if digits.len() >= 1 and digits.len() <= 9 and digits.all(is_digit) =>
 				digits.concat(List.repeat(48, 9 - digits.len())).fold(0.I128, |acc, b| acc * 10 + (b - 48).to_i128())

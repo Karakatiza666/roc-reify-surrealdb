@@ -282,7 +282,7 @@ Surreal :: {}.{
 		## Whether the key is in `between(series, from, to)`: the series is
 		## equal, and `from <= time < to`. For a reference result in Roc.
 		within : TimeKey(s), s, Datetime, Datetime -> Bool where [s.is_eq : s, s -> Bool]
-		within = |TimeKey.(k), wanted, from, to| k.series == wanted and from <= k.time and k.time < to
+		within = |TimeKey.(k), wanted, since, to| k.series == wanted and since <= k.time and k.time < to
 
 		## The array `[series, time]`.
 		encoder_for : Encode.Format -> (TimeKey(s), Encode.State -> Try(Encode.State, [])) where [s.encoder_for : Encode.Format -> (s, Encode.State -> Try(Encode.State, []))]
@@ -528,7 +528,7 @@ Surreal :: {}.{
 
 		## The regex of a pattern, such as `^[a-z]+$`.
 		from_pattern : Str -> Regex
-		from_pattern = |pattern| Regex.({ pattern: pattern })
+		from_pattern = |text| Regex.({ pattern: text })
 
 		pattern : Regex -> Str
 		pattern = |Regex.(r)| r.pattern
@@ -1346,7 +1346,7 @@ Surreal :: {}.{
 		at = |this, row_id| {
 			Table.(t) = this
 			Query.(q) = Surreal.from(this)
-			key = key_of(t, row_id)
+			key = table_key_of(t, row_id)
 			Query.({ ..q, target: Record(key.text), slots: key.slots })
 		}
 
@@ -1453,11 +1453,11 @@ Surreal :: {}.{
 				(View, Record(_)) => Err(Unsupported("the view `${t.name}` reads the record of one key; a view reads a whole table"))
 				(View, Sub(_)) => Err(Unsupported("the view `${t.name}` reads a subquery; a view reads a whole table"))
 				(View, Whole(_)) => {
-					Selected.(view) = aggregated(grouped, per_group, Bool.True)
-					if !view.slots.is_empty() {
+					Selected.(chosen) = aggregated(grouped, per_group, Bool.True)
+					if !chosen.slots.is_empty() {
 						crash stored_message("a view")
 					}
-					inline_fixed(Selected.render(Selected.(view), Translate.variable), view.fixed)
+					inline_fixed(Selected.render(Selected.(chosen), Translate.variable), chosen.fixed)
 				}
 			}
 			Def.({ source: { name: t.name, row_ty: stored_graph(per_group, "a view").root_row().result, kind: Types.Kind.View(select) }, rules: [], problems: [] })
@@ -1729,7 +1729,7 @@ Surreal :: {}.{
 		## row deletes nothing.
 		delete_at : Table(row), Code(Id(row)) -> Write(p, row)
 		delete_at = |Table.(t), row_id| {
-			key = key_of(t, row_id)
+			key = table_key_of(t, row_id)
 			build = |_param| {
 				writable(t)?
 				Ok("DELETE ${key.text?}")
@@ -1772,7 +1772,7 @@ Surreal :: {}.{
 	## because `in` is a keyword. The type says so, so a row whose ends do not
 	## point at the two tables, in this order, is a type error.
 	relation : Str, Table(a), Table(b) -> Table({ from : Link(a), to : Link(b), ..r })
-	relation = |name, Table.(from), Table.(to)| Table.({ name: name, kind: Relation({ from: from.name, to: to.name }) })
+	relation = |name, Table.(origin), Table.(to)| Table.({ name: name, kind: Relation({ from: origin.name, to: to.name }) })
 
 	## A table that SurrealDB keeps from a grouped query. It is read-only.
 	## Its query is in its definition (`Table.define_as`), so the table
@@ -2010,10 +2010,10 @@ Surreal :: {}.{
 	## or changed is in it, so an index or a view that did not change is
 	## not built again. A rename is a drop and a definition.
 	plan : Str, List(Defined) -> Try(Plan, Error)
-	plan = |from, to| {
-		old = Migrate.lines(from)
+	plan = |previous, to| {
+		old = Migrate.lines(previous)
 		new = Schema.script_lines(to)?
-		Ok(Plan.({ p: { steps: Schema.migration_steps(old, new, Schema.field_infos(to)?), old, new, from, replaces: [] } }))
+		Ok(Plan.({ p: { steps: Schema.migration_steps(old, new, Schema.field_infos(to)?), old, new, from: previous, replaces: [] } }))
 	}
 
 	## Whether the snapshot is the schema: `Ok` with the tables and fields
@@ -2286,9 +2286,9 @@ Surreal :: {}.{
 		## `FROM t:[series, from]..[series, to]`. It reads the range of keys, not
 		## the whole table. A query takes one `between`.
 		between : Query(p, { id : TimeKey(s), ..others }), s, Datetime, Datetime -> Query(p, { id : TimeKey(s), ..others }) where [s.encoder_for : Encode.Format -> (s, Encode.State -> Try(Encode.State, []))]
-		between = |Query.(q), series, from, to| {
+		between = |Query.(q), series, since, to| {
 			range = match q.target {
-				Whole(name) => key_range(name, q.fixed.len(), TimeKey.({ series, time: from }), TimeKey.({ series, time: to }))
+				Whole(name) => key_range(name, q.fixed.len(), TimeKey.({ series, time: since }), TimeKey.({ series, time: to }))
 				Range(_) => Err(Unsupported("a query takes one `between`"))
 				Record(_) => Err(Unsupported("`between` reads a range of keys of a table, and this query reads the record of one key"))
 				Sub(_) => Err(Unsupported("`between` reads a range of keys of a table, and this query reads a subquery"))
@@ -2851,7 +2851,7 @@ Surreal :: {}.{
 
 		## The request of this text and these values.
 		of : Str, List({ name : Str, value : Ql.Value }) -> Try(Request, Error)
-		of = |query, named| Ok(Request.({ query, vars: Ql.vars(named)?, named }))
+		of = |text, named| Ok(Request.({ query: text, vars: Ql.vars(named)?, named }))
 
 		## A request of the app's own text, with a `$name` for each field of
 		## the parameter record. The names that SurrealDB protects or binds
@@ -3286,10 +3286,10 @@ Surreal :: {}.{
 		## | false | yes | `Removed` |
 		## | false | no | none: the write did not touch the result |
 		step : Members, Notice(out) -> { members : Members, changes : List(Change(out)) }
-		step = |Members.(set), notice| {
-			ref = notice.ref
+		step = |Members.(set), note| {
+			ref = note.ref
 			unchanged = { members: Members.(set), changes: [] }
-			match (notice.action, notice.role, notice.row) {
+			match (note.action, note.role, note.row) {
 				(_, _, Err(Gone)) => unchanged
 				(Delete, Node, Ok(row)) =>
 					if set.contains(ref) {
@@ -3298,7 +3298,7 @@ Surreal :: {}.{
 						unchanged
 					}
 				(_, _, Ok(row)) =>
-					match (notice.now, set.contains(ref)) {
+					match (note.now, set.contains(ref)) {
 						(Bool.True, Bool.False) => { members: Members.(set.insert(ref)), changes: [Added(ref, row)] }
 						(Bool.True, Bool.True) => { members: Members.(set), changes: [Updated(ref, row)] }
 						(Bool.False, Bool.True) => { members: Members.(set.remove(ref)), changes: [Removed(ref, row)] }
@@ -3726,7 +3726,7 @@ Surreal :: {}.{
 		watch : Inbox, Lives -> Inbox
 		watch = |Inbox.(i), lives| {
 			held = match i.early {
-				Starting(notices) => notices
+				Starting(pending) => pending
 				Idle => []
 			}
 			opened = Inbox.({ ..i, watched: lives.fold(i.watched, |set, l| set.insert(l.id)), early: Idle })
@@ -3853,11 +3853,11 @@ Surreal :: {}.{
 				}
 				SignUp(r) => record_login!(connection, "signup", r)
 				SignIn(r) => record_login!(connection, "signin", r)
-				Token(token) => {
+				Token(bearer) => {
 					opened = Session.({ connection, next_id: 1, inbox: Inbox.empty({}), known: [], auth: { who: Anonymous, scope: FromToken } })
-					checked = answer!(opened, Cbor.encode(Rpc.authenticate(1, token))).map_err(login_error)?
+					checked = answer!(opened, Cbor.encode(Rpc.authenticate(1, bearer))).map_err(login_error)?
 					Session.(c) = checked.session
-					Ok(Session.({ ..c, auth: { who: Bearer(token), scope: FromToken } }))
+					Ok(Session.({ ..c, auth: { who: Bearer(bearer), scope: FromToken } }))
 				}
 			}
 		}
@@ -3867,7 +3867,7 @@ Surreal :: {}.{
 		## (`Token`). A system user has none.
 		token : Session -> Try(Str, [NoToken])
 		token = |Session.(s)| match s.auth.who {
-			Bearer(token) => Ok(token)
+			Bearer(bearer) => Ok(bearer)
 			Basic(_) | Anonymous => Err(NoToken)
 		}
 
@@ -3908,7 +3908,7 @@ Surreal :: {}.{
 		live! = |session, watch| {
 			got = start!(session, watch.request()?)?
 			started = watch.start(got.reply)?
-			Ok({ session: watching(got.session, started.live.lives()), live: started.live, view: started.view })
+			Ok({ session: with_watch(got.session, started.live.lives()), live: started.live, view: started.view })
 		}
 
 		## What the watch gives next, from the inbox first, then from the
@@ -4108,20 +4108,20 @@ Surreal :: {}.{
 		## as the `-- roc:` literal that `check.py` compares.
 		notices_literal : List(List(Notice(out))) -> Try(Str, Error) where [out.encoder_for : Encode.Format -> (out, Encode.State -> Try(Encode.State, []))]
 		notices_literal = |writes| {
-			lists = writes.map_try(|notices| notices.map_try(notice_value).map_ok(|values| Ql.Value.Array(values)))?
+			lists = writes.map_try(|each| each.map_try(notice_value).map_ok(|values| Ql.Value.Array(values)))?
 			Ok(Ql.literal(Ql.Value.Array(lists)))
 		}
 
 		## The same for the events of `live_raw`.
 		events_literal : List(List(Event(out))) -> Try(Str, Error) where [out.encoder_for : Encode.Format -> (out, Encode.State -> Try(Encode.State, []))]
 		events_literal = |writes| {
-			lists = writes.map_try(|events| events.map_try(event_value).map_ok(|values| Ql.Value.Array(values)))?
+			lists = writes.map_try(|each| each.map_try(event_value).map_ok(|values| Ql.Value.Array(values)))?
 			Ok(Ql.literal(Ql.Value.Array(lists)))
 		}
 
 		## The notices of one message, applied to the members in turn.
 		step_all : Members, List(Notice(out)) -> { members : Members, changes : List(Change(out)) }
-		step_all = |members, notices| notices.fold(
+		step_all = |members, batch| batch.fold(
 			{ members, changes: [] },
 			|acc, n| {
 				one = Watch.step(acc.members, n)
@@ -5017,7 +5017,7 @@ record_at = |t, Id.(i)|
 update_key : { name : Str, kind : TableKind }, Code(Id(row)), List(Slot), (Translate.Binding, (Str -> Str) -> Try(List({ name : Str, surql : Str }), Error)) -> Write(p, row)
 update_key = |t, id, patch_slots, sets| {
 	row = Translate.table_row(t.name, is_edge(t.kind))
-	key = key_of(t, id)
+	key = table_key_of(t, id)
 	build = |param| {
 		writable(t)?
 		record = key.text?
@@ -5030,8 +5030,8 @@ update_key = |t, id, patch_slots, sets| {
 ## of a key that the program fixes, and the slot of one it only knows when
 ## it runs, whose table is checked when it is bound. An id of another
 ## table is refused.
-key_of : { name : Str, kind : TableKind }, Code(Id(row)) -> { text : Try(Str, Error), slots : List(Slot) }
-key_of = |t, key| {
+table_key_of : { name : Str, kind : TableKind }, Code(Id(row)) -> { text : Try(Str, Error), slots : List(Slot) }
+table_key_of = |t, key| {
 	slots = keyed_slots(key, Of(t.name), Bool.False)
 	text = within_clause("the key", Translate.render(own, key.graph(), [], spelled(key, Translate.variable)))
 	checked = match text {
@@ -6413,8 +6413,8 @@ start! = |session, request| {
 }
 
 ## The session, with the uuids of a watch that started (`Inbox.watch`).
-watching : Session, Lives -> Session
-watching = |Session.(s), lives| Session.({ ..s, inbox: s.inbox.watch(lives) })
+with_watch : Session, Lives -> Session
+with_watch = |Session.(s), lives| Session.({ ..s, inbox: s.inbox.watch(lives) })
 
 ## The reply to the request `id`: from the inbox, else read messages
 ## into the inbox until it comes. A connection that pushes nothing
@@ -6815,22 +6815,22 @@ expect iso_of("2026-1a-28T04:53:59Z") == "bad"
 expect iso_of("") == "bad"
 
 # Order is time order, with or without a fraction.
-at : Str -> Surreal.Datetime
-at = |text| match Surreal.datetime(text) {
+time_at : Str -> Surreal.Datetime
+time_at = |text| match Surreal.datetime(text) {
 	Ok(d) => d
 	Err(_) => crash "a valid datetime"
 }
 
-expect at("2026-10-28T04:53:59Z") < at("2026-10-28T04:54:00Z")
-expect at("2026-10-28T04:53:59Z") < at("2026-10-28T04:53:59.5Z")
-expect at("2026-10-28T04:53:59.25Z") < at("2026-10-28T04:53:59.5Z")
-expect at("2026-10-28T04:53:59.05Z") < at("2026-10-28T04:53:59.5Z")
-expect !(at("2026-10-28T04:53:59.5Z") < at("2026-10-28T04:53:59Z"))
-expect !(at("2026-10-28T04:53:59Z") < at("2026-10-28T04:53:59Z"))
-expect at("2026-10-28T04:53:59Z") <= at("2026-10-28T04:53:59.000Z")
-expect at("2026-10-28T04:53:59.5Z") > at("2026-10-28T04:53:59Z")
-expect at("2026-10-28T04:53:59Z") >= at("2026-10-28T04:53:59Z")
-expect at("2026-10-28T04:53:59.500Z") == at("2026-10-28T04:53:59.5Z")
+expect time_at("2026-10-28T04:53:59Z") < time_at("2026-10-28T04:54:00Z")
+expect time_at("2026-10-28T04:53:59Z") < time_at("2026-10-28T04:53:59.5Z")
+expect time_at("2026-10-28T04:53:59.25Z") < time_at("2026-10-28T04:53:59.5Z")
+expect time_at("2026-10-28T04:53:59.05Z") < time_at("2026-10-28T04:53:59.5Z")
+expect !(time_at("2026-10-28T04:53:59.5Z") < time_at("2026-10-28T04:53:59Z"))
+expect !(time_at("2026-10-28T04:53:59Z") < time_at("2026-10-28T04:53:59Z"))
+expect time_at("2026-10-28T04:53:59Z") <= time_at("2026-10-28T04:53:59.000Z")
+expect time_at("2026-10-28T04:53:59.5Z") > time_at("2026-10-28T04:53:59Z")
+expect time_at("2026-10-28T04:53:59Z") >= time_at("2026-10-28T04:53:59Z")
+expect time_at("2026-10-28T04:53:59.500Z") == time_at("2026-10-28T04:53:59.5Z")
 
 # Tables: a plain one, and an edge table that remembers both ends. The row
 # type comes from the definition.

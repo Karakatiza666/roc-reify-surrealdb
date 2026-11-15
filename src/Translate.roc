@@ -133,7 +133,7 @@ Translate :: {}.{
 	## extension that names `id` gives it.
 	form : Code.PrimId, List(Extension) -> Try(Form, [NotFound])
 	form = |id, extensions| match Translate.builtins.get(id) {
-		Ok(builtin) => Ok(Builtin(builtin))
+		Ok(known) => Ok(Builtin(known))
 		Err(KeyNotFound) => match extensions.join_map(|e| e.prims).find_first(|entry| entry.prim == id) {
 			Ok(entry) => Ok(entry.form)
 			Err(_) => Err(NotFound)
@@ -202,7 +202,7 @@ Translate :: {}.{
 	## The record a statement runs over: the table row (`""`), `$after` in an
 	## event, `$this` in a field definition. `edge` is set for a relation table.
 	document : Str, Bool -> Binding
-	document = |at, edge| Binding.Row({ at, of: Doc(Unnamed), edge })
+	document = |path, edge| Binding.Row({ at: path, of: Doc(Unnamed), edge })
 
 	## The row of the table `name` that a statement reads. A comparison of
 	## its key with a value given to the statement compares the record id
@@ -214,16 +214,16 @@ Translate :: {}.{
 	## out, `<-t` coming in, `$before<-t` from the row before a write. Each
 	## element is an edge record. The tables at the ends are not known.
 	outgoing : Str, Str -> Binding
-	outgoing = |at, table| Translate.edge_list(at, "->", table, Translate.any_ends)
+	outgoing = |path, table| Translate.edge_list(path, "->", table, Translate.any_ends)
 
 	incoming : Str, Str -> Binding
-	incoming = |at, table| Translate.edge_list(at, "<-", table, Translate.any_ends)
+	incoming = |path, table| Translate.edge_list(path, "<-", table, Translate.any_ends)
 
 	## The edges of `table` at the record at `at`, by the arrow, with the
 	## tables at their ends. A hop to an end continues the path:
 	## `->treats->patient` (`Translate.hop`).
 	edge_list : Str, Str, Str, Ends -> Binding
-	edge_list = |at, arrow, table, ends| Binding.ListOf({ at: "${at}${arrow}${Ql.ident(table)}", items: Records({ edge: Bool.True, row: Untyped, graph: Edges(ends) }) })
+	edge_list = |path, arrow, table, ends| Binding.ListOf({ at: "${path}${arrow}${Ql.ident(table)}", items: Records({ edge: Bool.True, row: Untyped, graph: Edges(ends) }) })
 
 	## Ends of any table.
 	any_ends : Ends
@@ -234,18 +234,18 @@ Translate :: {}.{
 	## matched, a `Try` (an optional field) is tested, anything else is a
 	## scalar. `at("$value", ty)` is the value of a field `ASSERT`.
 	at : Str, Code.Ty -> Binding
-	at = |expr, ty| match ty {
-		Record(_) => Binding.Row({ at: expr, of: Obj, edge: Bool.False })
-		ListOf(item) => Binding.ListOf({ at: expr, items: Translate.items_of(ListOf(item)) })
-		TagUnion(variants) => Binding.Union({ at: expr, variants })
+	at = |place, ty| match ty {
+		Record(_) => Binding.Row({ at: place, of: Obj, edge: Bool.False })
+		ListOf(item) => Binding.ListOf({ at: place, items: Translate.items_of(ListOf(item)) })
+		TagUnion(variants) => Binding.Union({ at: place, variants })
 		Named(name, _, backing) => match Types.nominal(name) {
-			Try => Binding.Maybe(expr)
+			Try => Binding.Maybe(place)
 			# A read view of a link: a field read through it is a traversal.
-			Linked => Binding.Row({ at: expr, of: Ref(backing), edge: Bool.False })
-			Other | Out | In => Translate.at(expr, backing)
-			_ => Binding.Expr(expr)
+			Linked => Binding.Row({ at: place, of: Ref(backing), edge: Bool.False })
+			Other | Out | In => Translate.at(place, backing)
+			_ => Binding.Expr(place)
 		}
-		_ => Binding.Expr(expr)
+		_ => Binding.Expr(place)
 	}
 
 	## The elements of a list of type `list_ty` read off a record: the
@@ -364,8 +364,8 @@ Translate :: {}.{
 		r = graph.row(f.row)
 		params = r.params.map_with_index(|ty, k| Translate.at("$a${(k + 1).to_str()}", ty))
 		env = { graph, params, row: f.row, nodes: [], param: Translate.variable, depth: 0, random: Bool.False, view: Plain, self: Inside(f), extensions }
-		body = Translate.body_text(graph.to_tree(f.row), env).map_err(|e| Translate.within(e, f.name))?
-		Ok({ name: f.name, params: r.params, result: r.result, body })
+		body_sql = Translate.body_text(graph.to_tree(f.row), env).map_err(|e| Translate.within(e, f.name))?
+		Ok({ name: f.name, params: r.params, result: r.result, body: body_sql })
 	}
 
 	body_text : Code.Tree, Env -> Try(Str, Ql.Error)
@@ -495,7 +495,7 @@ Translate :: {}.{
 			held = node.args.map(|a| Translate.prims_of(a, walk))
 			own = held.join_map(|p| p)
 			match node.op {
-				Prim(call) => own.append(call.id)
+				Prim(pc) => own.append(pc.id)
 				Call(row) => own.concat(Translate.row_prims(row, held, walk))
 				Closure(row) => own.concat(Translate.row_prims(row, held, walk))
 				_ => own
@@ -515,8 +515,8 @@ Translate :: {}.{
 		if walk.rows.contains(row) {
 			[]
 		} else {
-			count = walk.graph.row(row).params.len()
-			bound = params.concat(List.repeat([], count - params.len().min(count)))
+			n = walk.graph.row(row).params.len()
+			bound = params.concat(List.repeat([], n - params.len().min(n)))
 			Translate.prims_of(walk.graph.to_tree(row), { graph: walk.graph, params: bound, defs: [], rows: walk.rows.append(row) })
 		}
 
@@ -632,7 +632,7 @@ Translate :: {}.{
 	patch_changes = |tree, row_fields, here, env| match Translate.kept_value(tree, here.kept) {
 		Block({ defs, end: Value([one]) }) => Translate.patch_changes(one, row_fields, { ..here, kept: here.kept.concat(defs) }, Translate.define(defs, env)?)
 		Op({ op: Record(names), args, .. }) => {
-			found = List.map2(names, args, |name, arg| { name, arg }).map_try(
+			found = List.map2(names, args, |name, a| { name, arg: a }).map_try(
 				|given| match row_fields.find_first(|r| r.name == given.name) {
 					Ok(stored) => Translate.field_change(stored, Ok(given.arg), here, env)
 					Err(_) => Err(BadSchema("the row has no field `${given.name}`, so a patch cannot set it"))
@@ -663,8 +663,8 @@ Translate :: {}.{
 		if agrees {
 			Ok({})
 		} else {
-			literal = if (f.ty == Dec and Translate.is_integer(stored.ty)) "; a number literal without a suffix is a `Dec`, so write `1.${stored.ty.name()}`" else ""
-			Err(BadSchema("the patch's `${f.name}` is `${f.ty.name()}`, and the row's `${f.name}` is `${stored.ty.name()}`${literal}"))
+			hint = if (f.ty == Dec and Translate.is_integer(stored.ty)) "; a number literal without a suffix is a `Dec`, so write `1.${stored.ty.name()}`" else ""
+			Err(BadSchema("the patch's `${f.name}` is `${f.ty.name()}`, and the row's `${f.name}` is `${stored.ty.name()}`${hint}"))
 		}
 	}
 
@@ -716,14 +716,14 @@ Translate :: {}.{
 		Block({ defs, end: Value([one]) }) => Translate.changes(one, fields, { ..here, kept: here.kept.concat(defs) }, Translate.define(defs, env)?)
 		Op({ op: Wrap(name), args: [inner], .. }) if Types.user_named(name) => Translate.changes(inner, fields, here, env)
 		Op({ op: Record(names), args, .. }) => {
-			given = List.map2(names, args, |name, arg| { name, arg })
+			given = List.map2(names, args, |name, a| { name, arg: a })
 			found = fields.map_try(|f| Translate.field_change(f, given.find_first(|g| g.name == f.name).map_ok(|g| g.arg), here, env))?
 			Ok(found.join())
 		}
 		Op({ op: Switch(sw), args: [scrutinee, .. as arms], .. }) => match Translate.presence_field(sw.arms.map(|a| a.key), scrutinee, arms, here) {
 			Ok(presence) => {
-				field = here.path.append(presence.name)
-				when_absent = Translate.changes(presence.absent, fields, { ..here, absent: here.absent.append(field) }, env)?
+				absent_path = here.path.append(presence.name)
+				when_absent = Translate.changes(presence.absent, fields, { ..here, absent: here.absent.append(absent_path) }, env)?
 				when_present = Translate.changes(presence.present, fields, here, env)?
 				Translate.merge(when_absent, when_present, Translate.expr(scrutinee, env)?)
 			}
@@ -769,7 +769,7 @@ Translate :: {}.{
 		}
 		match (here.path, tree) {
 			([], Op({ op: Switch(_), .. })) => Err(Unsupported("an update patch builds one row; a branch around the row has no `SET` form, so branch inside each field that changes: `|o| { ..o, f: if .. }`"))
-			([], Op({ op, .. })) => Err(Unsupported("an update patch builds the row it returns, as `|o| { ..o, field: .. }`; this one returns ${Translate.describe(op)}"))
+			([], Op({ op: last_op, .. })) => Err(Unsupported("an update patch builds the row it returns, as `|o| { ..o, field: .. }`; this one returns ${Translate.describe(last_op)}"))
 			([], _) => Err(Unsupported("an update patch builds the row it returns, as `|o| { ..o, field: .. }`"))
 			_ => Ok([{ path: here.path, name: Translate.spell_path(here.path, here.edge), value: To(Translate.expr(tree, env)?) }])
 		}
@@ -791,14 +791,14 @@ Translate :: {}.{
 				} else {
 					Ok([{ path, name, value: To("NONE") }])
 				}
-			Ok(arg) if f.presence == Optional => match Translate.kept_value(arg, here.kept) {
+			Ok(value) if f.presence == Optional => match Translate.kept_value(value, here.kept) {
 				Op({ op: Payload("Ok", 0), args: [read], .. }) if Translate.optional_read(read, here) == Ok(f.name) => same
-				_ => Ok([{ path, name, value: To(Translate.expr(arg, env)?) }])
+				_ => Ok([{ path, name, value: To(Translate.expr(value, env)?) }])
 			}
-			Ok(arg) if Translate.is_at(arg, path, here) => same
-			Ok(arg) => match f.ty {
-				Record(inner) => Translate.changes(arg, inner, { ..here, path }, env)
-				_ => Ok([{ path, name, value: To(Translate.expr(arg, env)?) }])
+			Ok(value) if Translate.is_at(value, path, here) => same
+			Ok(value) => match f.ty {
+				Record(inner) => Translate.changes(value, inner, { ..here, path }, env)
+				_ => Ok([{ path, name, value: To(Translate.expr(value, env)?) }])
 			}
 		}
 	}
@@ -837,7 +837,7 @@ Translate :: {}.{
 	## A field path of the row as SurrealDB names it, `address.city`.
 	spell_path : List(Str), Bool -> Str
 	spell_path = |path, edge| match path {
-		[first, .. as rest] => rest.fold(Translate.spell_name(first, edge), |text, name| "${text}.${Ql.ident(name)}")
+		[first, .. as rest] => rest.fold(Translate.spell_name(first, edge), |acc, name| "${acc}.${Ql.ident(name)}")
 		[] => ""
 	}
 
@@ -885,8 +885,8 @@ Translate :: {}.{
 			other => ([], other)
 		}
 		match value {
-			Op({ op: Record(_), args, .. }) | Op({ op: Tuple, args, .. }) => args.map_try(|arg| Translate.steps_in(graph, kept, arg))
-			single => Ok([Translate.steps_in(graph, kept, single)?])
+			Op({ op: Record(_), args, .. }) | Op({ op: Tuple, args, .. }) => args.map_try(|a| Translate.steps_in(graph, kept, a))
+			one => Ok([Translate.steps_in(graph, kept, one)?])
 		}
 	}
 
@@ -910,7 +910,7 @@ Translate :: {}.{
 			inner = Translate.steps(graph, graph.to_tree(row))?
 			Ok(outer.append(Step.Each).concat(inner))
 		}
-		Op({ op, .. }) => Err(Unsupported("a field path reads fields only; this one calls `${Translate.describe(op)}`"))
+		Op({ op: called, .. }) => Err(Unsupported("a field path reads fields only; this one calls `${Translate.describe(called)}`"))
 		_ => Err(Unsupported("a field path reads fields only"))
 	}
 
@@ -918,15 +918,15 @@ Translate :: {}.{
 	spell : List(Step) -> Str
 	spell = |path| path.fold(
 		"",
-		|text, step| match step {
-			Each => "${text}[*]"
-			Field(name) => if (text.is_empty()) Ql.ident(name) else "${text}.${Ql.member(name)}"
+		|acc, step| match step {
+			Each => "${acc}[*]"
+			Field(name) => if (acc.is_empty()) Ql.ident(name) else "${acc}.${Ql.member(name)}"
 		},
 	)
 
 	## What an op is, for a refusal that names it.
 	describe : Code.Op -> Str
-	describe = |op| match op {
+	describe = |operation| match operation {
 		Prim({ owner, method, .. }) => "${owner}.${method}"
 		Call(_) => "a helper"
 		Closure(_) | Lambda(_) => "a function"
@@ -1099,13 +1099,13 @@ Translate :: {}.{
 	## `{ type: 'Point', coordinates: [lon, lat] }`.
 	geojson : Str, Ql.Value -> Try(Ql.Value, Ql.Error)
 	geojson = |name, value| {
-		shaped = |kind, coordinates| Ql.Value.Object([{ name: "type", value: Ql.Value.Str(kind) }, { name: "coordinates", value: coordinates }])
-		field = |fields, key| match fields.find_first(|f| f.name == key) {
+		geo_object = |kind, coordinates| Ql.Value.Object([{ name: "type", value: Ql.Value.Str(kind) }, { name: "coordinates", value: coordinates }])
+		field_value = |fields, key| match fields.find_first(|f| f.name == key) {
 			Ok(f) => Ok(f.value)
 			Err(_) => Err(Unsupported("a captured `${name}` without its `${key}`"))
 		}
 		coordinates = |v| match v {
-			Object(fields) | Geometry(Object(fields)) => field(fields, "coordinates")
+			Object(fields) | Geometry(Object(fields)) => field_value(fields, "coordinates")
 			_ => Err(Unsupported("a captured `${name}` whose parts are not geometries"))
 		}
 		all = |v| match v {
@@ -1115,19 +1115,19 @@ Translate :: {}.{
 		geometry = |v| Try.map_ok(v, |g| Ql.Value.Geometry(g))
 		geometry(
 			match (name, value) {
-				("Surreal.Point", Object(fields)) => Ok(shaped("Point", Ql.Value.Array([field(fields, "lon")?, field(fields, "lat")?])))
-				("Surreal.Line", _) => Ok(shaped("LineString", all(value)?))
+				("Surreal.Point", Object(fields)) => Ok(geo_object("Point", Ql.Value.Array([field_value(fields, "lon")?, field_value(fields, "lat")?])))
+				("Surreal.Line", _) => Ok(geo_object("LineString", all(value)?))
 				("Surreal.Polygon", Object(fields)) => {
-					exterior = all(field(fields, "exterior")?)?
-					holes = match field(fields, "holes")? {
+					exterior = all(field_value(fields, "exterior")?)?
+					holes = match field_value(fields, "holes")? {
 						Array(rings) => rings.map_try(all)?
 						_ => []
 					}
-					Ok(shaped("Polygon", Ql.Value.Array(List.concat([exterior], holes))))
+					Ok(geo_object("Polygon", Ql.Value.Array(List.concat([exterior], holes))))
 				}
-				("Surreal.MultiPoint", _) => Ok(shaped("MultiPoint", all(value)?))
-				("Surreal.MultiLine", _) => Ok(shaped("MultiLineString", all(value)?))
-				("Surreal.MultiPolygon", _) => Ok(shaped("MultiPolygon", all(value)?))
+				("Surreal.MultiPoint", _) => Ok(geo_object("MultiPoint", all(value)?))
+				("Surreal.MultiLine", _) => Ok(geo_object("MultiLineString", all(value)?))
+				("Surreal.MultiPolygon", _) => Ok(geo_object("MultiPolygon", all(value)?))
 				("Surreal.Collection", Array(items)) => Ok(Ql.Value.Object([{ name: "type", value: Ql.Value.Str("GeometryCollection") }, { name: "geometries", value: Ql.Value.Array(items) }]))
 				("Surreal.Geometry", Geometry(g)) => Ok(g)
 				("Surreal.Geometry", _) => Ok(value)
@@ -1269,7 +1269,7 @@ Translate :: {}.{
 			_ => Translate.consumed(args, w)
 		}
 		match operation {
-			Prim(call) => Translate.reach_prim(call, args, ty, w)
+			Prim(pc) => Translate.reach_prim(pc, args, ty, w)
 			Call(row) => {
 				got = args.map(of)
 				Translate.with_reads(got.join_map(|g| g.reads), Translate.expand_reach(row, got.map(|g| g.reach), w))
@@ -1288,10 +1288,10 @@ Translate :: {}.{
 					_ => Translate.reached_as(Reach.Nothing)
 				},
 			)
-			Payload(tag, k) => holder(|h| Translate.reached_as(Translate.payload_reach(h, tag, k, ty)))
+			Payload(variant, k) => holder(|h| Translate.reached_as(Translate.payload_reach(h, variant, k, ty)))
 			Unwrap => holder(Translate.reached_as)
 			Wrap(name) => match (Types.nominal(name), args) {
-				(Try, [Op({ op: Tag("Ok"), args: [payload], .. })]) => of(payload)
+				(Try, [Op({ op: Tag("Ok"), args: [inner], .. })]) => of(inner)
 				(Other, [inner]) | (Bool, [inner]) | (Linked, [inner]) | (Out, [inner]) | (In, [inner]) => of(inner)
 				_ => Translate.consumed(args, w)
 			}
@@ -1310,9 +1310,9 @@ Translate :: {}.{
 	}
 
 	reach_prim : Call, List(Code.Tree), Code.Ty, Walk -> Reached
-	reach_prim = |call, args, ty, w| {
+	reach_prim = |prim_call, args, ty, w| {
 		of = |tree| Translate.reach(tree, w)
-		match (Translate.form(call.id, w.extensions), args) {
+		match (Translate.form(prim_call.id, w.extensions), args) {
 			(Ok(LinkGet), [link]) => {
 				got = of(link)
 				Translate.with_reads(
@@ -1510,10 +1510,10 @@ Translate :: {}.{
 	## A payload, as `Translate.payload` reads it: the value of a `Try` is
 	## at its place, and a union arm at `value`, unless it is a record.
 	payload_reach : Reach, Str, U64, Code.Ty -> Reach
-	payload_reach = |holder, tag, k, ty| match holder {
+	payload_reach = |holder, variant, k, ty| match holder {
 		At(p) => match (p.ty, Types.unwrap(p.ty)) {
 			(Named(name, _, _), _) if Types.nominal(name) == Try => Translate.place_of(p.path, p.lists, p.edge, ty)
-			(_, TagUnion(variants)) => match variants.find_first(|v| v.name == tag) {
+			(_, TagUnion(variants)) => match variants.find_first(|v| v.name == variant) {
 				Ok({ payloads: [one], .. }) =>
 					if Translate.is_record(one) {
 						Translate.place_of(p.path, p.lists, p.edge, ty)
@@ -1525,7 +1525,7 @@ Translate :: {}.{
 			}
 			_ => Reach.Nothing
 		}
-		Either(arms) => Reach.Either(arms.map(|a| Translate.payload_reach(a, tag, k, ty)))
+		Either(arms) => Reach.Either(arms.map(|a| Translate.payload_reach(a, variant, k, ty)))
 		_ => Reach.Nothing
 	}
 
@@ -1747,8 +1747,8 @@ Translate :: {}.{
 			Err(_) => Err(Unsupported("an operation with no operand"))
 		}
 		match operation {
-			Lit(literal) => Translate.literal(literal).map_ok(|s| Binding.Expr(s))
-			Prim(call) => Translate.prim(call, args, ty, env)
+			Lit(lit) => Translate.literal(lit).map_ok(|s| Binding.Expr(s))
+			Prim(pc) => Translate.prim(pc, args, ty, env)
 			Call(row) => match env.self {
 				# The body of a database function calls itself through the database.
 				Inside(f) if f.row == row => Ok(Translate.at(Translate.call("fn::${f.name}", args.map_try(|a| Translate.expr(a, env))?), ty))
@@ -1810,7 +1810,7 @@ Translate :: {}.{
 					}
 				_ => Err(Unsupported("only a row with its edges has positions `.0`, `.1`, .."))
 			}
-			Payload(tag, k) => Translate.payload(first({})?, tag, k, ty)
+			Payload(variant, k) => Translate.payload(first({})?, variant, k, ty)
 			Switch(sw) => Translate.switch(sw.arms.map(|a| a.key), sw.joins.len(), sw.outputs.len(), args, env)
 			And(_) => Translate.connective("AND", args, env)
 			Or(_) => Translate.connective("OR", args, env)
@@ -2066,7 +2066,7 @@ Translate :: {}.{
 					(Ok(lon), Ok(lat)) => Ok(Binding.Infix("<point> [${Translate.expr(lon, env)?}, ${Translate.expr(lat, env)?}]"))
 					_ => Err(Unsupported("a point built without its longitude and latitude"))
 				}
-				("geometry", Op({ op: Tag(_), args: [payload], .. })) => Translate.eval(payload, env)
+				("geometry", Op({ op: Tag(_), args: [held], .. })) => Translate.eval(held, env)
 				_ => Err(Translate.geometry_parameter(name))
 			}
 			Try => Translate.try_value(inner, env)
@@ -2078,7 +2078,7 @@ Translate :: {}.{
 	## `x`, and `Err(_)` is NONE, as for a `Try` read from an optional field.
 	try_value : Code.Tree, Env -> Try(Binding, Ql.Error)
 	try_value = |inner, env| match inner {
-		Op({ op: Tag("Ok"), args: [payload], .. }) => match Translate.eval(payload, env)? {
+		Op({ op: Tag("Ok"), args: [held], .. }) => match Translate.eval(held, env)? {
 			Maybe(_) => Err(Translate.nested_try)
 			value => Ok(Binding.Maybe(Translate.text(value)?))
 		}
@@ -2249,7 +2249,7 @@ Translate :: {}.{
 				} else {
 					tests = arms.map_try(
 						|a| match a.key {
-							Lit(literal) => Ok({ test: "${s} = ${Translate.literal(literal)?}", value: Translate.expr(a.tree, env)? })
+							Lit(lit) => Ok({ test: "${s} = ${Translate.literal(lit)?}", value: Translate.expr(a.tree, env)? })
 							Default => Ok({ test: "", value: Translate.expr(a.tree, env)? })
 							_ => Err(Unsupported("a list pattern has no SurrealQL form"))
 						},
@@ -2361,17 +2361,17 @@ Translate :: {}.{
 	## A call of a primitive, in the form its id has (`Translate.form`). The
 	## owner and the method of the call name it in a refusal only.
 	prim : Call, List(Code.Tree), Code.Ty, Env -> Try(Binding, Ql.Error)
-	prim = |call, args, ty, env| {
+	prim = |prim_call, args, ty, env| {
 		sql = |node| Translate.expr(node, env)
 		opd = |node| Translate.arg(node, env)
-		name = "${call.owner}.${call.method}"
-		found = match Translate.form(call.id, env.extensions) {
+		name = "${prim_call.owner}.${prim_call.method}"
+		found = match Translate.form(prim_call.id, env.extensions) {
 			Ok(known) => known
 			Err(NotFound) => return Err(Unsupported("`${name}` has no SurrealQL form"))
 		}
 		match (found, args) {
-			(Builtin({ owner: "List", method: "sort" }), _) => Translate.sorted("sort", call.evidence, args, env)
-			(Builtin({ owner: "List", method: "sort_reversed" }), _) => Translate.sorted("sort_reversed", call.evidence, args, env)
+			(Builtin({ owner: "List", method: "sort" }), _) => Translate.sorted("sort", prim_call.evidence, args, env)
+			(Builtin({ owner: "List", method: "sort_reversed" }), _) => Translate.sorted("sort_reversed", prim_call.evidence, args, env)
 			(Builtin(b), _) => Translate.builtin(b.owner, b.method, args, env)
 			(LinkGet, [link]) => match Translate.eval(link, env)? {
 				Expr(path) => Ok(Binding.Row({ at: path, of: Ref(ty), edge: Bool.False }))
@@ -2381,7 +2381,7 @@ Translate :: {}.{
 			(IdEq, [a, b]) => Ok(Binding.Infix("${opd(a)?} = ${opd(b)?}"))
 			(IdKey, [id]) => Ok(Binding.Expr("record::id(${sql(id)?})"))
 			(IdTable, [id]) => Ok(Binding.Expr("record::tb(${sql(id)?})"))
-			(DatetimeOrder, [lhs, rhs]) => Translate.binary(call.owner, call.method, lhs, rhs, env)
+			(DatetimeOrder, [lhs, rhs]) => Translate.binary(prim_call.owner, prim_call.method, lhs, rhs, env)
 			# A key `[series, time]`: `record::id(id)[0]` and `record::id(id)[1]`.
 			(SeriesOf, [key]) => Ok(Translate.at("${sql(key)?}[0]", ty))
 			(TimeOf, [key]) => Ok(Translate.at("${sql(key)?}[1]", ty))
@@ -2419,7 +2419,7 @@ Translate :: {}.{
 				_ => Err(Unsupported("`id` reads a table that the clause names"))
 			}
 			(Variable(value), _) => Ok(Translate.at(value, ty))
-			(Render(draw), _) => match draw({ args: args.map_try(opd)?, evidence: call.evidence }) {
+			(Render(draw), _) => match draw({ args: args.map_try(opd)?, evidence: prim_call.evidence }) {
 				Ok(written) => Ok(Translate.rendered(written, ty))
 				Err(why) => Err(Unsupported("`${name}`: ${why}"))
 			}
@@ -2666,14 +2666,14 @@ Translate :: {}.{
 	moments : Code.Tree, Code.Tree, Env -> Try([Moments({ left : Str, right : Str }), Texts], Ql.Error)
 	moments = |lhs, rhs, env| {
 		not_literal = Unsupported("the text of a datetime is compared with a datetime or a literal; SurrealDB prints a fraction with 3, 6 or 9 digits, so other texts differ")
-		literal = |tree| match Translate.str_lit(tree) {
+		as_literal = |tree| match Translate.str_lit(tree) {
 			Ok(iso) => Ok(Ql.literal(Ql.Value.Datetime(iso)))
 			Err(_) => Err(not_literal)
 		}
 		match (Translate.eval(lhs, env)?, Translate.eval(rhs, env)?) {
 			(Moment(a), Moment(b)) => Ok(Moments({ left: a, right: b }))
-			(Moment(a), _) => Ok(Moments({ left: a, right: literal(rhs)? }))
-			(_, Moment(b)) => Ok(Moments({ left: b, right: literal(lhs)? }))
+			(Moment(a), _) => Ok(Moments({ left: a, right: as_literal(rhs)? }))
+			(_, Moment(b)) => Ok(Moments({ left: b, right: as_literal(lhs)? }))
 			_ => Ok(Texts)
 		}
 	}

@@ -190,16 +190,16 @@ Diff :: {}.{
 		parse : Str -> Try(TextPatch, [BadPatch(Str)])
 		parse = |text| {
 			lines = text.split_on("\n")
-			hunks = lines.fold_try([], |acc, line| Diff.read_line(acc, line))?
-			hunks.map_try(Diff.checked).map_ok(|checked| TextPatch.(checked))
+			parts = lines.fold_try([], |acc, line| Diff.read_line(acc, line))?
+			parts.map_try(Diff.checked).map_ok(|valid| TextPatch.(valid))
 		}
 
 		## The text with each hunk applied, in order. The text must hold the
 		## kept and the deleted parts of each hunk where the hunk starts:
 		## `Mismatch(at)` gives that position when it does not.
 		apply : TextPatch, Str -> Try(Str, [Mismatch(U64)])
-		apply = |TextPatch.(hunks), text| {
-			result = hunks.fold_try(Diff.scalars(text), Diff.apply_hunk)?
+		apply = |TextPatch.(all), text| {
+			result = all.fold_try(Diff.scalars(text), Diff.apply_hunk)?
 			match Str.from_utf8(result.join()) {
 				Ok(s) => Ok(s)
 				Err(_) => crash "whole scalars of valid UTF-8 are valid UTF-8"

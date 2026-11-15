@@ -61,7 +61,7 @@ Schema :: {}.{
 	defined = |source, rules, problems| Defined.(Table({ source, rules, problems }))
 
 	function : Try(List(Schema.Function), Ql.Error) -> Schema.Defined
-	function = |functions| Defined.(Function(functions))
+	function = |fns| Defined.(Function(fns))
 
 	read : Str, Code.Ty -> Schema.Defined
 	read = |name, row_ty| Defined.(Read({ name, row_ty }))
@@ -176,16 +176,16 @@ Schema :: {}.{
 	## A permission of the table for `actions`: the condition over the
 	## row, a `filter`'s (`Translate.table_row`), or `FULL` or `NONE`.
 	permit : List(Translate.Extension), Types.Source, List(Schema.Action), [Where(Code.Graph), Full, No] -> Try(List(Schema.Rule), Ql.Error)
-	permit = |extensions, source, actions, grant| Ok([Permit({ actions, grant: Schema.grant(extensions, source, grant)? })])
+	permit = |extensions, source, actions, wanted| Ok([Permit({ actions, grant: Schema.grant(extensions, source, wanted)? })])
 
 	## A permission of the field at a path for `actions`, as `permit`.
 	permit_field : List(Translate.Extension), Types.Source, Code.Graph, List(Schema.Action), [Where(Code.Graph), Full, No] -> Try(List(Schema.Rule), Ql.Error)
-	permit_field = |extensions, source, path_graph, actions, grant| {
+	permit_field = |extensions, source, path_graph, actions, wanted| {
 		path = Schema.one_field(path_graph, "permit_field")?
 		if actions.contains(Delete) {
 			return Err(BadSchema("`${source.name}.${path}`: a field has no `delete` permission; the table's decides"))
 		}
-		Ok([PermitField({ path, actions, grant: Schema.grant(extensions, source, grant)? })])
+		Ok([PermitField({ path, actions, grant: Schema.grant(extensions, source, wanted)? })])
 	}
 
 	grant : List(Translate.Extension), Types.Source, [Where(Code.Graph), Full, No] -> Try(Schema.Grant, Ql.Error)
@@ -575,7 +575,7 @@ Schema :: {}.{
 			},
 		)
 		_ = defs.map_try(|d| Schema.analyzed(d, analyzers.map(|a| a.name)))?
-		functions = Schema.functions(translated.map_try(|f| f)?.join(), registry)?
+		fn_lines = Schema.functions(translated.map_try(|f| f)?.join(), registry)?
 		parts = defs.map_try(|d| Schema.statements(d, registry))?
 		Schema.no_cycle(defs, registry)?
 		names = parts.join_map(|p| p.names)
@@ -583,7 +583,7 @@ Schema :: {}.{
 			Ok(n) => return Err(BadSchema("two generated statements are named `${n}`; rename a field or a check"))
 			Err(_) => {}
 		}
-		Ok([functions, analyzers.map(|a| a.line), parts.join_map(|p| p.tables), parts.join_map(|p| p.views), parts.join_map(|p| p.fields), parts.join_map(|p| p.indexes), parts.join_map(|p| p.checks), parts.join_map(|p| p.deletes), accesses].join())
+		Ok([fn_lines, analyzers.map(|a| a.line), parts.join_map(|p| p.tables), parts.join_map(|p| p.views), parts.join_map(|p| p.fields), parts.join_map(|p| p.indexes), parts.join_map(|p| p.checks), parts.join_map(|p| p.deletes), accesses].join())
 	}
 
 	## A field of a table as `script` defines it: `table` and `path` as
@@ -683,11 +683,11 @@ Schema :: {}.{
 	## next clause. "" when it has none.
 	field_type : Str -> Str
 	field_type = |line| {
-		words = Schema.words(line.drop_suffix(";"))
+		tokens = Schema.words(line.drop_suffix(";"))
 		clauses = ["DEFAULT", "VALUE", "ASSERT", "READONLY", "PERMISSIONS", "REFERENCE", "COMMENT", "FLEXIBLE", "MIGRATE"]
-		match words.find_first_index(|w| w == "TYPE") {
+		match tokens.find_first_index(|w| w == "TYPE") {
 			Ok(at) => {
-				rest = words.drop_first(at + 1)
+				rest = tokens.drop_first(at + 1)
 				Str.join_with(rest.take_first(rest.find_first_index(|w| clauses.contains(w)) ?? rest.len()), " ")
 			}
 			Err(_) => ""
@@ -750,8 +750,8 @@ Schema :: {}.{
 
 	entry : Str -> Schema.Entry
 	entry = |line| {
-		words = Schema.words(line)
-		word = |k| words.get(k) ?? ""
+		tokens = Schema.words(line)
+		word = |k| tokens.get(k) ?? ""
 		kind = word(1)
 		# `DEFINE FUNCTION OVERWRITE fn::name($a1: T) ..`
 		name = if (kind == "FUNCTION") word(3).split_on("(").first() ?? "" else word(3)
@@ -865,9 +865,9 @@ Schema :: {}.{
 		)
 		checks = rules.keep_oks(
 			|r| match r {
-				Check({ name: check_name, cond, .. }) => {
-					name = Schema.check_name(src, check_name)
-					Ok({ name, line: "DEFINE EVENT OVERWRITE ${Ql.ident(name)} ${on} WHEN $event IN ['CREATE', 'UPDATE'] THEN { IF !(${cond}) { THROW ${Ql.quote("${src}: ${check_name}")} } };" })
+				Check({ name: rule_name, cond, .. }) => {
+					name = Schema.check_name(src, rule_name)
+					Ok({ name, line: "DEFINE EVENT OVERWRITE ${Ql.ident(name)} ${on} WHEN $event IN ['CREATE', 'UPDATE'] THEN { IF !(${cond}) { THROW ${Ql.quote("${src}: ${rule_name}")} } };" })
 				}
 				_ => Err(NotCheck)
 			},
