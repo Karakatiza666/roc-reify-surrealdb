@@ -25,7 +25,7 @@ Rpc :: {}.{
 			Str.join_with([bytes.sublist({ start: 0, len: 4 }), bytes.sublist({ start: 4, len: 2 }), bytes.sublist({ start: 6, len: 2 }), bytes.sublist({ start: 8, len: 2 }), bytes.sublist({ start: 10, len: 6 })].map(hex), "-")
 		}
 
-		parser_for : Cbor -> (Cbor.Reader -> Try({ value : Uuid, rest : Cbor.Reader }, [InvalidCbor(U64)]))
+		parser_for : Cbor -> (Cbor.Reader -> Try({ value : Uuid, rest : Cbor.Reader }, [InvalidCbor(U64), MissingRequiredField(Str)]))
 		parser_for = |encoding| |state| {
 			tag = Cbor.parse_cbor_tag(encoding, state)?
 			bytes = Cbor.parse_bytes(encoding, tag.rest)?

@@ -62,7 +62,7 @@ Surreal :: {}.{
 		encoder_for = |_format| |Id.(i), state| Encode.Format.encode_id(i.table, i.key, state)
 
 		## A record id from the server: tag 8 and `[table, key]`, with a text key.
-		parser_for : Cbor -> (Cbor.Reader -> Try({ value : Id(row), rest : Cbor.Reader }, [InvalidCbor(U64)]))
+		parser_for : Cbor -> (Cbor.Reader -> Try({ value : Id(row), rest : Cbor.Reader }, [InvalidCbor(U64), MissingRequiredField(Str)]))
 		parser_for = |encoding| |state| {
 			pair : { value : (Str, Str), rest : Cbor.Reader }
 			pair = tagged(encoding, state, 8)?
@@ -106,7 +106,7 @@ Surreal :: {}.{
 		}
 
 		## A link from the server: its record id. The row is not fetched.
-		parser_for : Cbor -> (Cbor.Reader -> Try({ value : Link(row), rest : Cbor.Reader }, [InvalidCbor(U64)]))
+		parser_for : Cbor -> (Cbor.Reader -> Try({ value : Link(row), rest : Cbor.Reader }, [InvalidCbor(U64), MissingRequiredField(Str)]))
 		parser_for = |encoding| |state| {
 			read = Id.parser_for(encoding)(state)?
 			Ok({ value: Link.({ id: read.value, fetched: NotFetched }), rest: read.rest })
@@ -210,7 +210,7 @@ Surreal :: {}.{
 
 		## A datetime from the server: tag 12 and `[seconds, nanoseconds]`
 		## since 1970. The nanoseconds are left out when they are 0.
-		parser_for : Cbor -> (Cbor.Reader -> Try({ value : Datetime, rest : Cbor.Reader }, [InvalidCbor(U64)]))
+		parser_for : Cbor -> (Cbor.Reader -> Try({ value : Datetime, rest : Cbor.Reader }, [InvalidCbor(U64), MissingRequiredField(Str)]))
 		parser_for = |encoding| |state| {
 			parts : { value : List(I64), rest : Cbor.Reader }
 			parts = tagged(encoding, state, 12)?
@@ -302,7 +302,7 @@ Surreal :: {}.{
 
 		## The array `[series, time]` from the server, as `record::id(id)`
 		## gives it.
-		parser_for : Cbor -> (Cbor.Reader -> Try({ value : TimeKey(s), rest : Cbor.Reader }, [InvalidCbor(U64), ..errs])) where [s.Cbor.Parseable([InvalidCbor(U64), ..errs])]
+		parser_for : Cbor -> (Cbor.Reader -> Try({ value : TimeKey(s), rest : Cbor.Reader }, [InvalidCbor(U64), MissingRequiredField(Str)])) where [s.Cbor.Parseable([InvalidCbor(U64), MissingRequiredField(Str)])]
 		parser_for = |encoding| |state| {
 			start = Cbor.parse_tuple_start(encoding, state, 2)?
 			first : { value : s, rest : Cbor.Reader }
@@ -339,7 +339,7 @@ Surreal :: {}.{
 		encoder_for = |_format| |p, state| Encode.Format.encode_geometry(geojson(Geometry.Point(p)), state)
 
 		## A point from the server: tag 88 and `[lon, lat]`.
-		parser_for : Cbor -> (Cbor.Reader -> Try({ value : Point, rest : Cbor.Reader }, [InvalidCbor(U64)]))
+		parser_for : Cbor -> (Cbor.Reader -> Try({ value : Point, rest : Cbor.Reader }, [InvalidCbor(U64), MissingRequiredField(Str)]))
 		parser_for = |encoding| |state| {
 			pair : { value : (F64, F64), rest : Cbor.Reader }
 			pair = tagged(encoding, state, 88)?
@@ -358,7 +358,7 @@ Surreal :: {}.{
 		encoder_for = |_format| |l, state| Encode.Format.encode_geometry(geojson(Geometry.Line(l)), state)
 
 		## Tag 89 and the points, each a tag 88.
-		parser_for : Cbor -> (Cbor.Reader -> Try({ value : Line, rest : Cbor.Reader }, [InvalidCbor(U64)]))
+		parser_for : Cbor -> (Cbor.Reader -> Try({ value : Line, rest : Cbor.Reader }, [InvalidCbor(U64), MissingRequiredField(Str)]))
 		parser_for = |encoding| |state| {
 			points : { value : List(Point), rest : Cbor.Reader }
 			points = tagged(encoding, state, 89)?
@@ -379,7 +379,7 @@ Surreal :: {}.{
 		encoder_for = |_format| |p, state| Encode.Format.encode_geometry(geojson(Geometry.Polygon(p)), state)
 
 		## Tag 90 and the rings, each a line (tag 89): the outer ring first.
-		parser_for : Cbor -> (Cbor.Reader -> Try({ value : Polygon, rest : Cbor.Reader }, [InvalidCbor(U64)]))
+		parser_for : Cbor -> (Cbor.Reader -> Try({ value : Polygon, rest : Cbor.Reader }, [InvalidCbor(U64), MissingRequiredField(Str)]))
 		parser_for = |encoding| |state| {
 			rings : { value : List(Line), rest : Cbor.Reader }
 			rings = tagged(encoding, state, 90)?
@@ -401,7 +401,7 @@ Surreal :: {}.{
 		encoder_for = |_format| |m, state| Encode.Format.encode_geometry(geojson(Geometry.MultiPoint(m)), state)
 
 		## Tag 91 and the points.
-		parser_for : Cbor -> (Cbor.Reader -> Try({ value : MultiPoint, rest : Cbor.Reader }, [InvalidCbor(U64)]))
+		parser_for : Cbor -> (Cbor.Reader -> Try({ value : MultiPoint, rest : Cbor.Reader }, [InvalidCbor(U64), MissingRequiredField(Str)]))
 		parser_for = |encoding| |state| {
 			points : { value : List(Point), rest : Cbor.Reader }
 			points = tagged(encoding, state, 91)?
@@ -420,7 +420,7 @@ Surreal :: {}.{
 		encoder_for = |_format| |m, state| Encode.Format.encode_geometry(geojson(Geometry.MultiLine(m)), state)
 
 		## Tag 92 and the lines.
-		parser_for : Cbor -> (Cbor.Reader -> Try({ value : MultiLine, rest : Cbor.Reader }, [InvalidCbor(U64)]))
+		parser_for : Cbor -> (Cbor.Reader -> Try({ value : MultiLine, rest : Cbor.Reader }, [InvalidCbor(U64), MissingRequiredField(Str)]))
 		parser_for = |encoding| |state| {
 			lines : { value : List(Line), rest : Cbor.Reader }
 			lines = tagged(encoding, state, 92)?
@@ -439,7 +439,7 @@ Surreal :: {}.{
 		encoder_for = |_format| |m, state| Encode.Format.encode_geometry(geojson(Geometry.MultiPolygon(m)), state)
 
 		## Tag 93 and the polygons.
-		parser_for : Cbor -> (Cbor.Reader -> Try({ value : MultiPolygon, rest : Cbor.Reader }, [InvalidCbor(U64)]))
+		parser_for : Cbor -> (Cbor.Reader -> Try({ value : MultiPolygon, rest : Cbor.Reader }, [InvalidCbor(U64), MissingRequiredField(Str)]))
 		parser_for = |encoding| |state| {
 			polygons : { value : List(Polygon), rest : Cbor.Reader }
 			polygons = tagged(encoding, state, 93)?
@@ -458,7 +458,7 @@ Surreal :: {}.{
 		encoder_for = |_format| |c, state| Encode.Format.encode_geometry(geojson(Geometry.Collection(c)), state)
 
 		## Tag 94 and the geometries.
-		parser_for : Cbor -> (Cbor.Reader -> Try({ value : Collection, rest : Cbor.Reader }, [InvalidCbor(U64)]))
+		parser_for : Cbor -> (Cbor.Reader -> Try({ value : Collection, rest : Cbor.Reader }, [InvalidCbor(U64), MissingRequiredField(Str)]))
 		parser_for = |encoding| |state| {
 			items : { value : List(Geometry), rest : Cbor.Reader }
 			items = tagged(encoding, state, 94)?
@@ -476,7 +476,7 @@ Surreal :: {}.{
 		encoder_for = |_format| |g, state| Encode.Format.encode_geometry(geojson(g), state)
 
 		## The kind of the geometry is its tag: 88 to 94.
-		parser_for : Cbor -> (Cbor.Reader -> Try({ value : Geometry, rest : Cbor.Reader }, [InvalidCbor(U64)]))
+		parser_for : Cbor -> (Cbor.Reader -> Try({ value : Geometry, rest : Cbor.Reader }, [InvalidCbor(U64), MissingRequiredField(Str)]))
 		parser_for = |encoding| |state| match Cbor.peek(encoding, state)? {
 			Tag(88) => Point.parser_for(encoding)(state).map_ok(|r| { value: Geometry.Point(r.value), rest: r.rest })
 			Tag(89) => Line.parser_for(encoding)(state).map_ok(|r| { value: Geometry.Line(r.value), rest: r.rest })
@@ -504,7 +504,7 @@ Surreal :: {}.{
 		## A duration from the server: tag 14 and `[seconds, nanoseconds]`.
 		## The nanoseconds are left out when they are 0, and both when the
 		## duration is 0.
-		parser_for : Cbor -> (Cbor.Reader -> Try({ value : Duration, rest : Cbor.Reader }, [InvalidCbor(U64)]))
+		parser_for : Cbor -> (Cbor.Reader -> Try({ value : Duration, rest : Cbor.Reader }, [InvalidCbor(U64), MissingRequiredField(Str)]))
 		parser_for = |encoding| |state| {
 			parts : { value : List(U64), rest : Cbor.Reader }
 			parts = tagged(encoding, state, 14)?
@@ -537,7 +537,7 @@ Surreal :: {}.{
 		encoder_for = |_format| |Regex.(r), state| Encode.Format.encode_value(Ql.Value.Regex(r.pattern), state)
 
 		## Tag 193 and the text.
-		parser_for : Cbor -> (Cbor.Reader -> Try({ value : Regex, rest : Cbor.Reader }, [InvalidCbor(U64)]))
+		parser_for : Cbor -> (Cbor.Reader -> Try({ value : Regex, rest : Cbor.Reader }, [InvalidCbor(U64), MissingRequiredField(Str)]))
 		parser_for = |encoding| |state| {
 			text : { value : Str, rest : Cbor.Reader }
 			text = tagged(encoding, state, 193)?
@@ -567,7 +567,7 @@ Surreal :: {}.{
 		encoder_for = |_format| |BigDecimal.(b), state| Encode.Format.encode_value(Ql.Value.BigDecimal(b.text), state)
 
 		## Tag 192 and the text.
-		parser_for : Cbor -> (Cbor.Reader -> Try({ value : BigDecimal, rest : Cbor.Reader }, [InvalidCbor(U64)]))
+		parser_for : Cbor -> (Cbor.Reader -> Try({ value : BigDecimal, rest : Cbor.Reader }, [InvalidCbor(U64), MissingRequiredField(Str)]))
 		parser_for = |encoding| |state| {
 			text : { value : Str, rest : Cbor.Reader }
 			text = tagged(encoding, state, 192)?
@@ -598,7 +598,7 @@ Surreal :: {}.{
 		encoder_for = |_format| |Date.(d), state| Encode.Format.encode_value(Ql.Value.Date(d.days), state)
 
 		## Tag 100 and the days.
-		parser_for : Cbor -> (Cbor.Reader -> Try({ value : Date, rest : Cbor.Reader }, [InvalidCbor(U64)]))
+		parser_for : Cbor -> (Cbor.Reader -> Try({ value : Date, rest : Cbor.Reader }, [InvalidCbor(U64), MissingRequiredField(Str)]))
 		parser_for = |encoding| |state| {
 			days : { value : I32, rest : Cbor.Reader }
 			days = tagged(encoding, state, 100)?
@@ -648,7 +648,7 @@ Surreal :: {}.{
 		encoder_for = |_format| |TimeOfDay.(t), state| Encode.Format.encode_value(Ql.Value.Time(t.nanos), state)
 
 		## Tag 189 and the nanoseconds.
-		parser_for : Cbor -> (Cbor.Reader -> Try({ value : TimeOfDay, rest : Cbor.Reader }, [InvalidCbor(U64)]))
+		parser_for : Cbor -> (Cbor.Reader -> Try({ value : TimeOfDay, rest : Cbor.Reader }, [InvalidCbor(U64), MissingRequiredField(Str)]))
 		parser_for = |encoding| |state| {
 			nanos : { value : U64, rest : Cbor.Reader }
 			nanos = tagged(encoding, state, 189)?
@@ -681,7 +681,7 @@ Surreal :: {}.{
 		encoder_for = |_format| |Timestamp.(t), state| Encode.Format.encode_value(Ql.Value.Timestamp(t), state)
 
 		## Tag 190 and `[seconds, nanoseconds]`.
-		parser_for : Cbor -> (Cbor.Reader -> Try({ value : Timestamp, rest : Cbor.Reader }, [InvalidCbor(U64)]))
+		parser_for : Cbor -> (Cbor.Reader -> Try({ value : Timestamp, rest : Cbor.Reader }, [InvalidCbor(U64), MissingRequiredField(Str)]))
 		parser_for = |encoding| |state| {
 			parts : { value : (I64, U32), rest : Cbor.Reader }
 			parts = tagged(encoding, state, 190)?
@@ -715,7 +715,7 @@ Surreal :: {}.{
 		encoder_for = |_format| |Interval.(i), state| Encode.Format.encode_value(Ql.Value.Interval(i), state)
 
 		## Tag 191 and `[months, days, microseconds]`.
-		parser_for : Cbor -> (Cbor.Reader -> Try({ value : Interval, rest : Cbor.Reader }, [InvalidCbor(U64)]))
+		parser_for : Cbor -> (Cbor.Reader -> Try({ value : Interval, rest : Cbor.Reader }, [InvalidCbor(U64), MissingRequiredField(Str)]))
 		parser_for = |encoding| |state| {
 			parts : { value : (I32, I32, I64), rest : Cbor.Reader }
 			parts = tagged(encoding, state, 191)?
@@ -3161,7 +3161,7 @@ Surreal :: {}.{
 		## A record id from the server: tag 8 and `[table, key]`. The key
 		## is read as a value that the ORM writes (`value_of`), so a
 		## key of another kind, such as a duration, is an error.
-		parser_for : Cbor -> (Cbor.Reader -> Try({ value : Ref, rest : Cbor.Reader }, [InvalidCbor(U64)]))
+		parser_for : Cbor -> (Cbor.Reader -> Try({ value : Ref, rest : Cbor.Reader }, [InvalidCbor(U64), MissingRequiredField(Str)]))
 		parser_for = |encoding| |state| {
 			pair : { value : (Str, Cbor.Value), rest : Cbor.Reader }
 			pair = tagged(encoding, state, 8)?
@@ -4510,7 +4510,7 @@ datetime_of = |parts| match parts {
 }
 
 ## The item after a CBOR tag, read as `a`. Another tag is an error at the tag.
-tagged : Cbor, Cbor.Reader, U64 -> Try({ value : a, rest : Cbor.Reader }, [InvalidCbor(U64), ..errs]) where [a.Cbor.Parseable([InvalidCbor(U64), ..errs])]
+tagged : Cbor, Cbor.Reader, U64 -> Try({ value : a, rest : Cbor.Reader }, [InvalidCbor(U64), MissingRequiredField(Str)]) where [a.Cbor.Parseable([InvalidCbor(U64), MissingRequiredField(Str)])]
 tagged = |encoding, state, number| {
 	tag = Cbor.parse_cbor_tag(encoding, state)?
 	if tag.value == number {
@@ -5980,14 +5980,19 @@ read_options = { ignore_tags: [6, 10, 180, 181, 182, 183, 184, 185, 186, 187, 18
 
 ## A value of the type `a` from CBOR bytes of the server.
 read_cbor : List(U8) -> Try(a, Error) where [a.Cbor.Readable(errs)]
-read_cbor = |bytes| match Cbor.parse_with(bytes, read_options) {
-	Ok(value) => Ok(value)
-	Err(InvalidCbor(pos)) => {
-		path = path_of(bytes, pos)
-		Err(Decode({ path, message: "the value at byte ${pos.to_str()}${if (path.is_empty()) "" else " (${path})"} does not fit its Roc type" }))
+read_cbor = |bytes| {
+	# The annotation: on a `match` of the call, the 11-14 compiler warns that the `MissingRequiredField` branch cannot match.
+	parsed : Try(a, _)
+	parsed = Cbor.parse_with(bytes, read_options)
+	match parsed {
+		Ok(value) => Ok(value)
+		Err(InvalidCbor(pos)) => {
+			path = path_of(bytes, pos)
+			Err(Decode({ path, message: "the value at byte ${pos.to_str()}${if (path.is_empty()) "" else " (${path})"} does not fit its Roc type" }))
+		}
+		Err(MissingRequiredField(name)) => Err(Decode({ path: "", message: "a map has no field `${name}`" }))
+		Err(_) => Err(Decode({ path: "", message: "the value does not fit its Roc type" }))
 	}
-	Err(MissingRequiredField(name)) => Err(Decode({ path: "", message: "a map has no field `${name}`" }))
-	Err(_) => Err(Decode({ path: "", message: "the value does not fit its Roc type" }))
 }
 
 ## A row of a notice or of a snapshot, read as `out`. The envelope
