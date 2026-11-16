@@ -177,7 +177,7 @@ Unsupported("in `select_value`: `Num.I64.abs_diff` has no SurrealQL form")
 
 ## Package functions
 
-SurrealDB has functions that Roc has no builtin for. The package gives them as functions of nine namespaces inside `Surreal`: `Text`, `Hash`, `Auth`, `Array`, `Time`, `Math`, `Rand`, `Vector` and `Geo`. `Id.table` is one more function, on the type `Id`. You write `Surreal.Text.is_email(s)`. The name is `Text` and not `Str`, because a nominal named `Str` shadows the builtin in the whole module.
+SurrealDB has functions that Roc has no builtin for. The package gives them as functions of nine namespaces inside `Surreal`: `Text`, `Hash`, `Auth`, `Array`, `Time`, `Math`, `Rand`, `Vector` and `Geo`. `Id.table_name` is one more function, on the type `Id`. You write `Surreal.Text.is_email(s)`. The name is `Text` and not `Str`, because a nominal named `Str` shadows the builtin in the whole module.
 
 Each table has the Roc name, the type, the SurrealQL and the kind (see [Mirror functions and intrinsics](#mirror-functions-and-intrinsics)). In the types, `Datetime` is `Surreal.Datetime`. The kinds come from `roc check --intrinsics src/main.roc` and from the bodies in `src/Surreal.roc`.
 
@@ -376,11 +376,11 @@ The three calls read the session on the server. They are intrinsics and exist on
 
 A real run gives `WHERE type::record('owner', record::id(id)) = $auth.id` for `.filter(|o| owners.id(o.id) == owners.auth())`.
 
-### Id.table
+### Id.table_name
 
 | Roc | Type | SurrealQL | Kind |
 | --- | --- | --- | --- |
-| `id.table()` | `Id(row) -> Str` | `record::tb(id)` | mirror |
+| `id.table_name()` | `Id(row) -> Str` | `record::tb(id)` | mirror |
 
 It reads the table of an id. A link that can point at several tables needs it. A real run gives `SELECT VALUE record::tb(patient) FROM visit` for `.select_value(|v| v.patient.id().table())`.
 

@@ -13,7 +13,7 @@ import internal.Translate
 # compiler reads a list, or a constant of this module that is one, and not
 # `Surreal.code_primitives` from another module.
 TranslateTest :: {}.{
-	code_primitives = [Code.prim(Surreal.Link.get), Code.prim(Surreal.Link.id), Code.prim(Surreal.Id.is_eq), Code.prim(Surreal.Id.key), Code.prim(Surreal.Id.table), Code.prim(Surreal.Datetime.is_lt), Code.prim(Surreal.Datetime.is_lte), Code.prim(Surreal.Text.is_ascii), Code.prim(Surreal.Text.is_hexadecimal), Code.prim(Surreal.Hash.sha256), Code.prim(Surreal.Hash.blake3), Code.prim(Surreal.Array.distinct), Code.prim(Surreal.Array.union), Code.prim(Surreal.Array.intersect), Code.prim(Surreal.Array.complement), Code.prim(Surreal.Time.floor), Code.prim(Surreal.Time.ceil), Code.prim(Surreal.Time.round), Code.prim(Surreal.Time.year), Code.prim(Surreal.Time.month), Code.prim(Surreal.Time.day), Code.prim(Surreal.Time.hour), Code.prim(Surreal.Time.minute), Code.prim(Surreal.Time.second), Code.prim(Surreal.Math.mean), Code.prim(Surreal.Math.mean_dec), Code.prim(Surreal.DbFn.call1), Code.prim(Surreal.DbFn.call2), Code.prim(Surreal.DbFn.call3), Code.prim(Surreal.TimeKey.series), Code.prim(Surreal.TimeKey.time), Code.prim(Surreal.Geo.is_valid), Code.prim(Surreal.Vector.similarity_cosine), Code.prim(Surreal.Vector.distance_euclidean), Code.prim(Surreal.Vector.distance_manhattan), Code.prim(Surreal.Vector.distance_chebyshev), Code.prim(Surreal.Vector.dot), Code.prim(Surreal.Vector.magnitude)]
+	code_primitives = [Code.prim(Surreal.Link.get), Code.prim(Surreal.Link.id), Code.prim(Surreal.Id.is_eq), Code.prim(Surreal.Id.key), Code.prim(Surreal.Id.table_name), Code.prim(Surreal.Datetime.is_lt), Code.prim(Surreal.Datetime.is_lte), Code.prim(Surreal.Text.is_ascii), Code.prim(Surreal.Text.is_hexadecimal), Code.prim(Surreal.Hash.sha256), Code.prim(Surreal.Hash.blake3), Code.prim(Surreal.Array.distinct), Code.prim(Surreal.Array.union), Code.prim(Surreal.Array.intersect), Code.prim(Surreal.Array.complement), Code.prim(Surreal.Time.floor), Code.prim(Surreal.Time.ceil), Code.prim(Surreal.Time.round), Code.prim(Surreal.Time.year), Code.prim(Surreal.Time.month), Code.prim(Surreal.Time.day), Code.prim(Surreal.Time.hour), Code.prim(Surreal.Time.minute), Code.prim(Surreal.Time.second), Code.prim(Surreal.Math.mean), Code.prim(Surreal.Math.mean_dec), Code.prim(Surreal.DbFn.call1), Code.prim(Surreal.DbFn.call2), Code.prim(Surreal.DbFn.call3), Code.prim(Surreal.TimeKey.series), Code.prim(Surreal.TimeKey.time), Code.prim(Surreal.Geo.is_valid), Code.prim(Surreal.Vector.similarity_cosine), Code.prim(Surreal.Vector.distance_euclidean), Code.prim(Surreal.Vector.distance_manhattan), Code.prim(Surreal.Vector.distance_chebyshev), Code.prim(Surreal.Vector.dot), Code.prim(Surreal.Vector.magnitude)]
 
 	## The graph of a clause over rows of the list's element type.
 	describe1 : List(row), Code(row -> out) -> Code.Graph
@@ -127,7 +127,7 @@ expect where_(TranslateTest.describe1(orders, |o| o.customer.id() == ada_id)) ==
 expect where_(TranslateTest.describe1(orders, |o| o.customer.id == ada_id)) == Ok("customer = customer:⟨ada⟩")
 # `link.id` (the field) and `link.id()` (the method) are the same, and `fetched` has no SurrealQL form.
 expect where_(TranslateTest.describe1(orders, |o| o.customer.id.key() == "ada")) == Ok("record::id(customer) = 'ada'")
-expect where_(TranslateTest.describe1(orders, |o| Surreal.Id.table(o.customer.id) == "customer")) == Ok("record::tb(customer) = 'customer'")
+expect where_(TranslateTest.describe1(orders, |o| Surreal.Id.table_name(o.customer.id) == "customer")) == Ok("record::tb(customer) = 'customer'")
 expect where_(TranslateTest.describe1(orders, |o| o.items.any(|i| i.product.id == pen_id))) == Ok("product:⟨pen⟩ IN items[*].product")
 # A test that reads the element on both sides, or more than its fields, stays `any`.
 expect where_(TranslateTest.describe1(paired, |p| p.pairs.any(|x| x.a == x.b))) == Ok("pairs.any(|$v1| $v1.a = $v1.b)")
@@ -658,7 +658,7 @@ expect where_(TranslateTest.describe1(samples, |s| Surreal.Hash.blake3(s.text) =
 expect where_(TranslateTest.describe1(samples, |s| Surreal.Hash.md5(s.text) == "x")) == Ok("crypto::md5(text) = 'x'")
 expect where_(TranslateTest.describe1(samples, |s| Surreal.Hash.sha1(s.text) == "x")) == Ok("crypto::sha1(text) = 'x'")
 expect where_(TranslateTest.describe1(samples, |s| Surreal.Hash.sha512(s.text) == "x")) == Ok("crypto::sha512(text) = 'x'")
-expect where_(TranslateTest.describe1(orders, |o| Surreal.Id.table(o.customer.id()) == "customer")) == Ok("record::tb(customer) = 'customer'")
+expect where_(TranslateTest.describe1(orders, |o| Surreal.Id.table_name(o.customer.id()) == "customer")) == Ok("record::tb(customer) = 'customer'")
 
 # The hash of a password: a new salt on every call, so not in a query,
 # and the compare, as a `SIGNIN` checks a password.
@@ -863,7 +863,7 @@ expect Surreal.Hash.blake3("abc") == "6437b3ac38465133ffb63b75273a8db548c558465d
 expect Surreal.Hash.blake3("é") == "46d0ec742ceaad149f9a3d109d1bd9e9ece7858161b43cf0008906478418e807"
 expect Surreal.Hash.blake3("😀") == "728105475d1a9e2f0164862a43e44bea39fa5d8b73d484f9137b8ae65a66dd7a"
 expect Surreal.Hash.blake3(Str.repeat("a", 1000)) == "9957a9014733dd6b6e2f6abcbe7b259a6da1aa0b0e184cd7bf1810e5c425f405"
-expect Surreal.Id.table(ada_id) == "customer"
+expect Surreal.Id.table_name(ada_id) == "customer"
 
 expect Surreal.Array.distinct([3.I64, 1, 3, 2, 1]) == [3, 1, 2]
 expect Surreal.Array.distinct(List.repeat(1.I64, 0)) == []

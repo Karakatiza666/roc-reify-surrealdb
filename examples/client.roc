@@ -666,7 +666,7 @@ made_rows : Str, List(new), (Str -> Bool), Str -> (Try(List(Surreal.Created(row,
 made_rows = |table, want, shape, kind| |got| match got {
 	Ok(rows) => {
 		keys = rows.map(|r| r.id.key())
-		fine = Str.inspect(rows.map(|r| r.fields)) == Str.inspect(want) and rows.all(|r| r.id.table() == table and shape(r.id.key())) and keys.all(|k| keys.count_if(|o| o == k) == 1)
+		fine = Str.inspect(rows.map(|r| r.fields)) == Str.inspect(want) and rows.all(|r| r.id.table_name() == table and shape(r.id.key())) and keys.all(|k| keys.count_if(|o| o == k) == 1)
 		if fine {
 			{ agrees: Bool.True, text: "${row_count(rows)}, ${kind} keys" }
 		} else {

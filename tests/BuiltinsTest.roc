@@ -868,7 +868,7 @@ average_expected = [
 	{ grp: "c", avg: 3, total: 6 },
 ]
 
-# ----------------------------------------------------- Rand and Id.table
+# ----------------------------------------------------- Rand and Id.table_name
 
 ## Every generated value has the shape of its kind. The values themselves differ on each run.
 Shaped : { id : Str, name : Str, uid_ok : Bool, uuid_ok : Bool, roll_ok : Bool, tag_ok : Bool }
@@ -901,7 +901,7 @@ reroll_expected = [
 Linked : { id : Str, to_table : Str, to_key : Str, mine_table : Str }
 
 link_line : Ref -> Linked
-link_line = |r| { id: r.id, to_table: Surreal.Id.table(r.to.id()), to_key: r.to.id().key(), mine_table: Surreal.Id.table(r.mine) }
+link_line = |r| { id: r.id, to_table: Surreal.Id.table_name(r.to.id()), to_key: r.to.id().key(), mine_table: Surreal.Id.table_name(r.mine) }
 
 seed_refs : List(Ref)
 seed_refs = [

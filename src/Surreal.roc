@@ -55,8 +55,8 @@ Surreal :: {}.{
 		key = |Id.(i)| i.key
 
 		## The name of the table: `record::tb(id)` in a clause.
-		table : Id(row) -> Str
-		table = |Id.(i)| i.table
+		table_name : Id(row) -> Str
+		table_name = |Id.(i)| i.table
 
 		encoder_for : Encode.Format -> (Id(row), Encode.State -> Try(Encode.State, []))
 		encoder_for = |_format| |Id.(i), state| Encode.Format.encode_id(i.table, i.key, state)
@@ -4299,7 +4299,7 @@ SurrealAuth :: {}.{
 ## (`intrinsic_forms`). Every type of `Surreal` with a method that takes
 ## `Code` names this one list as its `code_primitives`.
 cut : List(Code.PrimId)
-cut = [Code.prim(Link.get), Code.prim(Link.id), Code.prim(Id.is_eq), Code.prim(Id.key), Code.prim(Id.table), Code.prim(Datetime.is_lt), Code.prim(Datetime.is_lte), Code.prim(Text.is_ascii), Code.prim(Text.is_hexadecimal), Code.prim(Hash.sha256), Code.prim(Hash.blake3), Code.prim(Array.distinct), Code.prim(Array.union), Code.prim(Array.intersect), Code.prim(Array.complement), Code.prim(Time.floor), Code.prim(Time.ceil), Code.prim(Time.round), Code.prim(Time.year), Code.prim(Time.month), Code.prim(Time.day), Code.prim(Time.hour), Code.prim(Time.minute), Code.prim(Time.second), Code.prim(Math.mean), Code.prim(Math.mean_dec), Code.prim(DbFn.call1), Code.prim(DbFn.call2), Code.prim(DbFn.call3), Code.prim(TimeKey.series), Code.prim(TimeKey.time), Code.prim(Geo.is_valid), Code.prim(Vector.similarity_cosine), Code.prim(Vector.distance_euclidean), Code.prim(Vector.distance_manhattan), Code.prim(Vector.distance_chebyshev), Code.prim(Vector.dot), Code.prim(Vector.magnitude)]
+cut = [Code.prim(Link.get), Code.prim(Link.id), Code.prim(Id.is_eq), Code.prim(Id.key), Code.prim(Id.table_name), Code.prim(Datetime.is_lt), Code.prim(Datetime.is_lte), Code.prim(Text.is_ascii), Code.prim(Text.is_hexadecimal), Code.prim(Hash.sha256), Code.prim(Hash.blake3), Code.prim(Array.distinct), Code.prim(Array.union), Code.prim(Array.intersect), Code.prim(Array.complement), Code.prim(Time.floor), Code.prim(Time.ceil), Code.prim(Time.round), Code.prim(Time.year), Code.prim(Time.month), Code.prim(Time.day), Code.prim(Time.hour), Code.prim(Time.minute), Code.prim(Time.second), Code.prim(Math.mean), Code.prim(Math.mean_dec), Code.prim(DbFn.call1), Code.prim(DbFn.call2), Code.prim(DbFn.call3), Code.prim(TimeKey.series), Code.prim(TimeKey.time), Code.prim(Geo.is_valid), Code.prim(Vector.similarity_cosine), Code.prim(Vector.distance_euclidean), Code.prim(Vector.distance_manhattan), Code.prim(Vector.distance_chebyshev), Code.prim(Vector.dot), Code.prim(Vector.magnitude)]
 
 
 ## The forms of the intrinsics of `Surreal`: the functions with a type and
@@ -4392,7 +4392,7 @@ surreal_library = Translate.forms(
 			{ prim: Code.prim(Link.id), form: LinkId },
 			{ prim: Code.prim(Id.is_eq), form: IdEq },
 			{ prim: Code.prim(Id.key), form: IdKey },
-			{ prim: Code.prim(Id.table), form: IdTable },
+			{ prim: Code.prim(Id.table_name), form: IdTable },
 			{ prim: Code.prim(Datetime.is_lt), form: DatetimeOrder },
 			{ prim: Code.prim(Datetime.is_lte), form: DatetimeOrder },
 			{ prim: Code.prim(Text.is_ascii), form: Function({ surql: "string::is_ascii", random: Bool.False }) },
@@ -4833,7 +4833,7 @@ rows_read : Code.Graph -> List(Watched)
 rows_read = |graph| graph.rows().join_map(
 	|row| row.nodes.keep_oks(
 		|node| match (node.op, node.args) {
-			(Prim({ id, .. }), [arg]) if id == Code.prim(Table.rows) => Ok(Rows(table_name(row, arg)))
+			(Prim({ id, .. }), [arg]) if id == Code.prim(Table.rows) => Ok(Rows(table_name_of(row, arg)))
 			_ => Err(NotRows)
 		},
 	),
@@ -4841,8 +4841,8 @@ rows_read = |graph| graph.rows().join_map(
 
 ## The name of a table that a clause builds with `Surreal.table`,
 ## `view` or `relation` and a literal name.
-table_name : Code.Row, Code.Val -> Try(Str, Error)
-table_name = |row, value| {
+table_name_of : Code.Row, Code.Val -> Try(Str, Error)
+table_name_of = |row, value| {
 	named = Unsupported("a live query watches the table that `rows()` reads, so the clause names it: `Surreal.table(\"name\")` or a constant of one")
 	match value {
 		Node(i) =>

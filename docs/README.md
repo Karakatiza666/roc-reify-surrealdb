@@ -234,7 +234,7 @@ The other pages cover one topic each: links and edges, live queries, record user
 | `Vector` | [functions.md#vector](functions.md#vector) |
 | `Geo` | [functions.md#geo](functions.md#geo) |
 | `Auth` | [functions.md#auth](functions.md#auth) |
-| `Id.table` | [functions.md#idtable](functions.md#idtable) |
+| `Id.table_name` | [functions.md#idtable_name](functions.md#idtable_name) |
 | Database functions, `db_fn`, `function` and `call1` to `call3` | [functions.md#database-functions](functions.md#database-functions) |
 
 ### Full-text and vector search

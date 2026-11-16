@@ -332,7 +332,7 @@ kennel b at 2026-03-01T10:00:00Z: pulse 120, temp_c 39.0
 | `examples/client.roc` | An app on basic-cli 0.27.0: plain queries and writes in a session on a running server, on a WebSocket or, with `-- --http`, over HTTP, each read as the Roc type of its result and checked against the result that Roc computes from the same functions. Its rows with a tag union show each form of an arm, and a union with a payload of each kind: a geometry, a link, a datetime, a nominal record and two values, each also written from fields of the row. Its shifts, tasks and handovers have keys that the server makes. Two record users sign up through an access method of its own, and each reads and writes only the memos that the permissions of the table give it; a token is reused and a session is invalidated. Its case notes are searched by their text, with scores and highlights, and by their embeddings. |
 | `examples/migrate.roc` | An app on basic-cli 0.27.0: the migration tool to copy into an app. `plan`, `check`, `squash` and `up`, over `examples/db/` (the snapshot and the files it wrote). |
 | `examples/server.roc` | An app on basic-webserver 0.21.0: a web server whose `GET /readings?min_pulse=N` runs a typed query in a WebSocket session of its own, through roc-basic-webserver-websocket, and answers with its rows. |
-| `tests/BuiltinsTest.roc` | A test, not an example. Tables with seed rows for the builtin mappings and for the package functions (`Text`, `Hash`, `Array`, `Time`, `Math`, `Rand`, `Geo`, `Id.table`). It prints its own script, with a Roc result for each of its 46 queries and writes, which `check.py` runs. |
+| `tests/BuiltinsTest.roc` | A test, not an example. Tables with seed rows for the builtin mappings and for the package functions (`Text`, `Hash`, `Array`, `Time`, `Math`, `Rand`, `Geo`, `Id.table_name`). It prints its own script, with a Roc result for each of its 46 queries and writes, which `check.py` runs. |
 | `tests/RefactoredTest.roc` | A test, not an example. `examples/main.roc` with the parameters of the reified functions renamed and bindings added, reordered, inlined and extracted. Like `main.roc`, it gives `Owner.tags` and `Medication.stock` `??` defaults in their types, and takes the constraints and the query fragments from `Clinic.roc`. It prints `expected_output.surql` byte for byte, which its last `expect` checks. |
 | `tests/expected_output.surql` | What `roc examples/main.roc` prints. `scripts/all_tests.sh` diffs the two, and `tests/RefactoredTest.roc` must print it too. |
 | `tests/TypesTest.roc` | Tests of `Types` and the table constructors on a small domain. |
@@ -2124,11 +2124,11 @@ and `Translate.patch_assignments` set it true for each `SET` item.
 A `uuid` is its own type in SurrealDB and a `string` column refuses it, so the
 translator writes the cast `<string>rand::uuid()`.
 
-#### `Id.table`
+#### `Id.table_name`
 
 | Roc | Type | SurrealQL | Kind | Live block |
 | --- | --- | --- | --- | --- |
-| `Id.table` | `Id(row) -> Str` | `record::tb(id)` | mirror | ids |
+| `Id.table_name` | `Id(row) -> Str` | `record::tb(id)` | mirror | ids |
 
 It is in the cut of the existing nominal `Id`, next to `Id.key`. It reads the
 table of a link that can point at several tables.

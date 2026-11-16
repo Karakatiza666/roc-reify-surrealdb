@@ -23,9 +23,9 @@ An `Id(row)` is a typed record id such as `vet:⟨ruth⟩`. It holds a table nam
 | --- | --- | --- |
 | `vets.id("ruth")` | `Id(Vet)` | `vet:⟨ruth⟩` |
 | `ruth_id.key()` | `Str` | `record::id(id)` |
-| `ruth_id.table()` | `Str` | `record::tb(id)` |
+| `ruth_id.table_name()` | `Str` | `record::tb(id)` |
 
-The same functions work in plain Roc code. With `ruth_id = vets.id("ruth")`, the call `ruth_id.key()` gives `"ruth"` and `ruth_id.table()` gives `"vet"`.
+The same functions work in plain Roc code. With `ruth_id = vets.id("ruth")`, the call `ruth_id.key()` gives `"ruth"` and `ruth_id.table_name()` gives `"vet"`.
 
 Compare a link with an id in a clause. From `examples/main.roc`, `ruth_id` and `vaccinated_by_ruth`:
 
