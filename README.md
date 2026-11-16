@@ -42,9 +42,9 @@ with it. See [Requirements](#requirements).
 | Item | Value |
 | --- | --- |
 | Modules | `Surreal` (the whole public API). `src/internal.roc` is a second header that also exposes `Ql`, `Encode`, `Types`, `Translate`, `Schema`, `Diff`, `Rpc` and `HttpRpc`, for the tests |
-| Dependencies | [roc-cbor](https://github.com/Karakatiza666/roc-cbor) 0.5.1, [roc-websocket](https://github.com/Karakatiza666/roc-websocket) 0.0.6 |
-| Examples only | [roc-basic-cli-websocket](https://github.com/Karakatiza666/roc-basic-cli-websocket) 0.0.4 (basic-cli 0.27.0), [roc-basic-webserver-websocket](https://github.com/Karakatiza666/roc-basic-webserver-websocket) 0.0.3 (basic-webserver 0.21.0) |
-| Compiler | the `reify` branch of [Karakatiza666/roc](https://github.com/Karakatiza666/roc), at commit `76ed44249a` (reify nightly `nightly-reify-2026-11-07-76ed442`, based on Roc nightly 2026-11-07), pinned in `.roc-version` |
+| Dependencies | [roc-cbor](https://github.com/Karakatiza666/roc-cbor) 0.5.1, [roc-websocket](https://github.com/Karakatiza666/roc-websocket) 0.0.7 |
+| Examples only | [roc-basic-cli-websocket](https://github.com/Karakatiza666/roc-basic-cli-websocket) 0.0.5 (basic-cli 0.28.1), [roc-basic-webserver-websocket](https://github.com/Karakatiza666/roc-basic-webserver-websocket) 0.0.4 (basic-webserver 0.22.0) |
+| Compiler | the `reify` branch of [Karakatiza666/roc](https://github.com/Karakatiza666/roc), at commit `ee91030491` (reify nightly `nightly-reify-2026-11-15-ee91030`, based on Roc nightly 2026-11-15), pinned in `.roc-version` |
 | Database | SurrealDB 4.0.1. Migrations need a database at compatibility level 4 |
 | Tests | `scripts/all_tests.sh` |
 | License | UPL-1.0 (`LICENSE`) |
@@ -77,8 +77,8 @@ basic-webserver" for the rest of an app):
 
 ```roc
 app [main!] {
-	pf: platform "https://github.com/roc-lang/basic-cli/releases/download/0.27.0/9yjxqdGTP4xSpSEmDazwTmRsehfRZzA19pwEKkR6fj1g.tar.zst",
-	cli_ws: "https://github.com/Karakatiza666/roc-basic-cli-websocket/releases/download/0.0.4/B5j45zNdyW8Qxq6GpQ6ZVNmcPC5hwx3TxPRW4cq8wiLV.tar.zst",
+	pf: platform "https://github.com/roc-lang/basic-cli/releases/download/0.28.1/7brgwR8YUqfeGrkdfF1V4GPPN7DnP7ftqub9KcrTEZtr.tar.zst",
+	cli_ws: "https://github.com/Karakatiza666/roc-basic-cli-websocket/releases/download/0.0.5/AZpgG3RszEahBa67zc9yCJcAKe4MKw5HucDouNpi727b.tar.zst",
 	surreal: "https://github.com/Karakatiza666/roc-reify-surrealdb/releases/download/0.0.4/CkLUeGcqAc6kNLaDf5rMbQEaZAE7nxapCE4EsHnqh5HY.tar.zst",
 }
 
@@ -95,35 +95,36 @@ and `scripts/bundle.sh 0.0.4` prints it.
 
 The compiler is the `reify` branch of
 [github.com/Karakatiza666/roc](https://github.com/Karakatiza666/roc), at commit
-`76ed44249a`. It is based on Roc nightly 2026-11-07 (upstream commit
-`ad3a5d2`). A release of this package names its commit in `.roc-version`, in
+`ee91030491`. It is based on Roc nightly 2026-11-15 (upstream commit
+`f25da45`). A release of this package names its commit in `.roc-version`, in
 the form `reify-<the 40 digits of the commit>`:
 
 ```
-reify-76ed44249ac086e593325c58f56d96d8dc4ffd47
+reify-ee91030491d78fa5367d82222cb4c2fe0781c5cb
 ```
 
 The reify nightly
-[`nightly-reify-2026-11-07-76ed442`](https://github.com/Karakatiza666/roc-reify-nightlies/releases/tag/nightly-reify-2026-11-07-76ed442)
-has a prebuilt `roc` of that commit for Linux (x86_64, arm64), macOS (Apple
-silicon, x86_64) and Windows (x86_64):
+[`nightly-reify-2026-11-15-ee91030`](https://github.com/Karakatiza666/roc-reify-nightlies/releases/tag/nightly-reify-2026-11-15-ee91030)
+has a prebuilt `roc` of that commit for Linux (x86_64, arm64), macOS (x86_64)
+and Windows (x86_64). It has no build for macOS on Apple silicon yet: there,
+build the compiler from source (below).
 
 ```sh
-curl -LO https://github.com/Karakatiza666/roc-reify-nightlies/releases/download/nightly-reify-2026-11-07-76ed442/roc_nightly-reify-linux_x86_64-2026-11-07-76ed442.tar.gz
-tar -xzf roc_nightly-reify-linux_x86_64-2026-11-07-76ed442.tar.gz
-export ROC=$PWD/roc_nightly-reify-linux_x86_64-2026-11-07-76ed442/roc
-$ROC version                      # nightly-reify-2026-11-07-76ed442
+curl -LO https://github.com/Karakatiza666/roc-reify-nightlies/releases/download/nightly-reify-2026-11-15-ee91030/roc_nightly-reify-linux_x86_64-2026-11-15-ee91030.tar.gz
+tar -xzf roc_nightly-reify-linux_x86_64-2026-11-15-ee91030.tar.gz
+export ROC=$PWD/roc_nightly-reify-linux_x86_64-2026-11-15-ee91030/roc
+$ROC version                      # nightly-reify-2026-11-15-ee91030
 ```
 
-To build it from source instead, use [Zig 0.17.0](https://ziglang.org/download/)
+To build it from source instead, use [Zig 0.17.1](https://ziglang.org/download/)
 and point `ROC` at the `roc` binary it makes:
 
 ```sh
 git clone https://github.com/Karakatiza666/roc.git
 cd roc
-git checkout 76ed44249ac086e593325c58f56d96d8dc4ffd47
+git checkout ee91030491d78fa5367d82222cb4c2fe0781c5cb
 zig build roc                     # a Debug compiler, zig-out/bin/roc
-./zig-out/bin/roc version         # debug-76ed4424
+./zig-out/bin/roc version         # debug-ee910304
 export ROC=$PWD/zig-out/bin/roc
 ```
 
@@ -169,8 +170,8 @@ The app names basic-cli and the WebSocket adapter
 
 ```roc
 app [main!] {
-	pf: platform "https://github.com/roc-lang/basic-cli/releases/download/0.27.0/9yjxqdGTP4xSpSEmDazwTmRsehfRZzA19pwEKkR6fj1g.tar.zst",
-	cli_ws: "https://github.com/Karakatiza666/roc-basic-cli-websocket/releases/download/0.0.4/B5j45zNdyW8Qxq6GpQ6ZVNmcPC5hwx3TxPRW4cq8wiLV.tar.zst",
+	pf: platform "https://github.com/roc-lang/basic-cli/releases/download/0.28.1/7brgwR8YUqfeGrkdfF1V4GPPN7DnP7ftqub9KcrTEZtr.tar.zst",
+	cli_ws: "https://github.com/Karakatiza666/roc-basic-cli-websocket/releases/download/0.0.5/AZpgG3RszEahBa67zc9yCJcAKe4MKw5HucDouNpi727b.tar.zst",
 	surreal: "https://github.com/Karakatiza666/roc-reify-surrealdb/releases/download/0.0.4/CkLUeGcqAc6kNLaDf5rMbQEaZAE7nxapCE4EsHnqh5HY.tar.zst",
 }
 
@@ -236,8 +237,8 @@ of the URL):
 app [Context, program] {
 	cbor: "https://github.com/Karakatiza666/roc-cbor/releases/download/0.5.1/38XQEgbABvGrHkqPVDVMsabgXcBHouMQde1vz4cLchxT.tar.zst",
 	http: "https://github.com/roc-lang/http/releases/download/1.0.0/6ZUwqYhCS8PU9Mo6MF7oV82ET2o7KYb57CLKDq4cq4sS.tar.zst",
-	pf: platform "https://github.com/roc-lang/basic-webserver/releases/download/0.21.0/4viZsnWjdYsyH4Q87ESFAwM5c55Hnc15nAGW1UwzWpFU.tar.zst",
-	bws_ws: "https://github.com/Karakatiza666/roc-basic-webserver-websocket/releases/download/0.0.3/BjBcDpMFYd2ybt1xpiKiSHf2AgrnRnT6qRdFe2bQ2fgL.tar.zst",
+	pf: platform "https://github.com/roc-lang/basic-webserver/releases/download/0.22.0/BM2BUXA8mwbcoKPUfRV8cLtsUdnsSBPwjNLPRUJQAQ7Q.tar.zst",
+	bws_ws: "https://github.com/Karakatiza666/roc-basic-webserver-websocket/releases/download/0.0.4/CVdw532jo8EfTqYFZjfGismeWHjfuVPTfj6ofaKGcAmU.tar.zst",
 	surreal: "https://github.com/Karakatiza666/roc-reify-surrealdb/releases/download/0.0.4/CkLUeGcqAc6kNLaDf5rMbQEaZAE7nxapCE4EsHnqh5HY.tar.zst",
 }
 
@@ -313,7 +314,7 @@ kennel b at 2026-03-01T10:00:00Z: pulse 120, temp_c 39.0
 
 | File | What it is |
 | --- | --- |
-| `src/main.roc` | The package header. It exposes `Surreal`, and depends on roc-cbor 0.5.1 for the CBOR of a live session and on roc-websocket 0.0.6 for the types of a WebSocket adapter. |
+| `src/main.roc` | The package header. It exposes `Surreal`, and depends on roc-cbor 0.5.1 for the CBOR of a live session and on roc-websocket 0.0.7 for the types of a WebSocket adapter. |
 | `src/Surreal.roc` | The public API: ids, links, read rows (`Linked`, `Out`, `In`), datetimes, tables, the schema builder, queries and writes, live queries, `Mirror` (the Roc prediction of their notices, and the `-- roc:` literals that `check.py` compares), and `Unchecked` (the escape hatch: `SELECT *`, `FETCH`, record ids by text, decoding, and a raw `query!` with its `result`). The `parser_for` of each SurrealDB value, the reading of the messages of a live session, the `Session` itself with its `Inbox` of the replies and the notices that it read, the `Connection` that it runs on (a WebSocket, or HTTP), the patches of `live_diff` (`Patch`, `DiffView`), and the typed results of plain queries and writes (`Prepared`). Also the package functions for SurrealDB (`Text`, `Hash`, `Array`, `Time`, `Math`, `Rand`, `Vector`), analyzers and the full-text and vector indexes with their searches (`Analyzer`, `FullText`, `VectorIndex`, `Hit`, `Near`), database functions (`DbFn`), time series keys (`TimeKey`), views, the geometry types (`Point`, `Polygon`, ..) and their functions (`Geo`). |
 | `src/Translate.roc` | The translator. A `Code` graph in, a SurrealQL expression out. It knows a call by the id of its definition: the builtins in its own table, the functions of `Surreal` in the extension `Surreal.library`, and an app's in the extensions it passes (see "Extending the translator"). |
 | `src/Schema.roc` | `DEFINE` statements from row types, builder clauses and database functions. It also writes the delete policy of every link. |
@@ -328,10 +329,10 @@ kennel b at 2026-03-01T10:00:00Z: pulse 120, temp_c 39.0
 | `examples/clinic/Clinic.roc` | In a package of its own (`examples/clinic/main.roc`), so that `examples/main.roc` and `tests/RefactoredTest.roc` import the one file. The functions of `main.roc` over the rows of visits and medications, each annotated with an open row (`{ seen : Surreal.Datetime, ..r }`), some of them calling another, and two query fragments (`recent`, `by_id`). |
 | `examples/monitoring.roc` | Sites, the kennels at them, and the vital signs of their animals, a time series keyed by kennel and time. A Roc function is the database function `fn::fever`, which a filter, a projection, a computed field and a view call. A range query and its whole rows, a daily rollup, its view, a changefeed and a retention delete. Filters of result rows: after a projection, after a group (`HAVING`) and after an order and a limit. A site has a location and an area: queries find the sites whose area holds a point and the sites near it. Carers look after kennels through the edge table `cares_for`, and check them through the edge table `checks`. A read row of a kennel reads its site and its carers with no `.get()` and no `incoming`, and a query reads the rows of the readings in a clause: a count per kennel and a semi join. Eleven live queries: the fevered readings, the readings above a parameter, the daily view, the kennels with no carer (with `incoming`, and through the read row), the kennels with a fever, the kennels with the name of their site (through the read row), the kennels at the site named Oslo (through `.get()`), the kennels with no carer and no check (two edge tables), and the two escape hatches. It prints its own script, which `check.py` runs. |
 | `examples/search.roc` | The chart notes of a clinic, searched by their text and by their embeddings: an analyzer, a full-text index and an HNSW vector index of one table, searches with their scores, highlights and offsets, the nearest notes to a probe, the `Vector` functions in a projection and a filter, and a write of the wrong dimension that the index refuses. It prints its own script, which `check.py` runs. |
-| `examples/watch.roc` | An app on basic-cli 0.27.0: a live session on a running server. It starts eight watches, makes writes on the same session, two of them in flight together, and checks each change and each patch that the server sends against the Roc Mirror. Four of them watch the links that the clauses read, in a database of their own. |
-| `examples/client.roc` | An app on basic-cli 0.27.0: plain queries and writes in a session on a running server, on a WebSocket or, with `-- --http`, over HTTP, each read as the Roc type of its result and checked against the result that Roc computes from the same functions. Its rows with a tag union show each form of an arm, and a union with a payload of each kind: a geometry, a link, a datetime, a nominal record and two values, each also written from fields of the row. Its shifts, tasks and handovers have keys that the server makes. Two record users sign up through an access method of its own, and each reads and writes only the memos that the permissions of the table give it; a token is reused and a session is invalidated. Its case notes are searched by their text, with scores and highlights, and by their embeddings. |
-| `examples/migrate.roc` | An app on basic-cli 0.27.0: the migration tool to copy into an app. `plan`, `check`, `squash` and `up`, over `examples/db/` (the snapshot and the files it wrote). |
-| `examples/server.roc` | An app on basic-webserver 0.21.0: a web server whose `GET /readings?min_pulse=N` runs a typed query in a WebSocket session of its own, through roc-basic-webserver-websocket, and answers with its rows. |
+| `examples/watch.roc` | An app on basic-cli 0.28.1: a live session on a running server. It starts eight watches, makes writes on the same session, two of them in flight together, and checks each change and each patch that the server sends against the Roc Mirror. Four of them watch the links that the clauses read, in a database of their own. |
+| `examples/client.roc` | An app on basic-cli 0.28.1: plain queries and writes in a session on a running server, on a WebSocket or, with `-- --http`, over HTTP, each read as the Roc type of its result and checked against the result that Roc computes from the same functions. Its rows with a tag union show each form of an arm, and a union with a payload of each kind: a geometry, a link, a datetime, a nominal record and two values, each also written from fields of the row. Its shifts, tasks and handovers have keys that the server makes. Two record users sign up through an access method of its own, and each reads and writes only the memos that the permissions of the table give it; a token is reused and a session is invalidated. Its case notes are searched by their text, with scores and highlights, and by their embeddings. |
+| `examples/migrate.roc` | An app on basic-cli 0.28.1: the migration tool to copy into an app. `plan`, `check`, `squash` and `up`, over `examples/db/` (the snapshot and the files it wrote). |
+| `examples/server.roc` | An app on basic-webserver 0.22.0: a web server whose `GET /readings?min_pulse=N` runs a typed query in a WebSocket session of its own, through roc-basic-webserver-websocket, and answers with its rows. |
 | `tests/BuiltinsTest.roc` | A test, not an example. Tables with seed rows for the builtin mappings and for the package functions (`Text`, `Hash`, `Array`, `Time`, `Math`, `Rand`, `Geo`, `Id.table_name`). It prints its own script, with a Roc result for each of its 46 queries and writes, which `check.py` runs. |
 | `tests/RefactoredTest.roc` | A test, not an example. `examples/main.roc` with the parameters of the reified functions renamed and bindings added, reordered, inlined and extracted. Like `main.roc`, it gives `Owner.tags` and `Medication.stock` `??` defaults in their types, and takes the constraints and the query fragments from `Clinic.roc`. It prints `expected_output.surql` byte for byte, which its last `expect` checks. |
 | `tests/expected_output.surql` | What `roc examples/main.roc` prints. `scripts/all_tests.sh` diffs the two, and `tests/RefactoredTest.roc` must print it too. |
@@ -348,7 +349,7 @@ kennel b at 2026-03-01T10:00:00Z: pulse 120, temp_c 39.0
 | `tests/MuxTest.roc` | Tests of the `Inbox` of a session: the frames of one session with two watches and requests in flight, in the order that SurrealDB sent them. |
 | `tests/DeadlineTest.roc` | Tests of `Session.next_within!` over a scripted adapter (`Transport.websocket_timed`): a notice that the inbox holds comes before any wait, a silence is `TimedOut`, a later notice still comes, and `Transport.websocket` gives an `Unsupported` error. The frames are the ones of `MuxTest.roc`. `roc tests/DeadlineTest.roc` runs the session and prints an `ok` or `FAIL` line for each check. |
 | `tests/MigrateTest.roc` | Tests of migrations: what a plan writes, the sections, the file format, the snapshot, `Surreal.check`, and what the runner does from a history. |
-| `tests/MigrateServer.roc` | An app on basic-cli 0.27.0 that `check.py` runs: migration files on a live server, in empty databases of the namespace `roc_mig`, and two runners at once. |
+| `tests/MigrateServer.roc` | An app on basic-cli 0.28.1 that `check.py` runs: migration files on a live server, in empty databases of the namespace `roc_mig`, and two runners at once. |
 | `tests/RpcTest.roc` | Tests of the RPC requests and the uuid. |
 | `tests/ErrorTest.roc` | Tests of the typed errors of the server: a reply of each kind of error that SurrealDB sent, read as a `ServerError`, the constraints of a schema read back as `Unique`, `Assert`, `Check` and `Referenced`, and the messages of the constraints. |
 | `tests/HttpTest.roc` | Tests of the posts of a session over HTTP, with the authentication of each login, of the replies in their responses, and of replies that SurrealDB sent over HTTP, read through the `Inbox` in another order than they were sent. |
@@ -1167,7 +1168,7 @@ A different open issue is https://github.com/surrealdb/surrealdb/issues/6983.
 A write made at about the same time as the `LIVE SELECT` can be missing from
 both the first read and the live notices.
 
-`watch.roc` runs on basic-cli 0.27.0 against the database that `check.py`
+`watch.roc` runs on basic-cli 0.28.1 against the database that `check.py`
 leaves. It starts `unattended`, `fevered`, `kennel_sites` and a `live_diff`
 of the readings on one session. For each watch, it writes rows of its own
 on the same session with `send!` and `await!`. Two writes of `fevered` that
@@ -1248,8 +1249,8 @@ session = Surreal.Session.open!(transport, Root({ ns: "roc", db: "roc_surreal", 
 
 | Constructor | Takes | From the platform |
 | --- | --- | --- |
-| `Transport.websocket(connect, ops, url)` | A `Ws.Connect` record of roc-websocket, `{ connect! }`, and a record with `send!` and `receive!` over the same connection type and error row, such as the adapter's `ops`. The session connects to `url` + `/rpc` with the subprotocol `cbor.2`, and refuses a server that chooses another. Its watch waits with no deadline: `next_within!` is an `Unsupported` error | The adapter of the platform: `WsClient.connect` and `WsClient.ops` of roc-basic-cli-websocket 0.0.4 or roc-basic-webserver-websocket 0.0.3 |
-| `Transport.websocket_timed(connect, ops, url)` | As `websocket`, with `ops` also holding `receive_within! : c, U64 => Try((c, [Message(Ws.Message), TimedOut]), Ws.Error(e))`, the `Ws.ReceiveWithin` feature of roc-websocket: the next message, or `TimedOut` when `ms` milliseconds have passed since the call, whatever pings arrive. `Session.next_within!` waits with it | An adapter with `receive_within!`: `WsClient.connect` and `WsClient.ops` of roc-basic-cli-websocket 0.0.4 (or the Cloudflare Workers adapter). roc-basic-webserver-websocket 0.0.3 has none |
+| `Transport.websocket(connect, ops, url)` | A `Ws.Connect` record of roc-websocket, `{ connect! }`, and a record with `send!` and `receive!` over the same connection type and error row, such as the adapter's `ops`. The session connects to `url` + `/rpc` with the subprotocol `cbor.2`, and refuses a server that chooses another. Its watch waits with no deadline: `next_within!` is an `Unsupported` error | The adapter of the platform: `WsClient.connect` and `WsClient.ops` of roc-basic-cli-websocket 0.0.5 or roc-basic-webserver-websocket 0.0.4 |
+| `Transport.websocket_timed(connect, ops, url)` | As `websocket`, with `ops` also holding `receive_within! : c, U64 => Try((c, [Message(Ws.Message), TimedOut]), Ws.Error(e))`, the `Ws.ReceiveWithin` feature of roc-websocket: the next message, or `TimedOut` when `ms` milliseconds have passed since the call, whatever pings arrive. `Session.next_within!` waits with it | An adapter with `receive_within!`: `WsClient.connect` and `WsClient.ops` of roc-basic-cli-websocket 0.0.5 (or the Cloudflare Workers adapter). roc-basic-webserver-websocket 0.0.4 has none |
 | `Transport.http(client, url)` | `HttpClient`: `{ post! }`, an `HttpRpc.Post` (the URI, the headers and the body) in, the status and the body of the response out | basic-cli's or basic-webserver's `Http.send!` |
 
 A transport sends nothing until `Session.open!` connects it. Connected,
@@ -1325,7 +1326,7 @@ apart. It also sends two requests and awaits the second first
 (`pipelined`), and over HTTP checks that `live!` is `Unsupported`
 (`watch_over_http`).
 
-`server.roc` is a web server on basic-webserver 0.21.0. `GET
+`server.roc` is a web server on basic-webserver 0.22.0. `GET
 /readings?min_pulse=N` opens a WebSocket session through
 roc-basic-webserver-websocket, runs a typed query with
 a parameter, and answers with the readings, one line each:
@@ -1339,7 +1340,7 @@ kennel b at 2026-03-02T11:00:00Z: pulse 121, temp_c 39.1
 kennel b at 2026-03-01T10:00:00Z: pulse 120, temp_c 39.0
 ```
 
-A limit of basic-webserver 0.21.0: each handler runs for one request, and
+A limit of basic-webserver 0.22.0: each handler runs for one request, and
 its effects are scoped to that request, so a session does not outlive the
 request that opened it. The `Tcp` reads of the platform time out after
 30 s (the adapter's `receive!` waits on through them), and a watch, which
@@ -1419,7 +1420,7 @@ A plain query goes over RPC on either transport, also over HTTP: a `POST
 one reader of a reply (`Surreal.query_results`) for a watch and a plain
 query, on either `Transport`.
 
-`client.roc` runs on basic-cli 0.27.0 against the database that `check.py`
+`client.roc` runs on basic-cli 0.28.1 against the database that `check.py`
 leaves. It runs queries of `monitoring.roc` (a filter, whole rows with a
 `TimeKey`, a group, a `LET` over a subquery, an order and a limit, a
 geometry parameter, whole rows with a point and a polygon, a read row with
@@ -2658,9 +2659,10 @@ The cost of a new feature is small and local:
 
 ### 0.0.4
 
-SurrealDB 4.0.1 or later only; SurrealDB 3.x is not supported. Same compiler
-pin as 0.0.3 (`76ed44249a`, `nightly-reify-2026-11-07-76ed442`). roc-cbor
-0.5.0. Most items below are breaking.
+SurrealDB 4.0.1 or later only; SurrealDB 3.x is not supported. Compiler pin
+`ee91030491`, the reify nightly `nightly-reify-2026-11-15-ee91030` (Roc
+nightly 2026-11-15). roc-cbor 0.5.1, roc-websocket 0.0.7. Most items below
+are breaking.
 
 - SurrealDB 4. CI and the docs use `surrealdb/surrealdb:v4.0.1`. A type error
   of kind `Validation` is `Server(Type(..))`. DIFF paths and `patch_ops_at`
@@ -2677,8 +2679,9 @@ pin as 0.0.3 (`76ed44249a`, `nightly-reify-2026-11-07-76ed442`). roc-cbor
   `migrate!` refuses a database below level 4 with `Level({ found })`.
 - CBOR v2 only. The WebSocket offers `cbor.2` and HTTP RPC sends
   `application/cbor; v=2`; there is no v1 fallback. An app that names
-  roc-cbor in its header must name 0.5.0 (`Cbor.State` is `Cbor.Reader`,
-  maps hold a `Cbor.ValueMap`, integers a `Cbor.IntValue`).
+  roc-cbor in its header must name 0.5.1 (`Cbor.State` is `Cbor.Reader`,
+  maps hold a `Cbor.ValueMap`, integers a `Cbor.IntValue`; a read gives
+  `[InvalidCbor(U64), MissingRequiredField(Str)]`).
   `Surreal.read_options` uses `allow: [DecFromText, ..]`.
 - Sized numbers. `I8` .. `U64` and `F32` are the field types `i8` .. `u64`
   and `f32` (before: `int` with a range `ASSERT`, and `float`). The first plan
@@ -2706,6 +2709,14 @@ pin as 0.0.3 (`76ed44249a`, `nightly-reify-2026-11-07-76ed442`). roc-cbor
   place of `chain`: about 15 times faster on 4.0.1 (measured, not documented
   by SurrealDB). `chain` stays for wrapped values, two or more values,
   closures, time series ranges, and GROUP and view columns.
+- `Id.table` is `Id.table_name`. The 11-15 compiler warns when a member of a
+  nested type has the name of a module definition (here `Surreal.table`).
+- Compiler: the reify nightly 2026-11-15 (Zig 0.17.1 to build it). It has no
+  macOS Apple silicon build yet. An app that names roc-websocket must name
+  0.0.7. The examples use roc-basic-cli-websocket 0.0.5 (basic-cli 0.28.1;
+  basic-cli 0.27.0 crashes at start with nightlies from 2026-11-10, which make
+  PIE executables) and roc-basic-webserver-websocket 0.0.4 (basic-webserver
+  0.22.0).
 
 ### 0.0.3
 

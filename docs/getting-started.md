@@ -24,21 +24,21 @@ The function stays a Roc function. A test, a seed list and your own code can cal
 
 | Need | Value |
 | --- | --- |
-| Compiler | The `reify` branch of [Karakatiza666/roc](https://github.com/Karakatiza666/roc), at the commit in `.roc-version` (`reify-76ed44249ac086e593325c58f56d96d8dc4ffd47` from release 0.0.3, the reify nightly `nightly-reify-2026-11-07-76ed442`) |
-| Zig, to build the compiler | 0.17.0 |
+| Compiler | The `reify` branch of [Karakatiza666/roc](https://github.com/Karakatiza666/roc), at the commit in `.roc-version` (`reify-ee91030491d78fa5367d82222cb4c2fe0781c5cb` from release 0.0.4, the reify nightly `nightly-reify-2026-11-15-ee91030`) |
+| Zig, to build the compiler | 0.17.1 |
 | Database, to run queries | SurrealDB 4.0.1 |
 
 Stock Roc has no `Code` type. The package does not compile with it. The compiler feature is described in [reifying.md](https://github.com/Karakatiza666/roc/blob/reify/docs/langref/reifying.md) of the compiler repository.
 
 Download the prebuilt compiler of the reify nightly
-[`nightly-reify-2026-11-07-76ed442`](https://github.com/Karakatiza666/roc-reify-nightlies/releases/tag/nightly-reify-2026-11-07-76ed442)
+[`nightly-reify-2026-11-15-ee91030`](https://github.com/Karakatiza666/roc-reify-nightlies/releases/tag/nightly-reify-2026-11-15-ee91030)
 for your system, unpack it, and point `ROC` at its `roc`. Or build the
 compiler from source and point `ROC` at it:
 
 ```sh
 git clone https://github.com/Karakatiza666/roc.git
 cd roc
-git checkout 76ed44249ac086e593325c58f56d96d8dc4ffd47
+git checkout ee91030491d78fa5367d82222cb4c2fe0781c5cb
 zig build roc
 export ROC=$PWD/zig-out/bin/roc
 ```
@@ -74,8 +74,8 @@ To run a query, the app needs a platform and the WebSocket adapter of that platf
 
 | Platform | Adapter package | Transport constructor |
 | --- | --- | --- |
-| basic-cli 0.27.0 | roc-basic-cli-websocket 0.0.4 | `Surreal.Transport.websocket_timed` |
-| basic-webserver 0.21.0 | roc-basic-webserver-websocket 0.0.3 | `Surreal.Transport.websocket` |
+| basic-cli 0.28.1 | roc-basic-cli-websocket 0.0.5 | `Surreal.Transport.websocket_timed` |
+| basic-webserver 0.22.0 | roc-basic-webserver-websocket 0.0.4 | `Surreal.Transport.websocket` |
 
 The full headers are in `examples/client.roc` (basic-cli) and `examples/server.roc` (basic-webserver). [Sessions](sessions.md#choose-a-transport) explains the transports.
 

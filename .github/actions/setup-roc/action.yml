@@ -25,7 +25,7 @@ runs:
       if: steps.cache.outputs.cache-hit != 'true'
       uses: xyzzylabs/setup-zig@09d85d9dbb73308882e7a26e61a8f706eed40df1 # v1.0.2
       with:
-        version: 0.17.0
+        version: 0.17.1
         use-cache: false
     - name: Build the compiler
       if: steps.cache.outputs.cache-hit != 'true'

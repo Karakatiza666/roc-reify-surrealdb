@@ -34,8 +34,8 @@ A `Surreal.Transport` says how the session reaches the server. It is one type wi
 
 | Platform | Adapter package | WebSocket constructor | `Http.send!` call |
 | --- | --- | --- | --- |
-| basic-cli 0.27.0 | roc-basic-cli-websocket 0.0.4 | `websocket_timed` | `Http.send!(request, {})` |
-| basic-webserver 0.21.0 | roc-basic-webserver-websocket 0.0.3 | `websocket` | `Http.send!(request)` |
+| basic-cli 0.28.1 | roc-basic-cli-websocket 0.0.5 | `websocket_timed` | `Http.send!(request, {})` |
+| basic-webserver 0.22.0 | roc-basic-webserver-websocket 0.0.4 | `websocket` | `Http.send!(request)` |
 
 The adapter of basic-cli has `receive_within!`, so it takes either WebSocket constructor. The adapter of basic-webserver has none, so it takes only `websocket`. The package header lines are in [Add the package](getting-started.md#add-the-package). The full headers are in `examples/client.roc` and `examples/server.roc`.
 
