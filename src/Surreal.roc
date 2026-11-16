@@ -842,16 +842,7 @@ Surreal :: {}.{
 	## user runs. The record user is `Table.auth`. Intrinsics: SurrealDB
 	## computes them, as a clause reads them on the server, and Roc does
 	## not know them.
-	Auth :: {}.{
-
-		## `$access`: the name of the access method that the session
-		## signed in with, `NONE` for a system user.
-		access : () -> Str
-
-		## `$token.exp`: when the token of the session expires, in seconds
-		## since 1970.
-		expires : () -> I64
-	}
+	Auth : SurrealAuth
 
 	## The `array::` functions on a list of values.
 	Array :: {}.{
@@ -1932,44 +1923,7 @@ Surreal :: {}.{
 	##
 	## accounts : Surreal.Access({ email : Str, pass : Str }, { email : Str, pass : Str })
 	## accounts = Surreal.access("account")
-	Access(up, on) :: { name : Str }.{
-
-		## The cut of the signup and the signin (see `Surreal.code_primitives`).
-		code_primitives = cut
-
-		## The definition of the access method, over the rows of a table of
-		## users. The signup is the new row, without its `id`, from the
-		## variables, each a `$name`: `|v| { email: v.email, pass:
-		## Surreal.Hash.argon2(v.pass) }` is `CREATE user CONTENT { email:
-		## $email, pass: crypto::argon2::generate($pass) }`, and it may
-		## call `Rand` and `Hash.argon2`, as a write. The signin keeps the
-		## row of the user, as `filter_by` does: `|v, u| u.email == v.email
-		## and Surreal.Hash.argon2_matches(u.pass, v.pass)` is `SELECT *
-		## FROM user WHERE email = $email AND crypto::argon2::compare(pass,
-		## $pass)`. The server runs both as a system user, so the
-		## permissions of the table do not apply to them.
-		define : Access(up, on), Table({ id : Str, ..new }), Code((up -> new)), Code((on, { id : Str, ..new } -> Bool)) -> AccessDef
-		define = |Access.(a), Table.(t), signup, signin| AccessDef.(
-			{
-				name: a.name,
-				table: t.name,
-				content: within_clause("the signup of `${a.name}`", Translate.row_value(own, stored_graph(signup, "an access method"), [Translate.Binding.Params], Translate.variable)),
-				cond: within_clause("the signin of `${a.name}`", Translate.render(own, stored_graph(signin, "an access method"), [Translate.Binding.Params, Translate.table_row(t.name, is_edge(t.kind))], Translate.variable)),
-				token: Err(Unset),
-				session: Err(Unset),
-			},
-		)
-
-		## The login of a new record user (`Session.open!`): `signup` with
-		## the variables of the record, each written as a parameter of a
-		## query is (`Ql.cbor`): a `Dec` is a decimal, an `Id` a record id.
-		sign_up : Access(up, on), { ns : Str, db : Str }, up -> Login where [up.encoder_for : Encode.Format -> (up, Encode.State -> Try(Encode.State, []))]
-		sign_up = |Access.(a), at, vars| SignUp({ access: a.name, ns: at.ns, db: at.db, vars: access_vars(vars) })
-
-		## The login of a record user: `signin` with the variables of the record.
-		sign_in : Access(up, on), { ns : Str, db : Str }, on -> Login where [on.encoder_for : Encode.Format -> (on, Encode.State -> Try(Encode.State, []))]
-		sign_in = |Access.(a), at, vars| SignIn({ access: a.name, ns: at.ns, db: at.db, vars: access_vars(vars) })
-	}
+	Access(up, on) : SurrealAccess(up, on)
 
 	## An access method of this name. The annotation on the binding fixes
 	## its variables.
@@ -2157,272 +2111,10 @@ Surreal :: {}.{
 	## `outgoing` or `incoming` ran, or a result row of `Selected.query`. It is an error when that result row has no
 	## SurrealQL form. `watched` are the other tables that a live query
 	## watches (see `Watched`).
-	Query(p, row) :: {
-		target : Target,
-		source : Rows,
-		filters : List(Filter),
-		watched : List(Watched),
-		slots : List(Slot),
-		fixed : List(Ql.Value),
-	}.{
-
-		## The cut of filters, projections and keys (see `Surreal.code_primitives`).
-		code_primitives = cut
-
-		## Keep the rows the function is true for: `WHERE`.
-		filter : Query(p, row), Code(row -> Bool) -> Query(p, row)
-		filter = |Query.(q), predicate| {
-			base = q.source
-			clause = |at, param| within_clause("`filter`", Translate.evaluate(own, predicate.graph(), [pick(base, at)?], spelled(predicate, param)))
-			Query.({ ..q, filters: q.filters.append(clause), slots: q.slots.concat(slots_of(predicate)), watched: reached_watches(q.watched, predicate.graph(), [base.reach], narrowed(predicate.graph(), base.now.map_ok(|row| [row]))) })
-		}
-
-		## `filter`, where the predicate may call the functions of another
-		## package's types and read values of them from around itself. Each
-		## extension gives the SurrealQL of some of those functions, by
-		## their ids (`Surreal.extension`), and a captured value is bound as
-		## its own `encoder_for` writes it in `Encode.Bind`: a value of an
-		## opaque type is the value its encoder writes. A captured `Id` or
-		## `Datetime` needs no encoder.
-		filter_with : Query(p, row), List(Extension), Code.Binds(Code(row -> Bool), Encode.Bind) -> Query(p, row)
-		filter_with = |Query.(q), extensions, predicate| {
-			base = q.source
-			clause = |at, param| within_clause("`filter_with`", Translate.evaluate(own.concat(extensions), predicate.graph(), [pick(base, at)?], spelled(predicate, param)))
-			Query.({ ..q, filters: q.filters.append(clause), slots: q.slots.concat(keyed_slots(predicate, Any, Bool.True)), watched: reached_watches(q.watched, predicate.graph(), [base.reach], narrowed(predicate.graph(), base.now.map_ok(|row| [row]))) })
-		}
-
-		## A filter that reads the parameter record, its first argument. Each
-		## field it reads is a `$name` that `prepare` gives a `LET`.
-		filter_by : Query(p, row), Code((p, row -> Bool)) -> Query(p, row)
-		filter_by = |Query.(q), predicate| {
-			base = q.source
-			clause = |at, param| within_clause("`filter_by`", Translate.evaluate(own, predicate.graph(), [Translate.Binding.Params, pick(base, at)?], spelled(predicate, param)))
-			Query.({ ..q, filters: q.filters.append(clause), slots: q.slots.concat(slots_of(predicate)), watched: reached_watches(q.watched, predicate.graph(), [Translate.Reach.Nothing, base.reach], narrowed(predicate.graph(), base.now.map_ok(|row| [Translate.Binding.Params, row]))) })
-		}
-
-		## The row and its edges in `edges`, `->edges`. The row becomes the pair
-		## `(row, List(edge))`, which a clause takes apart with a tuple pattern.
-		## The edge row's `from` links to `a`, so edges that leave another
-		## table are a type error.
-		outgoing : Query(p, a), Table({ from : Link(a), ..e }) -> Query(p, (a, List({ from : Link(a), ..e })))
-		outgoing = |Query.(q), Table.(t)| {
-			rows = { now: with_edges(q.source.now, |at| Translate.edge_list(at, "->", t.name, ends_of(t.kind))), before: with_edges(q.source.before, |at| Translate.edge_list(at, "->", t.name, ends_of(t.kind))), reach: Translate.with_edges(q.source.reach, "->", t.name) }
-			Query.({ ..q, source: rows, watched: add_watched(q.watched, Edge({ name: t.name, node: "in" })) })
-		}
-
-		## As `outgoing`, with the edges that point at the row: `<-edges`. The
-		## edge row's `to` links to `b`.
-		incoming : Query(p, b), Table({ to : Link(b), ..e }) -> Query(p, (b, List({ to : Link(b), ..e })))
-		incoming = |Query.(q), Table.(t)| {
-			rows = { now: with_edges(q.source.now, |at| Translate.edge_list(at, "<-", t.name, ends_of(t.kind))), before: with_edges(q.source.before, |at| Translate.edge_list(at, "<-", t.name, ends_of(t.kind))), reach: Translate.with_edges(q.source.reach, "<-", t.name) }
-			Query.({ ..q, source: rows, watched: add_watched(q.watched, Edge({ name: t.name, node: "out" })) })
-		}
-
-		## A second edge table on the row: after `outgoing` or `incoming`,
-		## the edges that leave the row in `edges` too. The row becomes the
-		## triple `(row, List(e1), List(edge))`. A live query watches both
-		## edge tables. For more edge tables, take a read row with an `Out`
-		## or `In` field for each.
-		and_outgoing : Query(p, (a, List(x))), Table({ from : Link(a), ..e }) -> Query(p, (a, List(x), List({ from : Link(a), ..e })))
-		and_outgoing = |Query.(q), Table.(t)| {
-			rows = { now: with_edges(q.source.now, |at| Translate.edge_list(at, "->", t.name, ends_of(t.kind))), before: with_edges(q.source.before, |at| Translate.edge_list(at, "->", t.name, ends_of(t.kind))), reach: Translate.with_edges(q.source.reach, "->", t.name) }
-			Query.({ ..q, source: rows, watched: add_watched(q.watched, Edge({ name: t.name, node: "in" })) })
-		}
-
-		## As `and_outgoing`, with the edges that point at the row.
-		and_incoming : Query(p, (b, List(x))), Table({ to : Link(b), ..e }) -> Query(p, (b, List(x), List({ to : Link(b), ..e })))
-		and_incoming = |Query.(q), Table.(t)| {
-			rows = { now: with_edges(q.source.now, |at| Translate.edge_list(at, "<-", t.name, ends_of(t.kind))), before: with_edges(q.source.before, |at| Translate.edge_list(at, "<-", t.name, ends_of(t.kind))), reach: Translate.with_edges(q.source.reach, "<-", t.name) }
-			Query.({ ..q, source: rows, watched: add_watched(q.watched, Edge({ name: t.name, node: "out" })) })
-		}
-
-		## The rows whose text matches the terms, by the full-text index:
-		## `WHERE body @1@ 'limping'`. The row becomes the pair `(row,
-		## hit)`, and the hit reads what the search knows of the row,
-		## `search::score(1)` and the highlights: `select(|(n, hit)| { id:
-		## n.id, score: hit.score() })`. The library numbers the search,
-		## so no clause writes the number. The index, the search and the
-		## hit are of one row type, so a query has one search, and no
-		## `nearest`. The Roc meaning of which rows it keeps is
-		## `Analyzer.matches`. A live query refuses it.
-		search : Query(p, row), FullText(row), Str -> Query(p, (row, Hit))
-		search = |Query.(q), FullText.(f), terms| {
-			mark = fixed_mark(q.fixed.len())
-			clause = |at, _| match at {
-				Now => Ok(Translate.Binding.Infix("${f.path?} @1@ ${mark}"))
-				Before => Err(live_search)
-			}
-			Query.({ ..q, source: paired(q.source, f.table, "1"), filters: q.filters.append(clause), fixed: q.fixed.append(Ql.Value.Str(terms)) })
-		}
-
-		## The `k` rows whose vector is nearest the probe, by the vector
-		## index: `WHERE embedding <|2,40|> [..]` (`Approx`), or `<|2,COSINE|>`
-		## (`Exact`), among the rows that the other filters keep (verified).
-		## The row becomes the pair `(row, near)`, and `near.distance()`
-		## is `vector::distance::knn()`. A probe of another dimension than
-		## the index's is refused. The Roc meaning of `Exact` is the rows
-		## sorted by their `Vector` distance from the probe, the first `k`.
-		## A live query refuses it.
-		nearest : Query(p, row), VectorIndex(row), List(F64), Knn -> Query(p, (row, Near))
-		nearest = |Query.(q), VectorIndex.(v), probe, knn| {
-			mark = fixed_mark(q.fixed.len())
-			clause = |at, _| match at {
-				Now => {
-					if probe.len() != v.dimension {
-						return Err(Unsupported("the probe of `nearest` has ${probe.len().to_str()} numbers, and the vector index of `${v.table}.${v.path?}` has the dimension ${v.dimension.to_str()}"))
-					}
-					how = match knn {
-						Approx({ k, ef }) => "${k.to_str()},${ef.to_str()}"
-						Exact(k) => "${k.to_str()},${distance_name(v.distance)}"
-					}
-					Ok(Translate.Binding.Infix("${v.path?} <|${how}|> ${mark}"))
-				}
-				Before => Err(live_search)
-			}
-			Query.({ ..q, source: paired(q.source, v.table, "vector::distance::knn()"), filters: q.filters.append(clause), fixed: q.fixed.append(Ql.Value.Array(probe.map(|x| Ql.Value.Float(x)))) })
-		}
-
-		## The rows of one series of a time series with `from <= time < to`:
-		## `FROM t:[series, from]..[series, to]`. It reads the range of keys, not
-		## the whole table. A query takes one `between`.
-		between : Query(p, { id : TimeKey(s), ..others }), s, Datetime, Datetime -> Query(p, { id : TimeKey(s), ..others }) where [s.encoder_for : Encode.Format -> (s, Encode.State -> Try(Encode.State, []))]
-		between = |Query.(q), series, since, to| {
-			range = match q.target {
-				Whole(name) => key_range(name, q.fixed.len(), TimeKey.({ series, time: since }), TimeKey.({ series, time: to }))
-				Range(_) => Err(Unsupported("a query takes one `between`"))
-				Record(_) => Err(Unsupported("`between` reads a range of keys of a table, and this query reads the record of one key"))
-				Sub(_) => Err(Unsupported("`between` reads a range of keys of a table, and this query reads a subquery"))
-			}
-			values = match range {
-				Ok(r) => r.values
-				Err(_) => []
-			}
-			Query.({ ..q, target: Range(range.map_ok(|r| r.text)), fixed: q.fixed.concat(values) })
-		}
-
-		## The columns of the result. The function returns a record, and its
-		## fields name the columns, in name order: `SELECT e AS f, ..`. A whole
-		## record is one column per field of its Roc type: `select(|r| r)` is
-		## `SELECT record::id(id) AS id, name, ..`, where `id` is the key, as
-		## the row holds it, and a field that SurrealDB has but the type does
-		## not is not selected. The same holds for a linked row
-		## (`|p| p.owner.get()`) and an object (`|v| v.contact`).
-		select : Query(p, row), Code(row -> out) -> Selected(p, out)
-		select = |Query.(q), projection| {
-			base = q.source
-			ty = projection.graph().root_row().result
-			columns = |param| within_clause("`select`", column_list(within_clause("`select`", Translate.evaluate(own, projection.graph(), [base.now?], spelled(projection, param)))?, ty))
-			value = |param| within_clause("`select`", row_value(within_clause("`select`", Translate.evaluate(own, projection.graph(), [base.now?], spelled(projection, param)))?, ty))
-			selected_of({ ..q, slots: q.slots.concat(slots_of(projection)), watched: reached_watches(q.watched, projection.graph(), [base.reach], narrowed(projection.graph(), base.now.map_ok(|row| [row]))) }, { columns, value, intrinsic: intrinsic_columns(projection.graph()) }, by_name, [], { ty, over: Projected(projected_rows(base, projection.graph())), nested: nested_row(ty) })
-		}
-
-		## One value per row: `SELECT VALUE e`. A whole row of a table, as
-		## `|r| r` or `|e| e.to.get()`, is the object of the fields of its
-		## Roc type, `SELECT VALUE { id: record::id(id), name, .. }`, so that
-		## `id` is the key, as `select(|r| r)` gives it. `order_by` reads a
-		## value that is a path of fields of the source row (see `ResultOrder`).
-		select_value : Query(p, row), Code(row -> v) -> Selected(p, v)
-		select_value = |Query.(q), projection| {
-			base = q.source
-			ty = projection.graph().root_row().result
-			value = |param| match within_clause("`select_value`", Translate.evaluate(own, projection.graph(), [base.now?], spelled(projection, param)))? {
-				Row({ of: Doc(named), at, edge }) => row_value(Translate.Binding.Row({ at, of: Doc(named), edge }), ty)
-				other => Translate.text(other)
-			}
-			columns = |param| Ok("VALUE ${value(param)?}")
-			results = |key, param| {
-				path = field_path(projection.graph()) and !reads_id(projection.graph()) and field_path(key)
-				whole = projection.graph().root_row().nodes.is_empty() and key.root_row().nodes.is_empty()
-				if !path or whole {
-					return Err(value_order)
-				}
-				match Translate.evaluate(own, projection.graph(), [base.now?], spelled(projection, param))? {
-					Row(r) => Ok(Translate.Binding.Row({ ..r, of: Obj }))
-					other => Ok(other)
-				}
-			}
-			selected_of({ ..q, slots: q.slots.concat(slots_of(projection)), watched: reached_watches(q.watched, projection.graph(), [base.reach], narrowed(projection.graph(), base.now.map_ok(|row| [row]))) }, { columns, value, intrinsic: intrinsic_columns(projection.graph()) }, results, [], { ty, over: Projected(projected_rows(base, projection.graph())), nested: nested_row(ty) })
-		}
-
-		## Group the rows by what the function returns: a value, or a record of
-		## them.
-		group_by : Query(p, row), Code(row -> k) -> Grouped(p, row, k)
-		group_by = |query, key| Grouped.({ query: query, key: key })
-
-		## The totals of the rows, as one result: `GROUP ALL`. The function
-		## takes the rows as a `List(row)`, as the one of `aggregate` does:
-		## `rows.len()` is `count()`, and `rows.map(f).sum()` is
-		## `math::sum(f)`. The result is one row also for no rows, with the
-		## values that SurrealDB gives (verified on 3.3.4): a count and a
-		## sum are 0, and a mean, a standard deviation and a variance are
-		## `NaN`. That is why `group_by(|_| {})` is refused: a group of no
-		## rows is no group. `math::median` of no rows is `NONE`, so it is
-		## refused.
-		totals : Query(p, row), Code(List(row) -> out) -> Totals(p, out)
-		totals = |query, per_total| totalled(query, per_total)
-
-		## The whole rows of the query: the `prepare` of `select(|r| r)`
-		## (see `Selected.prepare`).
-		prepare : Query(p, row), p -> Prepared(List(row)) where [p.encoder_for : Encode.Format -> (p, Encode.State -> Try(Encode.State, [])), row.Cbor.Readable(errs)]
-		prepare = |query, params| whole_of(query).prepare(params)
-
-		## The whole rows of a query that has no parameter: `prepare({})`.
-		ready : Query({}, row) -> Prepared(List(row)) where [row.Cbor.Readable(errs)]
-		ready = |query| whole_of(query).prepare({})
-
-		## The whole row of a query of one key: `select(|r| r)` and
-		## `Selected.prepare_one`.
-		prepare_one : Query(p, row), p -> Prepared(Try(row, [NotFound])) where [p.encoder_for : Encode.Format -> (p, Encode.State -> Try(Encode.State, [])), row.Cbor.Readable(errs)]
-		prepare_one = |query, params| whole_of(query).prepare_one(params)
-
-		## `prepare_one` of a query that has no parameter.
-		ready_one : Query({}, row) -> Prepared(Try(row, [NotFound])) where [row.Cbor.Readable(errs)]
-		ready_one = |query| whole_of(query).prepare_one({})
-
-		## The whole rows of the query, kept current: `select(|r| r)` and
-		## `Selected.live`.
-		live : Query(p, row), p, List(Defined) -> Watch(row) where [p.encoder_for : Encode.Format -> (p, Encode.State -> Try(Encode.State, []))]
-		live = |query, params, tables| whole_of(query).live(params, tables)
-
-		## `live` of a query that has no parameter.
-		ready_live : Query({}, row), List(Defined) -> Watch(row)
-		ready_live = |query, tables| whole_of(query).live({}, tables)
-
-		## Escape hatch: the patches of each write to the stored rows that the
-		## filters keep, `LIVE SELECT DIFF`. It takes no projection, so it is
-		## on `Query`. A row that no longer matches sends nothing, and a row
-		## that starts to match sends only the ops of the write. It watches
-		## the table only, not the tables that the filters read.
-		live_diff : Query(p, row), p -> Try(DiffWatch(row), Error) where [p.encoder_for : Encode.Format -> (p, Encode.State -> Try(Encode.State, []))]
-		live_diff = |Query.(q), params| {
-			name = Ql.ident(whole_table(q.target)?)
-			if q.watched.any(is_edge_of) {
-				return Err(Unsupported("a DIFF live query has no edges: its patches are of the stored row; watch the edges with `live`"))
-			}
-			match q.source.now? {
-				Row({ of: Doc(_), .. }) => {}
-				_ => return Err(Unsupported("`live_diff` sends patches of the stored row, so it reads a table: take it on `Surreal.from(table)` with filters only"))
-			}
-			lets = lets_of(params)?
-			param = Translate.variable
-			now = all_of(q.filters.map_try(|f| f(Now, param))?)?
-			Ok(DiffWatch.({ lets, live: "LIVE SELECT DIFF FROM ${name}${where_text(now)?}" }))
-		}
-	}
+	Query(p, row) : SurrealQuery(p, row)
 
 	## Rows grouped by a key, waiting for what to compute per group.
-	Grouped(p, row, k) :: { query : Query(p, row), key : Code(row -> k) }.{
-
-		## The cut of the per-group function, which reads the group's rows
-		## (see `Surreal.code_primitives`).
-		code_primitives = cut
-
-		## One result row per group. The function takes the key and the group's
-		## rows as a `List(row)`: `rows.len()` is `count()`, and
-		## `rows.map(f).sum()` is `math::sum(f)`.
-		aggregate : Grouped(p, row, k), Code((k, List(row) -> out)) -> Selected(p, out)
-		aggregate = |grouped, per_group| aggregated(grouped, per_group, Bool.False)
-	}
+	Grouped(p, row, k) : SurrealGrouped(p, row, k)
 
 	## The one row of `Query.totals`. It has no `filter`, `order_by`,
 	## `limit` or `live`: a row that is always there is not a list.
@@ -3447,58 +3139,7 @@ Surreal :: {}.{
 	## One notice of `Query.live_diff`: the ops of one write to a stored
 	## row, in order. A create replaces the whole row (the pointer `""`),
 	## and a delete replaces it with `NULL`.
-	Patch(row) := { ref : Ref, action : [Create, Update, Delete], ops : List(Op) }.{
-
-		## The cut of `field` (see `Surreal.code_primitives`).
-		code_primitives = cut
-
-		ref : Patch(row) -> Ref
-		ref = |Patch.(p)| p.ref
-
-		action : Patch(row) -> [Create, Update, Delete]
-		action = |Patch.(p)| p.action
-
-		ops : Patch(row) -> List(Op)
-		ops = |Patch.(p)| p.ops
-
-		## What the patch did to one field of the row: the function reads
-		## the field, `|v| v.temp_c`. The last op that reaches the field
-		## decides:
-		##
-		## | Op | Result |
-		## | --- | --- |
-		## | `Add` or `Replace` at the field | `Set(value)` |
-		## | `Remove` at the field | `Unset` |
-		## | An op below the field, or `Change` of its text | `Inside` |
-		## | `Add` or `Replace` above the field (a create replaces `""`) | `Set` of the field in the new value, or `Unset` when it has none |
-		## | `Remove` above the field | `Unset` |
-		## | No op reaches the field | `Untouched` |
-		field : Patch(row), Code(row -> a) -> Try([Untouched, Set(a), Unset, Inside], Error) where [a.Cbor.Readable(errs)]
-		field = |Patch.(p), path| {
-			steps = Translate.path_of(path.graph())?
-			pointer = steps.map_try(
-				|step| match step {
-					Field(name) => Ok(name)
-					Each => Err(Unsupported("a field of a patch is one field, not each item of a list"))
-				},
-			)?
-			last = p.ops.keep_if(|op| op_reaches(Diff.path_of(op), pointer)).last()
-			match last {
-				Err(_) => Ok(Untouched)
-				Ok(Remove(at)) => Ok(if (at.len() == pointer.len()) Unset else Inside)
-				Ok(Change(_, _)) => Ok(Inside)
-				Ok(Add(at, value)) | Ok(Replace(at, value)) =>
-					if at.len() > pointer.len() {
-						Ok(Inside)
-					} else {
-						match value_at(value, pointer.drop_first(at.len())) {
-							Ok(inner) => row_of(inner).map_ok(|v| Set(v))
-							Err(Absent) => Ok(Unset)
-						}
-					}
-			}
-		}
-	}
+	Patch(row) : SurrealPatch(row)
 
 	## The stored rows of a `live_diff` watch, kept as values: each patch
 	## applied in order. `get` reads one as `row`.
@@ -4268,6 +3909,380 @@ Surreal :: {}.{
 	## An error of the server, of a request or of a statement.
 	Failure : { kind : Str, message : Str, details : Try(Cbor.Value, [Missing]) }
 
+}
+
+# The type of `Surreal.Query`, private to the module: a nested type would have members with the names of members of `Surreal`.
+SurrealQuery(p, row) :: {
+	target : Target,
+	source : Rows,
+	filters : List(Filter),
+	watched : List(Watched),
+	slots : List(Slot),
+	fixed : List(Ql.Value),
+}.{
+
+	## The cut of filters, projections and keys (see `Surreal.code_primitives`).
+	code_primitives = cut
+
+	## Keep the rows the function is true for: `WHERE`.
+	filter : Query(p, row), Code(row -> Bool) -> Query(p, row)
+	filter = |Query.(q), predicate| {
+		base = q.source
+		clause = |at, param| within_clause("`filter`", Translate.evaluate(own, predicate.graph(), [pick(base, at)?], spelled(predicate, param)))
+		Query.({ ..q, filters: q.filters.append(clause), slots: q.slots.concat(slots_of(predicate)), watched: reached_watches(q.watched, predicate.graph(), [base.reach], narrowed(predicate.graph(), base.now.map_ok(|row| [row]))) })
+	}
+
+	## `filter`, where the predicate may call the functions of another
+	## package's types and read values of them from around itself. Each
+	## extension gives the SurrealQL of some of those functions, by
+	## their ids (`Surreal.extension`), and a captured value is bound as
+	## its own `encoder_for` writes it in `Encode.Bind`: a value of an
+	## opaque type is the value its encoder writes. A captured `Id` or
+	## `Datetime` needs no encoder.
+	filter_with : Query(p, row), List(Extension), Code.Binds(Code(row -> Bool), Encode.Bind) -> Query(p, row)
+	filter_with = |Query.(q), extensions, predicate| {
+		base = q.source
+		clause = |at, param| within_clause("`filter_with`", Translate.evaluate(own.concat(extensions), predicate.graph(), [pick(base, at)?], spelled(predicate, param)))
+		Query.({ ..q, filters: q.filters.append(clause), slots: q.slots.concat(keyed_slots(predicate, Any, Bool.True)), watched: reached_watches(q.watched, predicate.graph(), [base.reach], narrowed(predicate.graph(), base.now.map_ok(|row| [row]))) })
+	}
+
+	## A filter that reads the parameter record, its first argument. Each
+	## field it reads is a `$name` that `prepare` gives a `LET`.
+	filter_by : Query(p, row), Code((p, row -> Bool)) -> Query(p, row)
+	filter_by = |Query.(q), predicate| {
+		base = q.source
+		clause = |at, param| within_clause("`filter_by`", Translate.evaluate(own, predicate.graph(), [Translate.Binding.Params, pick(base, at)?], spelled(predicate, param)))
+		Query.({ ..q, filters: q.filters.append(clause), slots: q.slots.concat(slots_of(predicate)), watched: reached_watches(q.watched, predicate.graph(), [Translate.Reach.Nothing, base.reach], narrowed(predicate.graph(), base.now.map_ok(|row| [Translate.Binding.Params, row]))) })
+	}
+
+	## The row and its edges in `edges`, `->edges`. The row becomes the pair
+	## `(row, List(edge))`, which a clause takes apart with a tuple pattern.
+	## The edge row's `from` links to `a`, so edges that leave another
+	## table are a type error.
+	outgoing : Query(p, a), Table({ from : Link(a), ..e }) -> Query(p, (a, List({ from : Link(a), ..e })))
+	outgoing = |Query.(q), Table.(t)| {
+		rows = { now: with_edges(q.source.now, |at| Translate.edge_list(at, "->", t.name, ends_of(t.kind))), before: with_edges(q.source.before, |at| Translate.edge_list(at, "->", t.name, ends_of(t.kind))), reach: Translate.with_edges(q.source.reach, "->", t.name) }
+		Query.({ ..q, source: rows, watched: add_watched(q.watched, Edge({ name: t.name, node: "in" })) })
+	}
+
+	## As `outgoing`, with the edges that point at the row: `<-edges`. The
+	## edge row's `to` links to `b`.
+	incoming : Query(p, b), Table({ to : Link(b), ..e }) -> Query(p, (b, List({ to : Link(b), ..e })))
+	incoming = |Query.(q), Table.(t)| {
+		rows = { now: with_edges(q.source.now, |at| Translate.edge_list(at, "<-", t.name, ends_of(t.kind))), before: with_edges(q.source.before, |at| Translate.edge_list(at, "<-", t.name, ends_of(t.kind))), reach: Translate.with_edges(q.source.reach, "<-", t.name) }
+		Query.({ ..q, source: rows, watched: add_watched(q.watched, Edge({ name: t.name, node: "out" })) })
+	}
+
+	## A second edge table on the row: after `outgoing` or `incoming`,
+	## the edges that leave the row in `edges` too. The row becomes the
+	## triple `(row, List(e1), List(edge))`. A live query watches both
+	## edge tables. For more edge tables, take a read row with an `Out`
+	## or `In` field for each.
+	and_outgoing : Query(p, (a, List(x))), Table({ from : Link(a), ..e }) -> Query(p, (a, List(x), List({ from : Link(a), ..e })))
+	and_outgoing = |Query.(q), Table.(t)| {
+		rows = { now: with_edges(q.source.now, |at| Translate.edge_list(at, "->", t.name, ends_of(t.kind))), before: with_edges(q.source.before, |at| Translate.edge_list(at, "->", t.name, ends_of(t.kind))), reach: Translate.with_edges(q.source.reach, "->", t.name) }
+		Query.({ ..q, source: rows, watched: add_watched(q.watched, Edge({ name: t.name, node: "in" })) })
+	}
+
+	## As `and_outgoing`, with the edges that point at the row.
+	and_incoming : Query(p, (b, List(x))), Table({ to : Link(b), ..e }) -> Query(p, (b, List(x), List({ to : Link(b), ..e })))
+	and_incoming = |Query.(q), Table.(t)| {
+		rows = { now: with_edges(q.source.now, |at| Translate.edge_list(at, "<-", t.name, ends_of(t.kind))), before: with_edges(q.source.before, |at| Translate.edge_list(at, "<-", t.name, ends_of(t.kind))), reach: Translate.with_edges(q.source.reach, "<-", t.name) }
+		Query.({ ..q, source: rows, watched: add_watched(q.watched, Edge({ name: t.name, node: "out" })) })
+	}
+
+	## The rows whose text matches the terms, by the full-text index:
+	## `WHERE body @1@ 'limping'`. The row becomes the pair `(row,
+	## hit)`, and the hit reads what the search knows of the row,
+	## `search::score(1)` and the highlights: `select(|(n, hit)| { id:
+	## n.id, score: hit.score() })`. The library numbers the search,
+	## so no clause writes the number. The index, the search and the
+	## hit are of one row type, so a query has one search, and no
+	## `nearest`. The Roc meaning of which rows it keeps is
+	## `Analyzer.matches`. A live query refuses it.
+	search : Query(p, row), FullText(row), Str -> Query(p, (row, Hit))
+	search = |Query.(q), FullText.(f), terms| {
+		mark = fixed_mark(q.fixed.len())
+		clause = |at, _| match at {
+			Now => Ok(Translate.Binding.Infix("${f.path?} @1@ ${mark}"))
+			Before => Err(live_search)
+		}
+		Query.({ ..q, source: paired(q.source, f.table, "1"), filters: q.filters.append(clause), fixed: q.fixed.append(Ql.Value.Str(terms)) })
+	}
+
+	## The `k` rows whose vector is nearest the probe, by the vector
+	## index: `WHERE embedding <|2,40|> [..]` (`Approx`), or `<|2,COSINE|>`
+	## (`Exact`), among the rows that the other filters keep (verified).
+	## The row becomes the pair `(row, near)`, and `near.distance()`
+	## is `vector::distance::knn()`. A probe of another dimension than
+	## the index's is refused. The Roc meaning of `Exact` is the rows
+	## sorted by their `Vector` distance from the probe, the first `k`.
+	## A live query refuses it.
+	nearest : Query(p, row), VectorIndex(row), List(F64), Knn -> Query(p, (row, Near))
+	nearest = |Query.(q), VectorIndex.(v), probe, knn| {
+		mark = fixed_mark(q.fixed.len())
+		clause = |at, _| match at {
+			Now => {
+				if probe.len() != v.dimension {
+					return Err(Unsupported("the probe of `nearest` has ${probe.len().to_str()} numbers, and the vector index of `${v.table}.${v.path?}` has the dimension ${v.dimension.to_str()}"))
+				}
+				how = match knn {
+					Approx({ k, ef }) => "${k.to_str()},${ef.to_str()}"
+					Exact(k) => "${k.to_str()},${distance_name(v.distance)}"
+				}
+				Ok(Translate.Binding.Infix("${v.path?} <|${how}|> ${mark}"))
+			}
+			Before => Err(live_search)
+		}
+		Query.({ ..q, source: paired(q.source, v.table, "vector::distance::knn()"), filters: q.filters.append(clause), fixed: q.fixed.append(Ql.Value.Array(probe.map(|x| Ql.Value.Float(x)))) })
+	}
+
+	## The rows of one series of a time series with `from <= time < to`:
+	## `FROM t:[series, from]..[series, to]`. It reads the range of keys, not
+	## the whole table. A query takes one `between`.
+	between : Query(p, { id : TimeKey(s), ..others }), s, Datetime, Datetime -> Query(p, { id : TimeKey(s), ..others }) where [s.encoder_for : Encode.Format -> (s, Encode.State -> Try(Encode.State, []))]
+	between = |Query.(q), series, since, to| {
+		range = match q.target {
+			Whole(name) => key_range(name, q.fixed.len(), TimeKey.({ series, time: since }), TimeKey.({ series, time: to }))
+			Range(_) => Err(Unsupported("a query takes one `between`"))
+			Record(_) => Err(Unsupported("`between` reads a range of keys of a table, and this query reads the record of one key"))
+			Sub(_) => Err(Unsupported("`between` reads a range of keys of a table, and this query reads a subquery"))
+		}
+		values = match range {
+			Ok(r) => r.values
+			Err(_) => []
+		}
+		Query.({ ..q, target: Range(range.map_ok(|r| r.text)), fixed: q.fixed.concat(values) })
+	}
+
+	## The columns of the result. The function returns a record, and its
+	## fields name the columns, in name order: `SELECT e AS f, ..`. A whole
+	## record is one column per field of its Roc type: `select(|r| r)` is
+	## `SELECT record::id(id) AS id, name, ..`, where `id` is the key, as
+	## the row holds it, and a field that SurrealDB has but the type does
+	## not is not selected. The same holds for a linked row
+	## (`|p| p.owner.get()`) and an object (`|v| v.contact`).
+	select : Query(p, row), Code(row -> out) -> Selected(p, out)
+	select = |Query.(q), projection| {
+		base = q.source
+		ty = projection.graph().root_row().result
+		columns = |param| within_clause("`select`", column_list(within_clause("`select`", Translate.evaluate(own, projection.graph(), [base.now?], spelled(projection, param)))?, ty))
+		value = |param| within_clause("`select`", row_value(within_clause("`select`", Translate.evaluate(own, projection.graph(), [base.now?], spelled(projection, param)))?, ty))
+		selected_of({ ..q, slots: q.slots.concat(slots_of(projection)), watched: reached_watches(q.watched, projection.graph(), [base.reach], narrowed(projection.graph(), base.now.map_ok(|row| [row]))) }, { columns, value, intrinsic: intrinsic_columns(projection.graph()) }, by_name, [], { ty, over: Projected(projected_rows(base, projection.graph())), nested: nested_row(ty) })
+	}
+
+	## One value per row: `SELECT VALUE e`. A whole row of a table, as
+	## `|r| r` or `|e| e.to.get()`, is the object of the fields of its
+	## Roc type, `SELECT VALUE { id: record::id(id), name, .. }`, so that
+	## `id` is the key, as `select(|r| r)` gives it. `order_by` reads a
+	## value that is a path of fields of the source row (see `ResultOrder`).
+	select_value : Query(p, row), Code(row -> v) -> Selected(p, v)
+	select_value = |Query.(q), projection| {
+		base = q.source
+		ty = projection.graph().root_row().result
+		value = |param| match within_clause("`select_value`", Translate.evaluate(own, projection.graph(), [base.now?], spelled(projection, param)))? {
+			Row({ of: Doc(named), at, edge }) => row_value(Translate.Binding.Row({ at, of: Doc(named), edge }), ty)
+			other => Translate.text(other)
+		}
+		columns = |param| Ok("VALUE ${value(param)?}")
+		results = |key, param| {
+			path = field_path(projection.graph()) and !reads_id(projection.graph()) and field_path(key)
+			whole = projection.graph().root_row().nodes.is_empty() and key.root_row().nodes.is_empty()
+			if !path or whole {
+				return Err(value_order)
+			}
+			match Translate.evaluate(own, projection.graph(), [base.now?], spelled(projection, param))? {
+				Row(r) => Ok(Translate.Binding.Row({ ..r, of: Obj }))
+				other => Ok(other)
+			}
+		}
+		selected_of({ ..q, slots: q.slots.concat(slots_of(projection)), watched: reached_watches(q.watched, projection.graph(), [base.reach], narrowed(projection.graph(), base.now.map_ok(|row| [row]))) }, { columns, value, intrinsic: intrinsic_columns(projection.graph()) }, results, [], { ty, over: Projected(projected_rows(base, projection.graph())), nested: nested_row(ty) })
+	}
+
+	## Group the rows by what the function returns: a value, or a record of
+	## them.
+	group_by : Query(p, row), Code(row -> k) -> Grouped(p, row, k)
+	group_by = |query, key| Grouped.({ query: query, key: key })
+
+	## The totals of the rows, as one result: `GROUP ALL`. The function
+	## takes the rows as a `List(row)`, as the one of `aggregate` does:
+	## `rows.len()` is `count()`, and `rows.map(f).sum()` is
+	## `math::sum(f)`. The result is one row also for no rows, with the
+	## values that SurrealDB gives (verified on 3.3.4): a count and a
+	## sum are 0, and a mean, a standard deviation and a variance are
+	## `NaN`. That is why `group_by(|_| {})` is refused: a group of no
+	## rows is no group. `math::median` of no rows is `NONE`, so it is
+	## refused.
+	totals : Query(p, row), Code(List(row) -> out) -> Totals(p, out)
+	totals = |query, per_total| totalled(query, per_total)
+
+	## The whole rows of the query: the `prepare` of `select(|r| r)`
+	## (see `Selected.prepare`).
+	prepare : Query(p, row), p -> Prepared(List(row)) where [p.encoder_for : Encode.Format -> (p, Encode.State -> Try(Encode.State, [])), row.Cbor.Readable(errs)]
+	prepare = |query, params| whole_of(query).prepare(params)
+
+	## The whole rows of a query that has no parameter: `prepare({})`.
+	ready : Query({}, row) -> Prepared(List(row)) where [row.Cbor.Readable(errs)]
+	ready = |query| whole_of(query).prepare({})
+
+	## The whole row of a query of one key: `select(|r| r)` and
+	## `Selected.prepare_one`.
+	prepare_one : Query(p, row), p -> Prepared(Try(row, [NotFound])) where [p.encoder_for : Encode.Format -> (p, Encode.State -> Try(Encode.State, [])), row.Cbor.Readable(errs)]
+	prepare_one = |query, params| whole_of(query).prepare_one(params)
+
+	## `prepare_one` of a query that has no parameter.
+	ready_one : Query({}, row) -> Prepared(Try(row, [NotFound])) where [row.Cbor.Readable(errs)]
+	ready_one = |query| whole_of(query).prepare_one({})
+
+	## The whole rows of the query, kept current: `select(|r| r)` and
+	## `Selected.live`.
+	live : Query(p, row), p, List(Defined) -> Watch(row) where [p.encoder_for : Encode.Format -> (p, Encode.State -> Try(Encode.State, []))]
+	live = |query, params, tables| whole_of(query).live(params, tables)
+
+	## `live` of a query that has no parameter.
+	ready_live : Query({}, row), List(Defined) -> Watch(row)
+	ready_live = |query, tables| whole_of(query).live({}, tables)
+
+	## Escape hatch: the patches of each write to the stored rows that the
+	## filters keep, `LIVE SELECT DIFF`. It takes no projection, so it is
+	## on `Query`. A row that no longer matches sends nothing, and a row
+	## that starts to match sends only the ops of the write. It watches
+	## the table only, not the tables that the filters read.
+	live_diff : Query(p, row), p -> Try(DiffWatch(row), Error) where [p.encoder_for : Encode.Format -> (p, Encode.State -> Try(Encode.State, []))]
+	live_diff = |Query.(q), params| {
+		name = Ql.ident(whole_table(q.target)?)
+		if q.watched.any(is_edge_of) {
+			return Err(Unsupported("a DIFF live query has no edges: its patches are of the stored row; watch the edges with `live`"))
+		}
+		match q.source.now? {
+			Row({ of: Doc(_), .. }) => {}
+			_ => return Err(Unsupported("`live_diff` sends patches of the stored row, so it reads a table: take it on `Surreal.from(table)` with filters only"))
+		}
+		lets = lets_of(params)?
+		param = Translate.variable
+		now = all_of(q.filters.map_try(|f| f(Now, param))?)?
+		Ok(DiffWatch.({ lets, live: "LIVE SELECT DIFF FROM ${name}${where_text(now)?}" }))
+	}
+}
+
+# The type of `Surreal.Patch`, private to the module: a nested type would have members with the names of members of `Surreal`.
+SurrealPatch(row) := { ref : Ref, action : [Create, Update, Delete], ops : List(Op) }.{
+
+	## The cut of `field` (see `Surreal.code_primitives`).
+	code_primitives = cut
+
+	ref : Patch(row) -> Ref
+	ref = |Patch.(p)| p.ref
+
+	action : Patch(row) -> [Create, Update, Delete]
+	action = |Patch.(p)| p.action
+
+	ops : Patch(row) -> List(Op)
+	ops = |Patch.(p)| p.ops
+
+	## What the patch did to one field of the row: the function reads
+	## the field, `|v| v.temp_c`. The last op that reaches the field
+	## decides:
+	##
+	## | Op | Result |
+	## | --- | --- |
+	## | `Add` or `Replace` at the field | `Set(value)` |
+	## | `Remove` at the field | `Unset` |
+	## | An op below the field, or `Change` of its text | `Inside` |
+	## | `Add` or `Replace` above the field (a create replaces `""`) | `Set` of the field in the new value, or `Unset` when it has none |
+	## | `Remove` above the field | `Unset` |
+	## | No op reaches the field | `Untouched` |
+	field : Patch(row), Code(row -> a) -> Try([Untouched, Set(a), Unset, Inside], Error) where [a.Cbor.Readable(errs)]
+	field = |Patch.(p), path| {
+		steps = Translate.path_of(path.graph())?
+		pointer = steps.map_try(
+			|step| match step {
+				Field(name) => Ok(name)
+				Each => Err(Unsupported("a field of a patch is one field, not each item of a list"))
+			},
+		)?
+		last = p.ops.keep_if(|op| op_reaches(Diff.path_of(op), pointer)).last()
+		match last {
+			Err(_) => Ok(Untouched)
+			Ok(Remove(at)) => Ok(if (at.len() == pointer.len()) Unset else Inside)
+			Ok(Change(_, _)) => Ok(Inside)
+			Ok(Add(at, value)) | Ok(Replace(at, value)) =>
+				if at.len() > pointer.len() {
+					Ok(Inside)
+				} else {
+					match value_at(value, pointer.drop_first(at.len())) {
+						Ok(inner) => row_of(inner).map_ok(|v| Set(v))
+						Err(Absent) => Ok(Unset)
+					}
+				}
+		}
+	}
+}
+
+# The type of `Surreal.Grouped`, private to the module: a nested type would have members with the names of members of `Surreal`.
+SurrealGrouped(p, row, k) :: { query : Query(p, row), key : Code(row -> k) }.{
+
+	## The cut of the per-group function, which reads the group's rows
+	## (see `Surreal.code_primitives`).
+	code_primitives = cut
+
+	## One result row per group. The function takes the key and the group's
+	## rows as a `List(row)`: `rows.len()` is `count()`, and
+	## `rows.map(f).sum()` is `math::sum(f)`.
+	aggregate : Grouped(p, row, k), Code((k, List(row) -> out)) -> Selected(p, out)
+	aggregate = |grouped, per_group| aggregated(grouped, per_group, Bool.False)
+}
+
+# The type of `Surreal.Access`, private to the module: a nested type would have members with the names of members of `Surreal`.
+SurrealAccess(up, on) :: { name : Str }.{
+
+	## The cut of the signup and the signin (see `Surreal.code_primitives`).
+	code_primitives = cut
+
+	## The definition of the access method, over the rows of a table of
+	## users. The signup is the new row, without its `id`, from the
+	## variables, each a `$name`: `|v| { email: v.email, pass:
+	## Surreal.Hash.argon2(v.pass) }` is `CREATE user CONTENT { email:
+	## $email, pass: crypto::argon2::generate($pass) }`, and it may
+	## call `Rand` and `Hash.argon2`, as a write. The signin keeps the
+	## row of the user, as `filter_by` does: `|v, u| u.email == v.email
+	## and Surreal.Hash.argon2_matches(u.pass, v.pass)` is `SELECT *
+	## FROM user WHERE email = $email AND crypto::argon2::compare(pass,
+	## $pass)`. The server runs both as a system user, so the
+	## permissions of the table do not apply to them.
+	define : Access(up, on), Table({ id : Str, ..new }), Code((up -> new)), Code((on, { id : Str, ..new } -> Bool)) -> AccessDef
+	define = |Access.(a), Table.(t), signup, signin| AccessDef.(
+		{
+			name: a.name,
+			table: t.name,
+			content: within_clause("the signup of `${a.name}`", Translate.row_value(own, stored_graph(signup, "an access method"), [Translate.Binding.Params], Translate.variable)),
+			cond: within_clause("the signin of `${a.name}`", Translate.render(own, stored_graph(signin, "an access method"), [Translate.Binding.Params, Translate.table_row(t.name, is_edge(t.kind))], Translate.variable)),
+			token: Err(Unset),
+			session: Err(Unset),
+		},
+	)
+
+	## The login of a new record user (`Session.open!`): `signup` with
+	## the variables of the record, each written as a parameter of a
+	## query is (`Ql.cbor`): a `Dec` is a decimal, an `Id` a record id.
+	sign_up : Access(up, on), { ns : Str, db : Str }, up -> Login where [up.encoder_for : Encode.Format -> (up, Encode.State -> Try(Encode.State, []))]
+	sign_up = |Access.(a), at, vars| SignUp({ access: a.name, ns: at.ns, db: at.db, vars: access_vars(vars) })
+
+	## The login of a record user: `signin` with the variables of the record.
+	sign_in : Access(up, on), { ns : Str, db : Str }, on -> Login where [on.encoder_for : Encode.Format -> (on, Encode.State -> Try(Encode.State, []))]
+	sign_in = |Access.(a), at, vars| SignIn({ access: a.name, ns: at.ns, db: at.db, vars: access_vars(vars) })
+}
+
+# The type of `Surreal.Auth`, private to the module: a nested type would have members with the names of members of `Surreal`.
+SurrealAuth :: {}.{
+
+	## `$access`: the name of the access method that the session
+	## signed in with, `NONE` for a system user.
+	access : () -> Str
+
+	## `$token.exp`: when the token of the session expires, in seconds
+	## since 1970.
+	expires : () -> I64
 }
 
 # ============================================================ internals

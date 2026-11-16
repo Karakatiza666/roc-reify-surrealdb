@@ -179,36 +179,7 @@ Diff :: {}.{
 	Hunk : { at : U64, before : U64, after : U64, parts : List(Part) }
 
 	## A text patch: the hunks, in order.
-	TextPatch := List(Hunk).{
-
-		## The hunks of a patch in the diff-match-patch text format: a header
-		## `@@ -a,b +c,d @@` per hunk, then one line per part, which starts
-		## with ` ` (keep), `-` (delete) or `+` (insert). A position counts
-		## Unicode scalar values from 1, and a length of 0 counts from 0. A
-		## length of 1 is left out of the header. The text of a part is UTF-8
-		## with `%XX` escapes (`%0A` is a new line, `%25` is `%`).
-		parse : Str -> Try(TextPatch, [BadPatch(Str)])
-		parse = |text| {
-			lines = text.split_on("\n")
-			parts = lines.fold_try([], |acc, line| Diff.read_line(acc, line))?
-			parts.map_try(Diff.checked).map_ok(|valid| TextPatch.(valid))
-		}
-
-		## The text with each hunk applied, in order. The text must hold the
-		## kept and the deleted parts of each hunk where the hunk starts:
-		## `Mismatch(at)` gives that position when it does not.
-		apply : TextPatch, Str -> Try(Str, [Mismatch(U64)])
-		apply = |TextPatch.(all), text| {
-			result = all.fold_try(Diff.scalars(text), Diff.apply_hunk)?
-			match Str.from_utf8(result.join()) {
-				Ok(s) => Ok(s)
-				Err(_) => crash "whole scalars of valid UTF-8 are valid UTF-8"
-			}
-		}
-
-		hunks : TextPatch -> List(Hunk)
-		hunks = |TextPatch.(all)| all
-	}
+	TextPatch : DiffTextPatch
 
 	## One line of a patch, added to the hunks read so far.
 	read_line : List(Hunk), Str -> Try(List(Hunk), [BadPatch(Str)])
@@ -354,4 +325,36 @@ Diff :: {}.{
 		} else {
 			Err(BadEscape)
 		}
+}
+
+# The type of `Diff.TextPatch`, private to the module: a nested type would have members with the names of members of `Diff`.
+DiffTextPatch := List(Hunk).{
+
+	## The hunks of a patch in the diff-match-patch text format: a header
+	## `@@ -a,b +c,d @@` per hunk, then one line per part, which starts
+	## with ` ` (keep), `-` (delete) or `+` (insert). A position counts
+	## Unicode scalar values from 1, and a length of 0 counts from 0. A
+	## length of 1 is left out of the header. The text of a part is UTF-8
+	## with `%XX` escapes (`%0A` is a new line, `%25` is `%`).
+	parse : Str -> Try(TextPatch, [BadPatch(Str)])
+	parse = |text| {
+		lines = text.split_on("\n")
+		parts = lines.fold_try([], |acc, line| Diff.read_line(acc, line))?
+		parts.map_try(Diff.checked).map_ok(|valid| TextPatch.(valid))
+	}
+
+	## The text with each hunk applied, in order. The text must hold the
+	## kept and the deleted parts of each hunk where the hunk starts:
+	## `Mismatch(at)` gives that position when it does not.
+	apply : TextPatch, Str -> Try(Str, [Mismatch(U64)])
+	apply = |TextPatch.(all), text| {
+		result = all.fold_try(Diff.scalars(text), Diff.apply_hunk)?
+		match Str.from_utf8(result.join()) {
+			Ok(s) => Ok(s)
+			Err(_) => crash "whole scalars of valid UTF-8 are valid UTF-8"
+		}
+	}
+
+	hunks : TextPatch -> List(Hunk)
+	hunks = |TextPatch.(all)| all
 }
