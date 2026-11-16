@@ -26,8 +26,19 @@ done
 "$ROC" test examples/migrate.roc
 # `tests/MigrateServer.roc` runs on a server (check.py); here it must check.
 "$ROC" check tests/MigrateServer.roc
-# `examples/main.roc` prints the golden script.
-"$ROC" examples/main.roc | diff - tests/expected_output.surql
+# `examples/main.roc` prints the golden script. Only its stdout is the
+# script: the compiler writes warnings to stderr and then exits with 2, so
+# the exit code is not checked here. The diff decides; stderr is shown
+# only when the diff fails.
+golden_out="$(mktemp)"
+golden_err="$(mktemp)"
+"$ROC" examples/main.roc >"$golden_out" 2>"$golden_err" || true
+if ! diff "$golden_out" tests/expected_output.surql; then
+	cat "$golden_err" >&2
+	rm -f "$golden_out" "$golden_err"
+	exit 1
+fi
+rm -f "$golden_out" "$golden_err"
 # The tests: apps with expects, over the internal modules and the recorded
 # fixtures. Most have no main!, so `roc check` does not apply to them;
 # `roc test` checks and runs them. `BuiltinsTest.roc` and
