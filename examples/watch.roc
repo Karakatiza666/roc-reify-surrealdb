@@ -622,7 +622,12 @@ check_gauges! = |session| {
 	for edit in gauge_steps {
 		wrote = $session.run!(gauges.edit(edit))
 		$session = wrote.session
-		_ = wrote.result.map_err(|e| "a write failed: ${Str.inspect(e)}")?
+		# A match, not `_ = wrote.result.map_err(..)?`: that form makes the
+		# compiler panic (roc-lang/roc#13115).
+		match wrote.result {
+			Err(e) => return Err("a write failed: ${Str.inspect(e)}")
+			Ok(_) => {}
+		}
 		got_patch = $session.next_within!($live, change_limit_ms).map_err(Str.inspect)?
 		$session = got_patch.session
 		$live = got_patch.live
