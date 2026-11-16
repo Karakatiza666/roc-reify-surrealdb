@@ -1320,436 +1320,7 @@ Surreal :: {}.{
 	## `Code` value, so a clause can read it: `visits.rows()`,
 	## `vets.id("ruth")`. The row type comes from `define()`, where
 	## `Types` reads the schema off it.
-	Table(row) :: { name : Str, kind : TableKind }.{
-
-		## The id of a row of this table. In a clause it is the record id:
-		## `vets.id("ruth")` is `vet:⟨ruth⟩`.
-		id : Table(row), Str -> Id(row)
-		id = |Table.(t), key| Id.({ table: t.name, key: key })
-
-		## The row with this key, to start a query from: `FROM vet:⟨tia⟩`.
-		## SurrealDB reads the one record, where a filter on the key
-		## reads the table (see `Translate.key_compare`).
-		## `Selected.prepare_one` reads the result as the row or
-		## `NotFound`. The key is an escaped record id, so any text is one
-		## key, and an id of another table is refused.
-		at : Table(row), Code(Id(row)) -> Query(p, row)
-		at = |this, row_id| {
-			Table.(t) = this
-			Query.(q) = Surreal.from(this)
-			key = table_key_of(t, row_id)
-			Query.({ ..q, target: Record(key.text), slots: key.slots })
-		}
-
-		## A link to a row of this table. It is not fetched.
-		link : Table(row), Str -> Link(row)
-		link = |this, key| Link.({ id: Table.id(this, key), fetched: NotFetched })
-
-		## The rows of the table, inside a clause: `(SELECT VALUE id FROM t)`.
-		## Each row is a record id, so a field read is a traversal. With it a
-		## clause writes a correlated subquery or a semi join:
-		## `visits.rows().keep_if(|v| v.patient.get().id == p.id).len()`.
-		## An intrinsic: SurrealDB computes it.
-		rows : Table(row) -> List(row)
-
-		## The edges of this edge table that leave the row, inside a clause:
-		## `->treats` off the row, `$v1.out->treats` off a row that a link
-		## points at. A filter of them is `[WHERE ..]`, and their `to.get()`
-		## is the next hop, so a clause writes a graph path of any length:
-		## `treats.edges_from(v).keep_if(|e| e.primary).map(|e| e.to.get().owner.get().name)`
-		## is `->treats[WHERE primary]->patient.owner.name`. The edge row's
-		## `from` links to the row, so edges that leave another table are a
-		## type error. An intrinsic: SurrealDB computes it.
-		edges_from : Table({ from : Link(a), ..e }), a -> List({ from : Link(a), ..e })
-
-		## The edges of this edge table that end at the row: `<-treats`. The
-		## edge row's `to` links to the row, and `from.get()` is the next hop
-		## back: `<-treats<-vet`. An intrinsic: SurrealDB computes it.
-		edges_to : Table({ to : Link(b), ..e }), b -> List({ to : Link(b), ..e })
-
-		## The record user of the session, a row of this table, inside a
-		## clause: `$auth.id`. `|m| m.owner.id() == users.auth()` is
-		## `owner = $auth.id`. A session of a system user has no record
-		## user, and `$auth.id` is `NONE`. An intrinsic: SurrealDB computes it.
-		auth : Table(row) -> Id(row)
-
-		## A full-text index of the `Str` field at the path, over the
-		## analyzer: `notes.text_index(|n| n.body, clinical)`. Give it to
-		## `Def.text_index` and to `Query.search`.
-		text_index : Table(row), Code(row -> Str), Analyzer -> FullText(row)
-		text_index = |Table.(t), path, an| FullText.({ table: t.name, path: within_clause("`text_index`", one_path(stored_graph(path, "an index"), "a full-text index")), analyzer: an })
-
-		## An HNSW index of the vector field at the path, of `dimension`
-		## numbers, by `distance`: `notes.vector_index(|n| n.embedding, {
-		## dimension: 3, distance: Cosine })`. A `List(F64)` is indexed as
-		## `TYPE F64`, a `List(F32)` as `TYPE F32`. Give it to
-		## `Def.vector_index` and to `Query.nearest`.
-		vector_index : Table(row), Code(row -> List(n)), { dimension : U64, distance : Distance } -> VectorIndex(row)
-		vector_index = |Table.(t), path, shape| {
-			element = match path.graph().root_row().result {
-				ListOf(F64) => Ok("F64")
-				ListOf(F32) => Ok("F32")
-				other => Err(BadSchema("a vector index of `${t.name}` is over a `List(F64)` or a `List(F32)`, not a `${other.name()}`"))
-			}
-			VectorIndex.({ table: t.name, path: within_clause("`vector_index`", one_path(stored_graph(path, "an index"), "a vector index")), dimension: shape.dimension, distance: shape.distance, element })
-		}
-
-		## The schema builder of this table. The definition holds the type of
-		## the row: `Code.ty_of` describes `row` at each use that fixes it, so
-		## `customers.define()` has the description of `Customer`. A view
-		## takes its query with `define_as`.
-		define : Table(row) -> Def(row)
-		define = |Table.(t)| {
-			kind = match t.kind {
-				Normal => Types.Kind.Normal
-				Relation(ends) => Types.Kind.Relation(ends)
-				View => Types.Kind.View(Err(Unsupported("`${t.name}` is a view: give its query with `define_as`")))
-			}
-			proxy : Code.Proxy(row)
-			proxy = Code.proxy()
-			Def.({ source: { name: t.name, row_ty: Code.ty_of(proxy), kind }, rules: [], problems: [] })
-		}
-
-		## A read row of the table: the same row as the stored one, with a
-		## `Linked` for a `Link` and with `Out` and `In` fields for the edge
-		## tables at the row. It writes no statement. `schema` checks that it
-		## agrees with the stored row of the table of the same name, and
-		## reports a `BadSchema` when not:
-		##
-		## pets : Surreal.Table(Pet)               # owner : Surreal.Linked(Owner)
-		## stored_pets : Surreal.Table(StoredPet)  # owner : Surreal.Link(Owner)
-		## Surreal.schema([.., stored_pets.define().done(), pets.define_read()])
-		define_read : Table(row) -> Defined
-		define_read = |Table.(t)| {
-			proxy : Code.Proxy(row)
-			proxy = Code.proxy()
-			Schema.read(t.name, Code.ty_of(proxy))
-		}
-
-		## The definition of a view: `DEFINE TABLE name TYPE NORMAL AS SELECT
-		## .. GROUP BY ..`. Each write to the source table updates it. It
-		## takes no rule, and its query reads a whole table, not a range
-		## (SurrealDB refuses a range in a view). The row type is the result
-		## of `per_group`:
-		##
-		## daily = Surreal.view("vital_daily")
-		## daily_def = daily.define_as(Surreal.from(vitals).group_by(day_of), day_line).done()
-		define_as : Table(out), Grouped({}, row, k), Code((k, List(row) -> out)) -> Def(out)
-		define_as = |Table.(t), grouped, per_group| {
-			Grouped.(g) = grouped
-			Query.(q) = g.query
-			select = match (t.kind, q.target) {
-				(Normal, _) | (Relation(_), _) => Err(Unsupported("`${t.name}` is not a view: make it with `Surreal.view`"))
-				(View, Range(_)) => Err(Unsupported("the view `${t.name}` reads a range; a view reads a whole table"))
-				(View, Record(_)) => Err(Unsupported("the view `${t.name}` reads the record of one key; a view reads a whole table"))
-				(View, Sub(_)) => Err(Unsupported("the view `${t.name}` reads a subquery; a view reads a whole table"))
-				(View, Whole(_)) => {
-					Selected.(chosen) = aggregated(grouped, per_group, Bool.True)
-					if !chosen.slots.is_empty() {
-						crash stored_message("a view")
-					}
-					inline_fixed(Selected.render(Selected.(chosen), Translate.variable), chosen.fixed)
-				}
-			}
-			Def.({ source: { name: t.name, row_ty: stored_graph(per_group, "a view").root_row().result, kind: Types.Kind.View(select) }, rules: [], problems: [] })
-		}
-
-		# ---------------------------------------------------- writes
-
-		## The cut of `update` and `delete` clauses (see `Surreal.code_primitives`).
-		code_primitives = cut
-
-		## One transaction that inserts every row, with the values the
-		## compiler's derived encoder writes. An absent optional field is a key
-		## left out. The `id` field stays in the row: it is the record key.
-		## The result is the rows as stored, with the fields that the
-		## database computes: `BEGIN`, the `INSERT`, `COMMIT`, and a
-		## failure is the insert's.
-		insert : Table(row), List(row) -> Prepared(List(row)) where [row.encoder_for : Encode.Format -> (row, Encode.State -> Try(Encode.State, [])), row.Cbor.Readable(errs)]
-		insert = |Table.(t), new_rows| prepared_of(insert_body(t, new_rows, return_clause(After)).map_ok(|statement| { statement, slots: [], count: 1, atomic: Whole, read: read_stored(0, is_edge(t.kind)) }))
-
-		## [Table.insert] of rows whose keys the server makes, as
-		## [Table.create_new] does: each row without its `id`. The result is
-		## the rows as stored, in the order of `rows`.
-		insert_new : Table({ id : Str, ..new }), List(new) -> Prepared(List(Created({ id : Str, ..new }, new))) where [new.encoder_for : Encode.Format -> (new, Encode.State -> Try(Encode.State, [])), new.Cbor.Readable(errs)]
-		insert_new = |Table.(t), new_rows| prepared_of(insert_body(t, new_rows, return_clause(After)).map_ok(|statement| { statement, slots: [], count: 1, atomic: Whole, read: read_created(t) }))
-
-		## A new row at `table:⟨id⟩`, or for an edge table the edge between
-		## the rows of `from` and `to`: `CREATE`, `RELATE`. It fails when
-		## the row exists. The result is the row as stored.
-		create : Table(row), row -> Prepared(List(row)) where [row.encoder_for : Encode.Format -> (row, Encode.State -> Try(Encode.State, [])), row.Cbor.Readable(errs)]
-		create = |this, row| Table.edit(this, Create(row))
-
-		## A new row whose key the server makes: the row without its `id`.
-		## `CREATE t CONTENT ..`, or for an edge table `RELATE` with no key.
-		## The key is the default of `id` in the schema
-		## (`.default_by(|r| r.id, |_| Surreal.Rand.ulid())`), or else
-		## SurrealDB's random 20 characters. The result is the row as
-		## stored: its `Id`, and its other fields.
-		create_new : Table({ id : Str, ..new }), new -> Prepared(List(Created({ id : Str, ..new }, new))) where [new.encoder_for : Encode.Format -> (new, Encode.State -> Try(Encode.State, [])), new.Cbor.Readable(errs)]
-		create_new = |Table.(t), row| {
-			built = |{}| {
-				fields = keyless(t, row)?
-				statement = match t.kind {
-					Relation(_) => relate_fields(t, Err(Generated), fields)?
-					Normal | View => valued("CREATE ${Ql.ident(t.name)} CONTENT ${fixed_mark(0)}", [Ql.Value.Object(fields)])
-				}
-				Ok({ statement: then_text(statement, return_clause(After)), slots: [], count: 1, atomic: No, read: read_created(t) })
-			}
-			prepared_of(built({}))
-		}
-
-		## The row at `table:⟨id⟩`, replaced when it exists and made when
-		## not. The result is the row as stored after the write.
-		upsert : Table(row), row -> Prepared(List(row)) where [row.encoder_for : Encode.Format -> (row, Encode.State -> Try(Encode.State, [])), row.Cbor.Readable(errs)]
-		upsert = |Table.(t), row| stored_write(t, content_write("UPSERT", t, row), After)
-
-		## The row at `table:⟨id⟩`, replaced by this one when it exists:
-		## `UPDATE .. CONTENT`. The result is the row as stored after the
-		## write, or none when the key has no row.
-		replace : Table(row), row -> Prepared(List(row)) where [row.encoder_for : Encode.Format -> (row, Encode.State -> Try(Encode.State, [])), row.Cbor.Readable(errs)]
-		replace = |Table.(t), row| stored_write(t, content_write("UPDATE", t, row), After)
-
-		## Insert rows, and where a row with the same key exists, change the
-		## stored row instead: `INSERT INTO t [..] ON DUPLICATE KEY UPDATE ..`.
-		## The patch takes the new row and the stored one, `|new, old| {
-		## ..old, visits: old.visits + new.visits }`, and is translated as
-		## the patch of `update` is: each changed field is an item, and the
-		## new row is `$input`. One transaction, as `insert` is. The result
-		## is the rows as stored. SurrealDB 4.0.1 takes a duplicate to be the
-		## same record key; a row that only repeats the value of a unique
-		## index is refused (`Unique`). A relation table is refused.
-		insert_or_update : Table(row), List(row), Code((row, row -> row)) -> Prepared(List(row)) where [row.encoder_for : Encode.Format -> (row, Encode.State -> Try(Encode.State, [])), row.Cbor.Readable(errs)]
-		insert_or_update = |Table.(t), new_rows, patch| {
-			built = |{}| {
-				writable(t)?
-				if is_edge(t.kind) {
-					return Err(Unsupported("`insert_or_update` is not defined for the relation table `${t.name}`"))
-				}
-				new = Translate.Binding.Row({ at: "$input", of: Doc(Of(t.name)), edge: Bool.False })
-				sets = within_clause("the patch of `insert_or_update`", Translate.assignments(own, patch.graph(), [new, Translate.table_row(t.name, Bool.False)], spelled(patch, Translate.variable)))?
-				statement = insert_body(t, new_rows, " ON DUPLICATE KEY UPDATE ${set_list(sets)}${return_clause(After)}")?
-				Ok({ statement, slots: slots_of(patch), count: 1, atomic: Whole, read: read_stored(0, Bool.False) })
-			}
-			prepared_of(built({}))
-		}
-
-		## Replay patches on the row with this key, in order: `UPDATE
-		## t:⟨k⟩ PATCH [..]`, a JSON Patch. The patches are those of
-		## `Query.live_diff` (`Patch`), so a client can apply the changes
-		## that another client saw. A patch of a create (the replace of `""`
-		## by the whole row) sets each field. These are refused when the
-		## statement is built: a patch of another row, a patch of a delete
-		## (`delete_at` is that), an op below `/id`, and a `change` op, a
-		## text diff that the ORM reads and does not write. A path that the
-		## row does not have, or a value of another type, is the server's
-		## error. The result is the row as stored, or none for a key with
-		## no row.
-		patch_at : Table(row), Id(row), List(Patch(row)) -> Prepared(List(row)) where [row.Cbor.Readable(errs)]
-		patch_at = |this, row_id, patches| {
-			Id.(i) = row_id
-			foreign = patches.keep_if(|Patch.(p)| p.ref.to_str() != Ql.record_ref(i.table, Ql.Value.Str(i.key)))
-			if !foreign.is_empty() {
-				prepared_of(Err(Unsupported("a patch is of another row than `${Ql.record_id(i.table, i.key)}`")))
-			} else {
-				Table.patch_ops_at(this, row_id, patches.join_map(|Patch.(p)| p.ops))
-			}
-		}
-
-		## [Table.patch_at] of ops that the app made, `Replace(["tag"],
-		## Cbor.Value.Text("x"))`.
-		patch_ops_at : Table(row), Id(row), List(Op) -> Prepared(List(row)) where [row.Cbor.Readable(errs)]
-		patch_ops_at = |Table.(t), row_id, ops| {
-			built = |{}| {
-				writable(t)?
-				record = record_at(t, row_id)?
-				items = ops.map_try(patch_item)?
-				Ok(valued("UPDATE ${fixed_mark(0)} PATCH ${fixed_mark(1)}", [record, Ql.Value.Array(items)]))
-			}
-			stored_write(t, built({}), After)
-		}
-
-		## Merge a record into the row with this key: `UPDATE t:⟨k⟩ MERGE
-		## { .. }`. The record is a value of the app with only the fields
-		## to change, and an object field in it is merged into the stored
-		## object, key by key. `set_at` writes the same, but each field as
-		## a clause; this takes the record whole. Roc has no type for a
-		## record of some of the row's fields, so a field the row does not
-		## have, or of another type, is the server's error (`SCHEMAFULL`
-		## checks a `MERGE`), and `id` is refused. A union field is merged
-		## key by key too, so the keys of its old arm stay (verified): change
-		## a union with `set_at`, as `update` does. The result is the row as
-		## stored, or none for a key with no row.
-		merge_at : Table(row), Id(row), partial -> Prepared(List(row)) where [partial.encoder_for : Encode.Format -> (partial, Encode.State -> Try(Encode.State, [])), row.Cbor.Readable(errs)]
-		merge_at = |Table.(t), row_id, partial| stored_write(t, keyed_merge("UPDATE", t, row_id, partial), After)
-
-		## [Table.merge_at] where the row is made when the key has none:
-		## `UPSERT t:⟨k⟩ MERGE { .. }`, so the record must hold every field
-		## that the schema requires.
-		upsert_merge_at : Table(row), Id(row), partial -> Prepared(List(row)) where [partial.encoder_for : Encode.Format -> (partial, Encode.State -> Try(Encode.State, [])), row.Cbor.Readable(errs)]
-		upsert_merge_at = |Table.(t), row_id, partial| stored_write(t, keyed_merge("UPSERT", t, row_id, partial), After)
-
-		## [Table.merge_at] in every row that the condition keeps:
-		## `UPDATE t MERGE { .. } WHERE ..`.
-		merge : Table(row), Code(row -> Bool), partial -> Prepared(List(row)) where [partial.encoder_for : Encode.Format -> (partial, Encode.State -> Try(Encode.State, [])), row.Cbor.Readable(errs)]
-		merge = |Table.(t), condition, partial| {
-			built = |{}| {
-				keep = within_clause("the condition of `merge`", Translate.render(own, condition.graph(), [Translate.table_row(t.name, is_edge(t.kind))], spelled(condition, Translate.variable)))?
-				made = merge_write("UPDATE", t, Whole, partial)?
-				Ok(then_text(made, " WHERE ${keep}"))
-			}
-			keyed_write(t, built({}), slots_of(condition), After)
-		}
-
-		## One write of whole rows, as the Mirror describes it (`Edit`):
-		## `CREATE` or, for an edge, `RELATE`; `UPDATE .. CONTENT` with the
-		## whole new row; `DELETE` of the record. The result is the row as
-		## stored: after a create and a replace, before a delete, and none
-		## for a replace or a delete of a row that is not there. A write
-		## that has only the new row or the key is `replace` or `delete_at`.
-		edit : Table(row), Edit(row) -> Prepared(List(row)) where [row.encoder_for : Encode.Format -> (row, Encode.State -> Try(Encode.State, [])), row.Cbor.Readable(errs)]
-		edit = |Table.(t), change| match change {
-			Create(row) =>
-				match t.kind {
-					Relation(_) => stored_write(t, relate_row(t, row), After)
-					Normal | View => stored_write(t, content_write("CREATE", t, row), After)
-				}
-			Replace(_, row) => stored_write(t, content_write("UPDATE", t, row), After)
-			Delete(row) => stored_write(t, delete_of(t, row), Before)
-		}
-
-		## The record id of a row, as a live query reports it.
-		ref : Table(row), row -> Try(Ref, Error) where [row.encoder_for : Encode.Format -> (row, Encode.State -> Try(Encode.State, []))]
-		ref = |Table.(t), row| ref_of(t, row)
-
-		## The record id of a row of a view: the values of its group key, in
-		## the order of `GROUP BY`, which is the name order of a key record.
-		group_ref : Table(row), k -> Try(Ref, Error) where [k.encoder_for : Encode.Format -> (k, Encode.State -> Try(Encode.State, []))]
-		group_ref = |Table.(t), key| match t.kind {
-			View =>
-				match Encode.value_of(key)? {
-					Object(fields) => Ok(Ref.({ table: t.name, key: Ql.Value.Array(fields.map(|f| f.value)) }))
-					one => Ok(Ref.({ table: t.name, key: Ql.Value.Array([one]) }))
-				}
-			Normal | Relation(_) => Err(Unsupported("`${t.name}` is not a view, so its rows have no group key"))
-		}
-
-		## Set the fields the patch changes in every row the condition keeps.
-		## The patch is the row with some fields replaced, `|o| { ..o, f: .. }`,
-		## and each changed field is a `SET` item. An optional field that the
-		## patch's row leaves out is `NONE`. `SET`, never `MERGE`, because
-		## `MERGE` breaks a union field.
-		update : Table(row), Code(row -> Bool), Code(row -> row) -> Write(p, row)
-		update = |Table.(t), condition, patch| {
-			row = Translate.table_row(t.name, is_edge(t.kind))
-			build = |param| {
-				writable(t)?
-				keep = within_clause("the condition of `update`", Translate.render(own, condition.graph(), [row], spelled(condition, param)))?
-				sets = within_clause("the patch of `update`", Translate.assignments(own, patch.graph(), [row], spelled(patch, param)))?
-				Ok("UPDATE ${Ql.ident(t.name)} SET ${set_list(sets)} WHERE ${keep}")
-			}
-			Write.({ build: build, gives: After, edge: is_edge(t.kind), slots: slots_of(condition).concat(slots_of(patch)) })
-		}
-
-		## [Table.update] where the condition and the patch read the parameter
-		## record, `|p, o| ..`.
-		update_by : Table(row), Code((p, row -> Bool)), Code((p, row -> row)) -> Write(p, row)
-		update_by = |Table.(t), condition, patch| {
-			row = Translate.table_row(t.name, is_edge(t.kind))
-			build = |param| {
-				writable(t)?
-				keep = within_clause("the condition of `update_by`", Translate.render(own, condition.graph(), [Translate.Binding.Params, row], spelled(condition, param)))?
-				sets = within_clause("the patch of `update_by`", Translate.assignments(own, patch.graph(), [Translate.Binding.Params, row], spelled(patch, param)))?
-				Ok("UPDATE ${Ql.ident(t.name)} SET ${set_list(sets)} WHERE ${keep}")
-			}
-			Write.({ build: build, gives: After, edge: is_edge(t.kind), slots: slots_of(condition).concat(slots_of(patch)) })
-		}
-
-		## Set the fields of a patch in every row the condition keeps. The
-		## patch is a record of only the fields it sets, `|o| { name: "Jo",
-		## visits: o.visits + 1 }`, each one a `SET` item. Roc cannot type a
-		## record of some of the row's fields, so the statement checks each
-		## field against the row when it is built: a name the row does not
-		## have, or another type, is `BadSchema`. An optional field takes its
-		## value or a `Try` of it, whose `Err` makes it `NONE`.
-		set : Table(row), Code(row -> Bool), Code(row -> patch) -> Write(p, row)
-		set = |Table.(t), condition, patch| {
-			row = Translate.table_row(t.name, is_edge(t.kind))
-			build = |param| {
-				writable(t)?
-				keep = within_clause("the condition of `set`", Translate.render(own, condition.graph(), [row], spelled(condition, param)))?
-				sets = within_clause("the patch of `set`", Translate.patch_assignments(own, patch.graph(), [row], spelled(patch, param)))?
-				Ok("UPDATE ${Ql.ident(t.name)} SET ${set_list(sets)} WHERE ${keep}")
-			}
-			Write.({ build: build, gives: After, edge: is_edge(t.kind), slots: slots_of(condition).concat(slots_of(patch)) })
-		}
-
-		## [Table.set] where the condition and the patch read the parameter
-		## record, `|p, o| ..`.
-		set_by : Table(row), Code((p, row -> Bool)), Code((p, row -> patch)) -> Write(p, row)
-		set_by = |Table.(t), condition, patch| {
-			row = Translate.table_row(t.name, is_edge(t.kind))
-			build = |param| {
-				writable(t)?
-				keep = within_clause("the condition of `set_by`", Translate.render(own, condition.graph(), [Translate.Binding.Params, row], spelled(condition, param)))?
-				sets = within_clause("the patch of `set_by`", Translate.patch_assignments(own, patch.graph(), [Translate.Binding.Params, row], spelled(patch, param)))?
-				Ok("UPDATE ${Ql.ident(t.name)} SET ${set_list(sets)} WHERE ${keep}")
-			}
-			Write.({ build: build, gives: After, edge: is_edge(t.kind), slots: slots_of(condition).concat(slots_of(patch)) })
-		}
-
-		## [Table.update] of the row with this key: `UPDATE vet:⟨tia⟩ SET ..`.
-		## The key is a typed `Id` of this table. A key with no row changes
-		## nothing.
-		update_at : Table(row), Code(Id(row)), Code(row -> row) -> Write(p, row)
-		update_at = |Table.(t), row_id, patch| update_key(t, row_id, slots_of(patch), |row, param| within_clause("the patch of `update_at`", Translate.assignments(own, patch.graph(), [row], spelled(patch, param))))
-
-		## [Table.update_at] where the patch reads the parameter record.
-		update_at_by : Table(row), Code(Id(row)), Code((p, row -> row)) -> Write(p, row)
-		update_at_by = |Table.(t), row_id, patch| update_key(t, row_id, slots_of(patch), |row, param| within_clause("the patch of `update_at_by`", Translate.assignments(own, patch.graph(), [Translate.Binding.Params, row], spelled(patch, param))))
-
-		## [Table.set] of the row with this key: `UPDATE vet:⟨tia⟩ SET ..`.
-		set_at : Table(row), Code(Id(row)), Code(row -> patch) -> Write(p, row)
-		set_at = |Table.(t), row_id, patch| update_key(t, row_id, slots_of(patch), |row, param| within_clause("the patch of `set_at`", Translate.patch_assignments(own, patch.graph(), [row], spelled(patch, param))))
-
-		## [Table.set_at] where the patch reads the parameter record.
-		set_at_by : Table(row), Code(Id(row)), Code((p, row -> patch)) -> Write(p, row)
-		set_at_by = |Table.(t), row_id, patch| update_key(t, row_id, slots_of(patch), |row, param| within_clause("the patch of `set_at_by`", Translate.patch_assignments(own, patch.graph(), [Translate.Binding.Params, row], spelled(patch, param))))
-
-		## Delete the row with this key: `DELETE vet:⟨tia⟩`. A key with no
-		## row deletes nothing.
-		delete_at : Table(row), Code(Id(row)) -> Write(p, row)
-		delete_at = |Table.(t), row_id| {
-			key = table_key_of(t, row_id)
-			build = |_param| {
-				writable(t)?
-				Ok("DELETE ${key.text?}")
-			}
-			Write.({ build: build, gives: Before, edge: is_edge(t.kind), slots: key.slots })
-		}
-
-		## Delete every row the condition keeps.
-		delete : Table(row), Code(row -> Bool) -> Write(p, row)
-		delete = |Table.(t), condition| {
-			row = Translate.table_row(t.name, is_edge(t.kind))
-			build = |param| {
-				writable(t)?
-				Ok("DELETE ${Ql.ident(t.name)} WHERE ${within_clause("the condition of `delete`", Translate.render(own, condition.graph(), [row], spelled(condition, param)))?}")
-			}
-			Write.({ build: build, gives: Before, edge: is_edge(t.kind), slots: slots_of(condition) })
-		}
-
-		## [Table.delete] where the condition reads the parameter record.
-		delete_by : Table(row), Code((p, row -> Bool)) -> Write(p, row)
-		delete_by = |Table.(t), condition| {
-			row = Translate.table_row(t.name, is_edge(t.kind))
-			build = |param| {
-				writable(t)?
-				Ok("DELETE ${Ql.ident(t.name)} WHERE ${within_clause("the condition of `delete_by`", Translate.render(own, condition.graph(), [Translate.Binding.Params, row], spelled(condition, param)))?}")
-			}
-			Write.({ build: build, gives: Before, edge: is_edge(t.kind), slots: slots_of(condition) })
-		}
-	}
+	Table(row) : SurrealTable(row)
 
 	## A table. The annotation on the binding fixes `row`:
 	##
@@ -1773,141 +1344,14 @@ Surreal :: {}.{
 
 	## A link that holds its row, for seed data and for a row read back.
 	fetched : Table({ id : Str, ..others }), { id : Str, ..others } -> Link({ id : Str, ..others })
-	fetched = |tbl, row| Link.({ id: Table.id(tbl, row.id), fetched: Fetched(row) })
+	fetched = |tbl, row| Link.({ id: tbl.id(row.id), fetched: Fetched(row) })
 
 	# ============================================================= schema
 
 	## A table's schema being built. Each clause is a Roc function that is
 	## reified and translated where it is given; a clause SurrealQL cannot
 	## hold is kept as a problem, and `schema` reports the first one.
-	Def(row) :: { source : Types.Source, rules : List(Schema.Rule), problems : List(Error) }.{
-
-		## The schema entry of a table definition: what `Types` reads.
-		source : Def(row) -> Types.Source
-		source = |Def.(d)| d.source
-
-		## The cut of schema clauses (see `Surreal.code_primitives`).
-		code_primitives = cut
-
-		## A row predicate, named for its error message. It is the `ASSERT`
-		## of the one field it reads, or an event when it reads several.
-		check : Def(row), Str, Code(row -> Bool) -> Def(row)
-		check = |this, name, predicate| Def.add(this, |src| Schema.check(own, src, name, stored_graph(predicate, "a `check`")))
-
-		## A predicate on one field. Through `.?` it sees a `Try`.
-		assert : Def(row), Code(row -> v), Code(v -> Bool) -> Def(row)
-		assert = |this, path, predicate| Def.add(this, |_| Schema.assert(own, stored_graph(path, "an `assert`"), stored_graph(predicate, "an `assert`")))
-
-		## A predicate on each element of a list field.
-		assert_each : Def(row), Code(row -> List(v)), Code(v -> Bool) -> Def(row)
-		assert_each = |this, path, predicate| Def.add(this, |_| Schema.assert_each(own, stored_graph(path, "an `assert_each`"), stored_graph(predicate, "an `assert_each`")))
-
-		## A unique index on a path, or on a record of paths.
-		unique : Def(row), Code(row -> k) -> Def(row)
-		unique = |this, key| Def.add(this, |src| Schema.index(src, stored_graph(key, "a `unique` index"), Bool.True))
-
-		index : Def(row), Code(row -> k) -> Def(row)
-		index = |this, key| Def.add(this, |src| Schema.index(src, stored_graph(key, "an `index`"), Bool.False))
-
-		## The value a field takes when a write leaves it out: `.default(|c| c.tags, [])`.
-		default : Def(row), Code(row -> v), v -> Def(row) where [v.encoder_for : Encode.Format -> (v, Encode.State -> Try(Encode.State, []))]
-		default = |this, path, value| Def.add(this, |_| Schema.default(stored_graph(path, "a `default`"), Encode.value_of(value)?))
-
-		## As `default`, with the value an expression of the row, which may call
-		## `Rand`: `.default_by(|o| o.key, |_| Surreal.Rand.ulid())`.
-		default_by : Def(row), Code(row -> v), Code(row -> v) -> Def(row)
-		default_by = |this, path, value| Def.add(this, |src| Schema.default_by(own, src, stored_graph(path, "a `default_by`"), stored_graph(value, "a `default_by`")))
-
-		## A field SurrealDB computes on every write from the row.
-		computed : Def(row), Code(row -> v), Code(row -> v) -> Def(row)
-		computed = |this, path, value| Def.add(this, |src| Schema.computed(own, src, stored_graph(path, "a `computed` field"), stored_graph(value, "a `computed` field")))
-
-		readonly : Def(row), Code(row -> v) -> Def(row)
-		readonly = |this, path| Def.add(this, |_| Schema.readonly(stored_graph(path, "a `readonly` field")))
-
-		## The time of the row's first write, which later writes keep.
-		created_now : Def(row), Code(row -> Datetime) -> Def(row)
-		created_now = |this, path| Def.add(this, |_| Schema.created_now(stored_graph(path, "a `created_now` field")))
-
-		## What deleting a row of `target` does to every link from this table
-		## to it, at any depth. Without one, the delete is rejected.
-		on_delete : Def(row), Table(t), [Reject, Unset, Cascade, Ignore] -> Def(row)
-		on_delete = |this, target, policy| Def.add(this, |_| Schema.on_delete(name_of(target), policy))
-
-		## The same for the one link at a path; it wins over `on_delete`.
-		on_delete_at : Def(row), Code(row -> l), [Reject, Unset, Cascade, Ignore] -> Def(row)
-		on_delete_at = |this, path, policy| Def.add(this, |_| Schema.on_delete_at(stored_graph(path, "an `on_delete_at`"), policy))
-
-		## A change history of this length: `CHANGEFEED <n>ns` on the table line.
-		## SurrealDB keeps it, and `SHOW CHANGES FOR TABLE` reads it.
-		changefeed : Def(row), Duration -> Def(row)
-		changefeed = |this, Duration.(d)| Def.add(this, |_| Schema.changefeed(d.nanos))
-
-		## The full-text index of `Table.text_index`: `DEFINE INDEX .. FIELDS
-		## body FULLTEXT ANALYZER clinical BM25 HIGHLIGHTS`. `schema`
-		## refuses an analyzer that it is not given.
-		text_index : Def(row), FullText(row) -> Def(row)
-		text_index = |this, FullText.(f)| Def.add(
-			this,
-			|src| {
-				Analyzer.(a) = f.analyzer
-				_ = same_table(src.name, f.table)?
-				Schema.search_index(f.path?, "fulltext", "FULLTEXT ANALYZER ${Ql.ident(a.name)} BM25 HIGHLIGHTS", [a.name])
-			},
-		)
-
-		## The vector index of `Table.vector_index`: `DEFINE INDEX .. FIELDS
-		## embedding HNSW DIMENSION 3 DIST COSINE TYPE F64`. SurrealDB then
-		## refuses a write of a vector of another dimension (verified).
-		vector_index : Def(row), VectorIndex(row) -> Def(row)
-		vector_index = |this, VectorIndex.(v)| Def.add(
-			this,
-			|src| {
-				_ = same_table(src.name, v.table)?
-				Schema.search_index(v.path?, "hnsw", "HNSW DIMENSION ${v.dimension.to_str()} DIST ${distance_name(v.distance)} TYPE ${v.element?}", [])
-			},
-		)
-
-		comment : Def(row), Code(row -> v), Str -> Def(row)
-		comment = |this, path, text| Def.add(this, |_| Schema.comment(stored_graph(path, "a `comment`"), text))
-
-		## A permission of the table for a record user: the rows that the
-		## condition keeps, for each of `actions`, which may read the
-		## session (`Table.auth`, `Auth`). `.permit([Select], |m|
-		## m.owner.id() == users.auth())` is `PERMISSIONS FOR select WHERE
-		## owner = $auth.id`. A table with no permission keeps SurrealDB's
-		## default, and a table with one names each action: an action that
-		## no permission names is `NONE`. A system user is not checked.
-		permit : Def(row), List(Action), Code(row -> Bool) -> Def(row)
-		permit = |this, actions, condition| Def.add(this, |src| Schema.permit(own, src, actions, Where(stored_graph(condition, "a permission"))))
-
-		## [Def.permit] of every row: `FOR .. FULL`.
-		permit_full : Def(row), List(Action) -> Def(row)
-		permit_full = |this, actions| Def.add(this, |src| Schema.permit(own, src, actions, Full))
-
-		## A permission of one field (`select`, `create`, `update`): the rows
-		## whose field a record user reads or writes. A field with no
-		## permission is `FULL`, SurrealDB's default for a field. A field
-		## that a select may not read is not in its row: give it a type
-		## that reads with it left out (`?:`), or select the other fields.
-		permit_field : Def(row), Code(row -> v), List(Action), Code(row -> Bool) -> Def(row)
-		permit_field = |this, path, actions, condition| Def.add(this, |src| Schema.permit_field(own, src, stored_graph(path, "a field permission"), actions, Where(stored_graph(condition, "a field permission"))))
-
-		## [Def.permit_field] of no row: `FOR .. NONE`, such as the hash of a
-		## password that no record user reads.
-		deny_field : Def(row), Code(row -> v), List(Action) -> Def(row)
-		deny_field = |this, path, actions| Def.add(this, |src| Schema.permit_field(own, src, stored_graph(path, "a field permission"), actions, No))
-
-		## The definition, ready for `schema`.
-		done : Def(row) -> Defined
-		done = |Def.(d)| Schema.defined(d.source, d.rules, d.problems)
-
-		add : Def(row), (Types.Source -> Try(List(Schema.Rule), Error)) -> Def(row)
-		add = |Def.(d), clause| match clause(d.source) {
-			Ok(rules) => Def.({ ..d, rules: d.rules.concat(rules) })
-			Err(problem) => Def.({ ..d, problems: d.problems.append(problem) })
-		}
-	}
+	Def(row) : SurrealDef(row)
 
 	## A finished table definition.
 	Defined : Schema.Defined
@@ -2124,7 +1568,7 @@ Surreal :: {}.{
 		to_surql : Totals(p, out) -> Try(Str, Error)
 		to_surql = |Totals.(selected)| {
 			Selected.(s) = selected
-			inline_fixed(Selected.render(selected, Translate.variable).map_ok(group_all), s.fixed)
+			inline_fixed(selected.render(Translate.variable).map_ok(group_all), s.fixed)
 		}
 
 		## As `Selected.prepare`, and the result is the row itself: the
@@ -2137,7 +1581,7 @@ Surreal :: {}.{
 				[one] => Ok(one)
 				more => Err(Wire("`GROUP ALL` returned ${more.len().to_str()} rows instead of one"))
 			}
-			prepared_of(bound_statement(|param| Selected.render(selected, param).map_ok(group_all), params).map_ok(|statement| { statement: with_intrinsic(statement, selected), slots: s.slots, count: 1, atomic: No, read }))
+			prepared_of(bound_statement(|param| selected.render(param).map_ok(group_all), params).map_ok(|statement| { statement: with_intrinsic(statement, selected), slots: s.slots, count: 1, atomic: No, read }))
 		}
 
 		## `prepare` of a query that has no parameter.
@@ -2160,245 +1604,7 @@ Surreal :: {}.{
 	## `row` of a live query, or why it has none. `results` is what
 	## `order_by` reads a result row as, and `rows` is what `filter` and
 	## `query` read it as.
-	Selected(p, out) :: {
-		target : Target,
-		filters : List(Filter),
-		watched : List(Watched),
-		fetches : List(Str),
-		groups : List(Clause),
-		columns : Clause,
-		value : Clause,
-		intrinsic : List(Str),
-		results : ResultOrder,
-		rows : ResultRow,
-		order : List(Clause),
-		limit : [Unlimited, Limit(Try(Str, Error))],
-		start : [FromFirst, Start(Try(Str, Error))],
-		slots : List(Slot),
-		fixed : List(Ql.Value),
-	}.{
-
-		## The cut of a filter of the result rows (see `Surreal.code_primitives`).
-		code_primitives = cut
-
-		## Order by one column of a result row: `|r| r.rate`. Several calls
-		## order by the first, then the second. SurrealDB's `ORDER BY` takes a
-		## field path, so any other key is refused when the statement is
-		## built (see `ResultOrder`).
-		order_by : Selected(p, out), Code(out -> k), [Asc, Desc] -> Selected(p, out)
-		order_by = |Selected.(s), key, direction| {
-			clause = |param| {
-				result = (s.results)(key.graph(), param)?
-				parts = parts_of(within_clause("`order_by`", Translate.evaluate(own, key.graph(), [result], spelled(key, param)))?)?
-				suffix = match direction {
-					Asc => ""
-					Desc => " DESC"
-				}
-				Ok(Str.join_with(parts.map(|part| "${part}${suffix}"), ", "))
-			}
-			Selected.({ ..s, order: s.order.append(clause), slots: s.slots.concat(slots_of(key)) })
-		}
-
-		## Keep the result rows the function is true for. Before a group, a
-		## limit or a start, a result row is one source row projected, so
-		## this is a filter of the source row in the same `WHERE`: the
-		## predicate reads the projection's fields. After one, it is the
-		## `WHERE` of an outer query over a subquery (`Selected.query`). After
-		## a group, that is SQL's `HAVING`.
-		filter : Selected(p, out), Code(out -> Bool) -> Selected(p, out)
-		filter = |selected, predicate| {
-			Selected.(s) = selected
-			match (s.rows.over, s.limit, s.start) {
-				(Projected(fields), Unlimited, FromFirst) => {
-					clause = |at, param| within_clause("`filter`", Translate.evaluate(own, predicate.graph(), [pick(fields, at)?], spelled(predicate, param)))
-					Selected.({ ..s, filters: s.filters.append(clause), slots: s.slots.concat(slots_of(predicate)), watched: reached_watches(s.watched, predicate.graph(), [fields.reach], narrowed(predicate.graph(), fields.now.map_ok(|row| [row]))) })
-				}
-				_ => whole_rows(Selected.query(selected).filter(predicate), s.rows.ty)
-			}
-		}
-
-		## The result rows as the rows of a new query, which every `Query`
-		## method reads as the type `out`:
-		##
-		## | The result | The new query |
-		## | --- | --- |
-		## | A projection with no order, limit, start or fetch | The same `SELECT`. A clause reads the projection's fields over the source row |
-		## | Any other | A subquery, `FROM (SELECT ..)`: the target `Sub` |
-		##
-		## The target keeps the two apart, because a `LIVE SELECT` takes no
-		## subquery.
-		query : Selected(p, out) -> Query(p, out)
-		query = |selected| {
-			Selected.(s) = selected
-			match (s.rows.over, s.order, s.limit, s.start, s.fetches) {
-				(Projected(fields), [], Unlimited, FromFirst, []) => Query.({ target: s.target, source: fields, filters: s.filters, watched: s.watched, slots: s.slots, fixed: s.fixed })
-				_ => Query.({ target: Sub(|param| Selected.render(selected, param).map_ok(|inner| "(${inner})")), source: { now: Ok(s.rows.nested), before: Err(Unsupported("a row of a subquery has no `$before`")), reach: Translate.Reach.Nothing }, filters: [], watched: [], slots: s.slots, fixed: s.fixed })
-			}
-		}
-
-		## At most this many rows: `LIMIT n`. The rows after it are a
-		## `Limited`, which has no `order_by`, `limit` or `start` (see
-		## `Started`).
-		limit : Selected(p, out), Code(U64) -> Limited(p, out)
-		limit = |Selected.(s), count| Limited.(Selected.({ ..s, limit: Limit(count_text(count)), slots: s.slots.concat(slots_of(count)) }))
-
-		## Skip this many rows first: `START n`. The rows after it are a
-		## `Started`, which takes a `limit` and no `order_by` or `start`.
-		start : Selected(p, out), Code(U64) -> Started(p, out)
-		start = |Selected.(s), count| Started.(Selected.({ ..s, start: Start(count_text(count)), slots: s.slots.concat(slots_of(count)) }))
-
-		## The statement with a `$name` for each parameter it reads.
-		to_surql : Selected(p, out) -> Try(Str, Error)
-		to_surql = |selected| {
-			Selected.(s) = selected
-			inline_fixed(Selected.render(selected, Translate.variable), s.fixed)
-		}
-
-		## The statement with a `LET` for each field of the parameter
-		## record, and the type of its result: the result rows, each read
-		## as `out`. The record is the type the filters read, so a
-		## parameter a filter reads is a field the record has.
-		## `Session.run!` runs it, and `Prepared.statement` is its text.
-		prepare : Selected(p, out), p -> Prepared(List(out)) where [p.encoder_for : Encode.Format -> (p, Encode.State -> Try(Encode.State, [])), out.Cbor.Readable(errs)]
-		prepare = |selected, params| {
-			Selected.(s) = selected
-			prepared_of(bound_statement(|param| Selected.render(selected, param), params).map_ok(|statement| { statement: with_intrinsic(statement, selected), slots: s.slots, count: 1, atomic: No, read: result_rows(0) }))
-		}
-
-		## `prepare` of a query that has no parameter: `prepare({})`.
-		ready : Selected({}, out) -> Prepared(List(out)) where [out.Cbor.Readable(errs)]
-		ready = |selected| selected.prepare({})
-
-		## `prepare` of a query of one key (`Table.at`): the row, or
-		## `NotFound` when the table has no row with the key. Any other
-		## query can return several rows, so it is refused.
-		prepare_one : Selected(p, out), p -> Prepared(Try(out, [NotFound])) where [p.encoder_for : Encode.Format -> (p, Encode.State -> Try(Encode.State, [])), out.Cbor.Readable(errs)]
-		prepare_one = |selected, params| {
-			Selected.(s) = selected
-			rows = result_rows(0)
-			read = |results| match rows(results)? {
-				[] => Ok(Err(NotFound))
-				[one] => Ok(Ok(one))
-				more => Err(Wire("the record of one key returned ${more.len().to_str()} rows"))
-			}
-			built = match s.target {
-				Record(_) => bound_statement(|param| Selected.render(selected, param), params)
-				Whole(_) | Range(_) | Sub(_) => Err(Unsupported("`prepare_one` reads the row of one key, a query from `Table.at`; this query can return several rows: take `prepare`"))
-			}
-			prepared_of(built.map_ok(|statement| { statement: with_intrinsic(statement, selected), slots: s.slots, count: 1, atomic: No, read }))
-		}
-
-		## `prepare_one` of a query that has no parameter.
-		ready_one : Selected({}, out) -> Prepared(Try(out, [NotFound])) where [out.Cbor.Readable(errs)]
-		ready_one = |selected| selected.prepare_one({})
-
-		## The rows of the query, kept current: the twin of `prepare`. A
-		## `LIVE SELECT` on the table, and one on each other table that
-		## the rows read (see `Watched`), report every write that changes
-		## the result. Each notice holds the row and the filter `now`. The
-		## filter is also read on `$before`, so a row that no longer
-		## matches is reported:
-		##
-		## `LIVE SELECT VALUE { row: <row>, now: <p> } FROM t WHERE <p> OR ($before IS NOT NONE AND <p on $before>)`
-		##
-		## The guard is necessary: a filter that reads `$before` of a
-		## `CREATE` fails, and SurrealDB then sends nothing (verified).
-		## A filter that reads the row only through its id and its edges
-		## has the same value before and after a write of the row, so the
-		## statement tests it once, and each notice has `now: true`:
-		##
-		## `LIVE SELECT VALUE { row: <row>, now: true } FROM t WHERE <p>`
-		## `tables` are the definitions that `Surreal.schema` takes: a link
-		## of the row finds its table there, as in the schema.
-		live : Selected(p, out), p, List(Defined) -> Watch(out) where [p.encoder_for : Encode.Format -> (p, Encode.State -> Try(Encode.State, []))]
-		live = |selected, params, tables| Watch.(Code.Bound.of(watching(selected, params, tables)))
-
-		## `live` of a query that has no parameter: `live({}, tables)`.
-		ready_live : Selected({}, out), List(Defined) -> Watch(out)
-		ready_live = |selected, tables| selected.live({}, tables)
-
-		## What `live` builds.
-		watching : Selected(p, out), p, List(Defined) -> Try({ lets : List({ name : Str, value : Ql.Value }), slots : List(Bind), lives : List({ role : Role, surql : Str }), snapshot : Str }, Error) where [p.encoder_for : Encode.Format -> (p, Encode.State -> Try(Encode.State, []))]
-		watching = |selected, params, tables| {
-			Selected.(s) = selected
-			name = Ql.ident(live_table(selected)?)
-			lets = lets_of(params)?
-			param = Translate.variable
-			row = (s.value)(param)?
-			now = all_of(s.filters.map_try(|f| f(Now, param))?)?
-			before = all_of(s.filters.map_try(|f| f(Before, param))?)?
-			now_text = condition_text(now)?
-			(watched, node_now) = match (now, before) {
-				(When(p), When(q)) =>
-					if keyed_only(Translate.text(q)?) {
-						(" WHERE ${Translate.text(p)?}", "true")
-					} else {
-						(" WHERE ${Translate.operand(p)?} OR ($before IS NOT NONE AND ${Translate.operand(q)?})", now_text)
-					}
-				_ => ("", now_text)
-			}
-			node = { role: Node, surql: "LIVE SELECT VALUE { row: ${row}, now: ${node_now} } FROM ${name}${watched}" }
-			edges = s.watched.keep_oks(
-				|w| match w {
-					Edge(e) => Ok({ role: Edge, surql: "LIVE SELECT VALUE { ref: ${e.node}, node: (SELECT VALUE { row: ${row}, now: ${now_text} } FROM ONLY $parent.${e.node}) } FROM ${Ql.ident(e.name)}" })
-					LinkAt(_) | Rows(_) | Near(_) => Err(NotEdge)
-				},
-			)
-			reads = read_lives(s.watched, Schema.tables(tables), "SELECT VALUE { ref: id, row: ${row}, now: ${now_text} }", name)?
-			snapshot = "SELECT VALUE { ref: id, row: ${row} } FROM ${name}${where_text(now)?}"
-			Ok({ lets, slots: binds_of(s.slots)?, lives: [node].concat(edges).concat(reads), snapshot })
-		}
-
-		## Escape hatch: the server's own events for the rows of the query.
-		## There is no snapshot and no `$before`, so a row that no longer
-		## matches sends nothing, a row that starts to match is `Updated`,
-		## and a write to an edge table, or to a table that the rows read,
-		## sends nothing.
-		live_raw : Selected(p, out), p -> Try(RawWatch(out), Error) where [p.encoder_for : Encode.Format -> (p, Encode.State -> Try(Encode.State, []))]
-		live_raw = |selected, params| {
-			Selected.(s) = selected
-			name = Ql.ident(live_table(selected)?)
-			lets = lets_of(params)?
-			param = Translate.variable
-			row = (s.value)(param)?
-			now = all_of(s.filters.map_try(|f| f(Now, param))?)?
-			Ok(RawWatch.({ lets, live: "LIVE SELECT VALUE ${row} FROM ${name}${where_text(now)?}" }))
-		}
-
-		## The text of the `SELECT`. A `LIMIT` or a `START` with no `order_by`
-		## and no group gets `ORDER BY id`: SurrealDB 4 reads the rows of a
-		## table in no fixed order, so without it the rows of a limit are
-		## any rows, not the first by key. A group already gives its rows
-		## in the order of the group.
-		render : Selected(p, out), (Str -> Str) -> Try(Str, Error)
-		render = |Selected.(s), param| {
-			run = |clause| clause(param)
-			filters = s.filters.map_try(|f| Translate.text(f(Now, param)?))?
-			limited = !(is_unlimited(s.limit)) or !(from_first(s.start))
-			order = if (s.order.is_empty() and s.groups.is_empty() and limited) ["id"] else s.order.map_try(run)?
-			parts = [
-				"SELECT ${run(s.columns)?}",
-				"FROM ${from_text(s.target, param)?}",
-			]
-				.concat(keyword("WHERE", if (filters.len() > 1) filters.map(|f| "(${f})") else filters, " AND "))
-				.concat(keyword("GROUP BY", s.groups.map_try(run)?, ", "))
-				.concat(keyword("ORDER BY", order, ", "))
-				.concat(
-					match s.limit {
-						Unlimited => []
-						Limit(n) => ["LIMIT ${n?}"]
-					},
-				)
-				.concat(
-					match s.start {
-						FromFirst => []
-						Start(n) => ["START ${n?}"]
-					},
-				)
-				.concat(keyword("FETCH", s.fetches, ", "))
-			Ok(Str.join_with(parts, " "))
-		}
-	}
+	Selected(p, out) : SurrealSelected(p, out)
 
 	## The rows of a `Selected` after `start`. SurrealQL writes its clauses
 	## in one order, `ORDER BY`, `LIMIT`, `START`, and runs them in the order
@@ -3909,6 +3115,808 @@ Surreal :: {}.{
 	## An error of the server, of a request or of a statement.
 	Failure : { kind : Str, message : Str, details : Try(Cbor.Value, [Missing]) }
 
+}
+
+# The type of `Surreal.Table`, private to the module: a nested type would have members with the names of members of `Surreal`.
+SurrealTable(row) :: { name : Str, kind : TableKind }.{
+
+	## The id of a row of this table. In a clause it is the record id:
+	## `vets.id("ruth")` is `vet:⟨ruth⟩`.
+	id : Table(row), Str -> Id(row)
+	id = |Table.(t), key| Id.({ table: t.name, key: key })
+
+	## The row with this key, to start a query from: `FROM vet:⟨tia⟩`.
+	## SurrealDB reads the one record, where a filter on the key
+	## reads the table (see `Translate.key_compare`).
+	## `Selected.prepare_one` reads the result as the row or
+	## `NotFound`. The key is an escaped record id, so any text is one
+	## key, and an id of another table is refused.
+	at : Table(row), Code(Id(row)) -> Query(p, row)
+	at = |this, row_id| {
+		Table.(t) = this
+		Query.(q) = Surreal.from(this)
+		key = table_key_of(t, row_id)
+		Query.({ ..q, target: Record(key.text), slots: key.slots })
+	}
+
+	## A link to a row of this table. It is not fetched.
+	link : Table(row), Str -> Link(row)
+	link = |this, key| Link.({ id: this.id(key), fetched: NotFetched })
+
+	## The rows of the table, inside a clause: `(SELECT VALUE id FROM t)`.
+	## Each row is a record id, so a field read is a traversal. With it a
+	## clause writes a correlated subquery or a semi join:
+	## `visits.rows().keep_if(|v| v.patient.get().id == p.id).len()`.
+	## An intrinsic: SurrealDB computes it.
+	rows : Table(row) -> List(row)
+
+	## The edges of this edge table that leave the row, inside a clause:
+	## `->treats` off the row, `$v1.out->treats` off a row that a link
+	## points at. A filter of them is `[WHERE ..]`, and their `to.get()`
+	## is the next hop, so a clause writes a graph path of any length:
+	## `treats.edges_from(v).keep_if(|e| e.primary).map(|e| e.to.get().owner.get().name)`
+	## is `->treats[WHERE primary]->patient.owner.name`. The edge row's
+	## `from` links to the row, so edges that leave another table are a
+	## type error. An intrinsic: SurrealDB computes it.
+	edges_from : Table({ from : Link(a), ..e }), a -> List({ from : Link(a), ..e })
+
+	## The edges of this edge table that end at the row: `<-treats`. The
+	## edge row's `to` links to the row, and `from.get()` is the next hop
+	## back: `<-treats<-vet`. An intrinsic: SurrealDB computes it.
+	edges_to : Table({ to : Link(b), ..e }), b -> List({ to : Link(b), ..e })
+
+	## The record user of the session, a row of this table, inside a
+	## clause: `$auth.id`. `|m| m.owner.id() == users.auth()` is
+	## `owner = $auth.id`. A session of a system user has no record
+	## user, and `$auth.id` is `NONE`. An intrinsic: SurrealDB computes it.
+	auth : Table(row) -> Id(row)
+
+	## A full-text index of the `Str` field at the path, over the
+	## analyzer: `notes.text_index(|n| n.body, clinical)`. Give it to
+	## `Def.text_index` and to `Query.search`.
+	text_index : Table(row), Code(row -> Str), Analyzer -> FullText(row)
+	text_index = |Table.(t), path, an| FullText.({ table: t.name, path: within_clause("`text_index`", one_path(stored_graph(path, "an index"), "a full-text index")), analyzer: an })
+
+	## An HNSW index of the vector field at the path, of `dimension`
+	## numbers, by `distance`: `notes.vector_index(|n| n.embedding, {
+	## dimension: 3, distance: Cosine })`. A `List(F64)` is indexed as
+	## `TYPE F64`, a `List(F32)` as `TYPE F32`. Give it to
+	## `Def.vector_index` and to `Query.nearest`.
+	vector_index : Table(row), Code(row -> List(n)), { dimension : U64, distance : Distance } -> VectorIndex(row)
+	vector_index = |Table.(t), path, shape| {
+		element = match path.graph().root_row().result {
+			ListOf(F64) => Ok("F64")
+			ListOf(F32) => Ok("F32")
+			other => Err(BadSchema("a vector index of `${t.name}` is over a `List(F64)` or a `List(F32)`, not a `${other.name()}`"))
+		}
+		VectorIndex.({ table: t.name, path: within_clause("`vector_index`", one_path(stored_graph(path, "an index"), "a vector index")), dimension: shape.dimension, distance: shape.distance, element })
+	}
+
+	## The schema builder of this table. The definition holds the type of
+	## the row: `Code.ty_of` describes `row` at each use that fixes it, so
+	## `customers.define()` has the description of `Customer`. A view
+	## takes its query with `define_as`.
+	define : Table(row) -> Def(row)
+	define = |Table.(t)| {
+		kind = match t.kind {
+			Normal => Types.Kind.Normal
+			Relation(ends) => Types.Kind.Relation(ends)
+			View => Types.Kind.View(Err(Unsupported("`${t.name}` is a view: give its query with `define_as`")))
+		}
+		proxy : Code.Proxy(row)
+		proxy = Code.proxy()
+		Def.({ source: { name: t.name, row_ty: Code.ty_of(proxy), kind }, rules: [], problems: [] })
+	}
+
+	## A read row of the table: the same row as the stored one, with a
+	## `Linked` for a `Link` and with `Out` and `In` fields for the edge
+	## tables at the row. It writes no statement. `schema` checks that it
+	## agrees with the stored row of the table of the same name, and
+	## reports a `BadSchema` when not:
+	##
+	## pets : Surreal.Table(Pet)               # owner : Surreal.Linked(Owner)
+	## stored_pets : Surreal.Table(StoredPet)  # owner : Surreal.Link(Owner)
+	## Surreal.schema([.., stored_pets.define().done(), pets.define_read()])
+	define_read : Table(row) -> Defined
+	define_read = |Table.(t)| {
+		proxy : Code.Proxy(row)
+		proxy = Code.proxy()
+		Schema.read(t.name, Code.ty_of(proxy))
+	}
+
+	## The definition of a view: `DEFINE TABLE name TYPE NORMAL AS SELECT
+	## .. GROUP BY ..`. Each write to the source table updates it. It
+	## takes no rule, and its query reads a whole table, not a range
+	## (SurrealDB refuses a range in a view). The row type is the result
+	## of `per_group`:
+	##
+	## daily = Surreal.view("vital_daily")
+	## daily_def = daily.define_as(Surreal.from(vitals).group_by(day_of), day_line).done()
+	define_as : Table(out), Grouped({}, row, k), Code((k, List(row) -> out)) -> Def(out)
+	define_as = |Table.(t), grouped, per_group| {
+		Grouped.(g) = grouped
+		Query.(q) = g.query
+		select = match (t.kind, q.target) {
+			(Normal, _) | (Relation(_), _) => Err(Unsupported("`${t.name}` is not a view: make it with `Surreal.view`"))
+			(View, Range(_)) => Err(Unsupported("the view `${t.name}` reads a range; a view reads a whole table"))
+			(View, Record(_)) => Err(Unsupported("the view `${t.name}` reads the record of one key; a view reads a whole table"))
+			(View, Sub(_)) => Err(Unsupported("the view `${t.name}` reads a subquery; a view reads a whole table"))
+			(View, Whole(_)) => {
+				Selected.(chosen) = aggregated(grouped, per_group, Bool.True)
+				if !chosen.slots.is_empty() {
+					crash stored_message("a view")
+				}
+				# The private name: through the alias, a method that is called before its definition does not get its annotation (an upstream bug).
+				inline_fixed(SurrealSelected.render(Selected.(chosen), Translate.variable), chosen.fixed)
+			}
+		}
+		Def.({ source: { name: t.name, row_ty: stored_graph(per_group, "a view").root_row().result, kind: Types.Kind.View(select) }, rules: [], problems: [] })
+	}
+
+	# ---------------------------------------------------- writes
+
+	## The cut of `update` and `delete` clauses (see `Surreal.code_primitives`).
+	code_primitives = cut
+
+	## One transaction that inserts every row, with the values the
+	## compiler's derived encoder writes. An absent optional field is a key
+	## left out. The `id` field stays in the row: it is the record key.
+	## The result is the rows as stored, with the fields that the
+	## database computes: `BEGIN`, the `INSERT`, `COMMIT`, and a
+	## failure is the insert's.
+	insert : Table(row), List(row) -> Prepared(List(row)) where [row.encoder_for : Encode.Format -> (row, Encode.State -> Try(Encode.State, [])), row.Cbor.Readable(errs)]
+	insert = |Table.(t), new_rows| prepared_of(insert_body(t, new_rows, return_clause(After)).map_ok(|statement| { statement, slots: [], count: 1, atomic: Whole, read: read_stored(0, is_edge(t.kind)) }))
+
+	## [Table.insert] of rows whose keys the server makes, as
+	## [Table.create_new] does: each row without its `id`. The result is
+	## the rows as stored, in the order of `rows`.
+	insert_new : Table({ id : Str, ..new }), List(new) -> Prepared(List(Created({ id : Str, ..new }, new))) where [new.encoder_for : Encode.Format -> (new, Encode.State -> Try(Encode.State, [])), new.Cbor.Readable(errs)]
+	insert_new = |Table.(t), new_rows| prepared_of(insert_body(t, new_rows, return_clause(After)).map_ok(|statement| { statement, slots: [], count: 1, atomic: Whole, read: read_created(t) }))
+
+	## A new row at `table:⟨id⟩`, or for an edge table the edge between
+	## the rows of `from` and `to`: `CREATE`, `RELATE`. It fails when
+	## the row exists. The result is the row as stored.
+	create : Table(row), row -> Prepared(List(row)) where [row.encoder_for : Encode.Format -> (row, Encode.State -> Try(Encode.State, [])), row.Cbor.Readable(errs)]
+	create = |this, row| this.edit(Create(row))
+
+	## A new row whose key the server makes: the row without its `id`.
+	## `CREATE t CONTENT ..`, or for an edge table `RELATE` with no key.
+	## The key is the default of `id` in the schema
+	## (`.default_by(|r| r.id, |_| Surreal.Rand.ulid())`), or else
+	## SurrealDB's random 20 characters. The result is the row as
+	## stored: its `Id`, and its other fields.
+	create_new : Table({ id : Str, ..new }), new -> Prepared(List(Created({ id : Str, ..new }, new))) where [new.encoder_for : Encode.Format -> (new, Encode.State -> Try(Encode.State, [])), new.Cbor.Readable(errs)]
+	create_new = |Table.(t), row| {
+		built = |{}| {
+			fields = keyless(t, row)?
+			statement = match t.kind {
+				Relation(_) => relate_fields(t, Err(Generated), fields)?
+				Normal | View => valued("CREATE ${Ql.ident(t.name)} CONTENT ${fixed_mark(0)}", [Ql.Value.Object(fields)])
+			}
+			Ok({ statement: then_text(statement, return_clause(After)), slots: [], count: 1, atomic: No, read: read_created(t) })
+		}
+		prepared_of(built({}))
+	}
+
+	## The row at `table:⟨id⟩`, replaced when it exists and made when
+	## not. The result is the row as stored after the write.
+	upsert : Table(row), row -> Prepared(List(row)) where [row.encoder_for : Encode.Format -> (row, Encode.State -> Try(Encode.State, [])), row.Cbor.Readable(errs)]
+	upsert = |Table.(t), row| stored_write(t, content_write("UPSERT", t, row), After)
+
+	## The row at `table:⟨id⟩`, replaced by this one when it exists:
+	## `UPDATE .. CONTENT`. The result is the row as stored after the
+	## write, or none when the key has no row.
+	replace : Table(row), row -> Prepared(List(row)) where [row.encoder_for : Encode.Format -> (row, Encode.State -> Try(Encode.State, [])), row.Cbor.Readable(errs)]
+	replace = |Table.(t), row| stored_write(t, content_write("UPDATE", t, row), After)
+
+	## Insert rows, and where a row with the same key exists, change the
+	## stored row instead: `INSERT INTO t [..] ON DUPLICATE KEY UPDATE ..`.
+	## The patch takes the new row and the stored one, `|new, old| {
+	## ..old, visits: old.visits + new.visits }`, and is translated as
+	## the patch of `update` is: each changed field is an item, and the
+	## new row is `$input`. One transaction, as `insert` is. The result
+	## is the rows as stored. SurrealDB 4.0.1 takes a duplicate to be the
+	## same record key; a row that only repeats the value of a unique
+	## index is refused (`Unique`). A relation table is refused.
+	insert_or_update : Table(row), List(row), Code((row, row -> row)) -> Prepared(List(row)) where [row.encoder_for : Encode.Format -> (row, Encode.State -> Try(Encode.State, [])), row.Cbor.Readable(errs)]
+	insert_or_update = |Table.(t), new_rows, patch| {
+		built = |{}| {
+			writable(t)?
+			if is_edge(t.kind) {
+				return Err(Unsupported("`insert_or_update` is not defined for the relation table `${t.name}`"))
+			}
+			new = Translate.Binding.Row({ at: "$input", of: Doc(Of(t.name)), edge: Bool.False })
+			sets = within_clause("the patch of `insert_or_update`", Translate.assignments(own, patch.graph(), [new, Translate.table_row(t.name, Bool.False)], spelled(patch, Translate.variable)))?
+			statement = insert_body(t, new_rows, " ON DUPLICATE KEY UPDATE ${set_list(sets)}${return_clause(After)}")?
+			Ok({ statement, slots: slots_of(patch), count: 1, atomic: Whole, read: read_stored(0, Bool.False) })
+		}
+		prepared_of(built({}))
+	}
+
+	## Replay patches on the row with this key, in order: `UPDATE
+	## t:⟨k⟩ PATCH [..]`, a JSON Patch. The patches are those of
+	## `Query.live_diff` (`Patch`), so a client can apply the changes
+	## that another client saw. A patch of a create (the replace of `""`
+	## by the whole row) sets each field. These are refused when the
+	## statement is built: a patch of another row, a patch of a delete
+	## (`delete_at` is that), an op below `/id`, and a `change` op, a
+	## text diff that the ORM reads and does not write. A path that the
+	## row does not have, or a value of another type, is the server's
+	## error. The result is the row as stored, or none for a key with
+	## no row.
+	patch_at : Table(row), Id(row), List(Patch(row)) -> Prepared(List(row)) where [row.Cbor.Readable(errs)]
+	patch_at = |this, row_id, patches| {
+		Id.(i) = row_id
+		foreign = patches.keep_if(|Patch.(p)| p.ref.to_str() != Ql.record_ref(i.table, Ql.Value.Str(i.key)))
+		if !foreign.is_empty() {
+			prepared_of(Err(Unsupported("a patch is of another row than `${Ql.record_id(i.table, i.key)}`")))
+		} else {
+			this.patch_ops_at(row_id, patches.join_map(|Patch.(p)| p.ops))
+		}
+	}
+
+	## [Table.patch_at] of ops that the app made, `Replace(["tag"],
+	## Cbor.Value.Text("x"))`.
+	patch_ops_at : Table(row), Id(row), List(Op) -> Prepared(List(row)) where [row.Cbor.Readable(errs)]
+	patch_ops_at = |Table.(t), row_id, ops| {
+		built = |{}| {
+			writable(t)?
+			record = record_at(t, row_id)?
+			items = ops.map_try(patch_item)?
+			Ok(valued("UPDATE ${fixed_mark(0)} PATCH ${fixed_mark(1)}", [record, Ql.Value.Array(items)]))
+		}
+		stored_write(t, built({}), After)
+	}
+
+	## Merge a record into the row with this key: `UPDATE t:⟨k⟩ MERGE
+	## { .. }`. The record is a value of the app with only the fields
+	## to change, and an object field in it is merged into the stored
+	## object, key by key. `set_at` writes the same, but each field as
+	## a clause; this takes the record whole. Roc has no type for a
+	## record of some of the row's fields, so a field the row does not
+	## have, or of another type, is the server's error (`SCHEMAFULL`
+	## checks a `MERGE`), and `id` is refused. A union field is merged
+	## key by key too, so the keys of its old arm stay (verified): change
+	## a union with `set_at`, as `update` does. The result is the row as
+	## stored, or none for a key with no row.
+	merge_at : Table(row), Id(row), partial -> Prepared(List(row)) where [partial.encoder_for : Encode.Format -> (partial, Encode.State -> Try(Encode.State, [])), row.Cbor.Readable(errs)]
+	merge_at = |Table.(t), row_id, partial| stored_write(t, keyed_merge("UPDATE", t, row_id, partial), After)
+
+	## [Table.merge_at] where the row is made when the key has none:
+	## `UPSERT t:⟨k⟩ MERGE { .. }`, so the record must hold every field
+	## that the schema requires.
+	upsert_merge_at : Table(row), Id(row), partial -> Prepared(List(row)) where [partial.encoder_for : Encode.Format -> (partial, Encode.State -> Try(Encode.State, [])), row.Cbor.Readable(errs)]
+	upsert_merge_at = |Table.(t), row_id, partial| stored_write(t, keyed_merge("UPSERT", t, row_id, partial), After)
+
+	## [Table.merge_at] in every row that the condition keeps:
+	## `UPDATE t MERGE { .. } WHERE ..`.
+	merge : Table(row), Code(row -> Bool), partial -> Prepared(List(row)) where [partial.encoder_for : Encode.Format -> (partial, Encode.State -> Try(Encode.State, [])), row.Cbor.Readable(errs)]
+	merge = |Table.(t), condition, partial| {
+		built = |{}| {
+			keep = within_clause("the condition of `merge`", Translate.render(own, condition.graph(), [Translate.table_row(t.name, is_edge(t.kind))], spelled(condition, Translate.variable)))?
+			made = merge_write("UPDATE", t, Whole, partial)?
+			Ok(then_text(made, " WHERE ${keep}"))
+		}
+		keyed_write(t, built({}), slots_of(condition), After)
+	}
+
+	## One write of whole rows, as the Mirror describes it (`Edit`):
+	## `CREATE` or, for an edge, `RELATE`; `UPDATE .. CONTENT` with the
+	## whole new row; `DELETE` of the record. The result is the row as
+	## stored: after a create and a replace, before a delete, and none
+	## for a replace or a delete of a row that is not there. A write
+	## that has only the new row or the key is `replace` or `delete_at`.
+	edit : Table(row), Edit(row) -> Prepared(List(row)) where [row.encoder_for : Encode.Format -> (row, Encode.State -> Try(Encode.State, [])), row.Cbor.Readable(errs)]
+	edit = |Table.(t), change| match change {
+		Create(row) =>
+			match t.kind {
+				Relation(_) => stored_write(t, relate_row(t, row), After)
+				Normal | View => stored_write(t, content_write("CREATE", t, row), After)
+			}
+		Replace(_, row) => stored_write(t, content_write("UPDATE", t, row), After)
+		Delete(row) => stored_write(t, delete_of(t, row), Before)
+	}
+
+	## The record id of a row, as a live query reports it.
+	ref : Table(row), row -> Try(Ref, Surreal.Error) where [row.encoder_for : Encode.Format -> (row, Encode.State -> Try(Encode.State, []))]
+	ref = |Table.(t), row| ref_of(t, row)
+
+	## The record id of a row of a view: the values of its group key, in
+	## the order of `GROUP BY`, which is the name order of a key record.
+	group_ref : Table(row), k -> Try(Ref, Surreal.Error) where [k.encoder_for : Encode.Format -> (k, Encode.State -> Try(Encode.State, []))]
+	group_ref = |Table.(t), key| match t.kind {
+		View =>
+			match Encode.value_of(key)? {
+				Object(fields) => Ok(Ref.({ table: t.name, key: Ql.Value.Array(fields.map(|f| f.value)) }))
+				one => Ok(Ref.({ table: t.name, key: Ql.Value.Array([one]) }))
+			}
+		Normal | Relation(_) => Err(Unsupported("`${t.name}` is not a view, so its rows have no group key"))
+	}
+
+	## Set the fields the patch changes in every row the condition keeps.
+	## The patch is the row with some fields replaced, `|o| { ..o, f: .. }`,
+	## and each changed field is a `SET` item. An optional field that the
+	## patch's row leaves out is `NONE`. `SET`, never `MERGE`, because
+	## `MERGE` breaks a union field.
+	update : Table(row), Code(row -> Bool), Code(row -> row) -> Write(p, row)
+	update = |Table.(t), condition, patch| {
+		row = Translate.table_row(t.name, is_edge(t.kind))
+		build = |param| {
+			writable(t)?
+			keep = within_clause("the condition of `update`", Translate.render(own, condition.graph(), [row], spelled(condition, param)))?
+			sets = within_clause("the patch of `update`", Translate.assignments(own, patch.graph(), [row], spelled(patch, param)))?
+			Ok("UPDATE ${Ql.ident(t.name)} SET ${set_list(sets)} WHERE ${keep}")
+		}
+		Write.({ build: build, gives: After, edge: is_edge(t.kind), slots: slots_of(condition).concat(slots_of(patch)) })
+	}
+
+	## [Table.update] where the condition and the patch read the parameter
+	## record, `|p, o| ..`.
+	update_by : Table(row), Code((p, row -> Bool)), Code((p, row -> row)) -> Write(p, row)
+	update_by = |Table.(t), condition, patch| {
+		row = Translate.table_row(t.name, is_edge(t.kind))
+		build = |param| {
+			writable(t)?
+			keep = within_clause("the condition of `update_by`", Translate.render(own, condition.graph(), [Translate.Binding.Params, row], spelled(condition, param)))?
+			sets = within_clause("the patch of `update_by`", Translate.assignments(own, patch.graph(), [Translate.Binding.Params, row], spelled(patch, param)))?
+			Ok("UPDATE ${Ql.ident(t.name)} SET ${set_list(sets)} WHERE ${keep}")
+		}
+		Write.({ build: build, gives: After, edge: is_edge(t.kind), slots: slots_of(condition).concat(slots_of(patch)) })
+	}
+
+	## Set the fields of a patch in every row the condition keeps. The
+	## patch is a record of only the fields it sets, `|o| { name: "Jo",
+	## visits: o.visits + 1 }`, each one a `SET` item. Roc cannot type a
+	## record of some of the row's fields, so the statement checks each
+	## field against the row when it is built: a name the row does not
+	## have, or another type, is `BadSchema`. An optional field takes its
+	## value or a `Try` of it, whose `Err` makes it `NONE`.
+	set : Table(row), Code(row -> Bool), Code(row -> patch) -> Write(p, row)
+	set = |Table.(t), condition, patch| {
+		row = Translate.table_row(t.name, is_edge(t.kind))
+		build = |param| {
+			writable(t)?
+			keep = within_clause("the condition of `set`", Translate.render(own, condition.graph(), [row], spelled(condition, param)))?
+			sets = within_clause("the patch of `set`", Translate.patch_assignments(own, patch.graph(), [row], spelled(patch, param)))?
+			Ok("UPDATE ${Ql.ident(t.name)} SET ${set_list(sets)} WHERE ${keep}")
+		}
+		Write.({ build: build, gives: After, edge: is_edge(t.kind), slots: slots_of(condition).concat(slots_of(patch)) })
+	}
+
+	## [Table.set] where the condition and the patch read the parameter
+	## record, `|p, o| ..`.
+	set_by : Table(row), Code((p, row -> Bool)), Code((p, row -> patch)) -> Write(p, row)
+	set_by = |Table.(t), condition, patch| {
+		row = Translate.table_row(t.name, is_edge(t.kind))
+		build = |param| {
+			writable(t)?
+			keep = within_clause("the condition of `set_by`", Translate.render(own, condition.graph(), [Translate.Binding.Params, row], spelled(condition, param)))?
+			sets = within_clause("the patch of `set_by`", Translate.patch_assignments(own, patch.graph(), [Translate.Binding.Params, row], spelled(patch, param)))?
+			Ok("UPDATE ${Ql.ident(t.name)} SET ${set_list(sets)} WHERE ${keep}")
+		}
+		Write.({ build: build, gives: After, edge: is_edge(t.kind), slots: slots_of(condition).concat(slots_of(patch)) })
+	}
+
+	## [Table.update] of the row with this key: `UPDATE vet:⟨tia⟩ SET ..`.
+	## The key is a typed `Id` of this table. A key with no row changes
+	## nothing.
+	update_at : Table(row), Code(Id(row)), Code(row -> row) -> Write(p, row)
+	update_at = |Table.(t), row_id, patch| update_key(t, row_id, slots_of(patch), |row, param| within_clause("the patch of `update_at`", Translate.assignments(own, patch.graph(), [row], spelled(patch, param))))
+
+	## [Table.update_at] where the patch reads the parameter record.
+	update_at_by : Table(row), Code(Id(row)), Code((p, row -> row)) -> Write(p, row)
+	update_at_by = |Table.(t), row_id, patch| update_key(t, row_id, slots_of(patch), |row, param| within_clause("the patch of `update_at_by`", Translate.assignments(own, patch.graph(), [Translate.Binding.Params, row], spelled(patch, param))))
+
+	## [Table.set] of the row with this key: `UPDATE vet:⟨tia⟩ SET ..`.
+	set_at : Table(row), Code(Id(row)), Code(row -> patch) -> Write(p, row)
+	set_at = |Table.(t), row_id, patch| update_key(t, row_id, slots_of(patch), |row, param| within_clause("the patch of `set_at`", Translate.patch_assignments(own, patch.graph(), [row], spelled(patch, param))))
+
+	## [Table.set_at] where the patch reads the parameter record.
+	set_at_by : Table(row), Code(Id(row)), Code((p, row -> patch)) -> Write(p, row)
+	set_at_by = |Table.(t), row_id, patch| update_key(t, row_id, slots_of(patch), |row, param| within_clause("the patch of `set_at_by`", Translate.patch_assignments(own, patch.graph(), [Translate.Binding.Params, row], spelled(patch, param))))
+
+	## Delete the row with this key: `DELETE vet:⟨tia⟩`. A key with no
+	## row deletes nothing.
+	delete_at : Table(row), Code(Id(row)) -> Write(p, row)
+	delete_at = |Table.(t), row_id| {
+		key = table_key_of(t, row_id)
+		build = |_param| {
+			writable(t)?
+			Ok("DELETE ${key.text?}")
+		}
+		Write.({ build: build, gives: Before, edge: is_edge(t.kind), slots: key.slots })
+	}
+
+	## Delete every row the condition keeps.
+	delete : Table(row), Code(row -> Bool) -> Write(p, row)
+	delete = |Table.(t), condition| {
+		row = Translate.table_row(t.name, is_edge(t.kind))
+		build = |param| {
+			writable(t)?
+			Ok("DELETE ${Ql.ident(t.name)} WHERE ${within_clause("the condition of `delete`", Translate.render(own, condition.graph(), [row], spelled(condition, param)))?}")
+		}
+		Write.({ build: build, gives: Before, edge: is_edge(t.kind), slots: slots_of(condition) })
+	}
+
+	## [Table.delete] where the condition reads the parameter record.
+	delete_by : Table(row), Code((p, row -> Bool)) -> Write(p, row)
+	delete_by = |Table.(t), condition| {
+		row = Translate.table_row(t.name, is_edge(t.kind))
+		build = |param| {
+			writable(t)?
+			Ok("DELETE ${Ql.ident(t.name)} WHERE ${within_clause("the condition of `delete_by`", Translate.render(own, condition.graph(), [Translate.Binding.Params, row], spelled(condition, param)))?}")
+		}
+		Write.({ build: build, gives: Before, edge: is_edge(t.kind), slots: slots_of(condition) })
+	}
+}
+
+# The type of `Surreal.Def`, private to the module: a nested type would have members with the names of members of `Surreal`.
+SurrealDef(row) :: { source : Types.Source, rules : List(Schema.Rule), problems : List(Surreal.Error) }.{
+
+	## The schema entry of a table definition: what `Types` reads.
+	source : Def(row) -> Types.Source
+	source = |Def.(d)| d.source
+
+	## The cut of schema clauses (see `Surreal.code_primitives`).
+	code_primitives = cut
+
+	## A row predicate, named for its error message. It is the `ASSERT`
+	## of the one field it reads, or an event when it reads several.
+	check : Def(row), Str, Code(row -> Bool) -> Def(row)
+	check = |this, name, predicate| this.add(|src| Schema.check(own, src, name, stored_graph(predicate, "a `check`")))
+
+	## A predicate on one field. Through `.?` it sees a `Try`.
+	assert : Def(row), Code(row -> v), Code(v -> Bool) -> Def(row)
+	assert = |this, path, predicate| this.add(|_| Schema.assert(own, stored_graph(path, "an `assert`"), stored_graph(predicate, "an `assert`")))
+
+	## A predicate on each element of a list field.
+	assert_each : Def(row), Code(row -> List(v)), Code(v -> Bool) -> Def(row)
+	assert_each = |this, path, predicate| this.add(|_| Schema.assert_each(own, stored_graph(path, "an `assert_each`"), stored_graph(predicate, "an `assert_each`")))
+
+	## A unique index on a path, or on a record of paths.
+	unique : Def(row), Code(row -> k) -> Def(row)
+	unique = |this, key| this.add(|src| Schema.index(src, stored_graph(key, "a `unique` index"), Bool.True))
+
+	index : Def(row), Code(row -> k) -> Def(row)
+	index = |this, key| this.add(|src| Schema.index(src, stored_graph(key, "an `index`"), Bool.False))
+
+	## The value a field takes when a write leaves it out: `.default(|c| c.tags, [])`.
+	default : Def(row), Code(row -> v), v -> Def(row) where [v.encoder_for : Encode.Format -> (v, Encode.State -> Try(Encode.State, []))]
+	default = |this, path, value| this.add(|_| Schema.default(stored_graph(path, "a `default`"), Encode.value_of(value)?))
+
+	## As `default`, with the value an expression of the row, which may call
+	## `Rand`: `.default_by(|o| o.key, |_| Surreal.Rand.ulid())`.
+	default_by : Def(row), Code(row -> v), Code(row -> v) -> Def(row)
+	default_by = |this, path, value| this.add(|src| Schema.default_by(own, src, stored_graph(path, "a `default_by`"), stored_graph(value, "a `default_by`")))
+
+	## A field SurrealDB computes on every write from the row.
+	computed : Def(row), Code(row -> v), Code(row -> v) -> Def(row)
+	computed = |this, path, value| this.add(|src| Schema.computed(own, src, stored_graph(path, "a `computed` field"), stored_graph(value, "a `computed` field")))
+
+	readonly : Def(row), Code(row -> v) -> Def(row)
+	readonly = |this, path| this.add(|_| Schema.readonly(stored_graph(path, "a `readonly` field")))
+
+	## The time of the row's first write, which later writes keep.
+	created_now : Def(row), Code(row -> Datetime) -> Def(row)
+	created_now = |this, path| this.add(|_| Schema.created_now(stored_graph(path, "a `created_now` field")))
+
+	## What deleting a row of `target` does to every link from this table
+	## to it, at any depth. Without one, the delete is rejected.
+	on_delete : Def(row), Table(t), [Reject, Unset, Cascade, Ignore] -> Def(row)
+	on_delete = |this, target, policy| this.add(|_| Schema.on_delete(name_of(target), policy))
+
+	## The same for the one link at a path; it wins over `on_delete`.
+	on_delete_at : Def(row), Code(row -> l), [Reject, Unset, Cascade, Ignore] -> Def(row)
+	on_delete_at = |this, path, policy| this.add(|_| Schema.on_delete_at(stored_graph(path, "an `on_delete_at`"), policy))
+
+	## A change history of this length: `CHANGEFEED <n>ns` on the table line.
+	## SurrealDB keeps it, and `SHOW CHANGES FOR TABLE` reads it.
+	changefeed : Def(row), Duration -> Def(row)
+	changefeed = |this, Duration.(d)| this.add(|_| Schema.changefeed(d.nanos))
+
+	## The full-text index of `Table.text_index`: `DEFINE INDEX .. FIELDS
+	## body FULLTEXT ANALYZER clinical BM25 HIGHLIGHTS`. `schema`
+	## refuses an analyzer that it is not given.
+	text_index : Def(row), FullText(row) -> Def(row)
+	text_index = |this, FullText.(f)| this.add(
+		|src| {
+			Analyzer.(a) = f.analyzer
+			_ = same_table(src.name, f.table)?
+			Schema.search_index(f.path?, "fulltext", "FULLTEXT ANALYZER ${Ql.ident(a.name)} BM25 HIGHLIGHTS", [a.name])
+		},
+	)
+
+	## The vector index of `Table.vector_index`: `DEFINE INDEX .. FIELDS
+	## embedding HNSW DIMENSION 3 DIST COSINE TYPE F64`. SurrealDB then
+	## refuses a write of a vector of another dimension (verified).
+	vector_index : Def(row), VectorIndex(row) -> Def(row)
+	vector_index = |this, VectorIndex.(v)| this.add(
+		|src| {
+			_ = same_table(src.name, v.table)?
+			Schema.search_index(v.path?, "hnsw", "HNSW DIMENSION ${v.dimension.to_str()} DIST ${distance_name(v.distance)} TYPE ${v.element?}", [])
+		},
+	)
+
+	comment : Def(row), Code(row -> v), Str -> Def(row)
+	comment = |this, path, text| this.add(|_| Schema.comment(stored_graph(path, "a `comment`"), text))
+
+	## A permission of the table for a record user: the rows that the
+	## condition keeps, for each of `actions`, which may read the
+	## session (`Table.auth`, `Auth`). `.permit([Select], |m|
+	## m.owner.id() == users.auth())` is `PERMISSIONS FOR select WHERE
+	## owner = $auth.id`. A table with no permission keeps SurrealDB's
+	## default, and a table with one names each action: an action that
+	## no permission names is `NONE`. A system user is not checked.
+	permit : Def(row), List(Action), Code(row -> Bool) -> Def(row)
+	permit = |this, actions, condition| this.add(|src| Schema.permit(own, src, actions, Where(stored_graph(condition, "a permission"))))
+
+	## [Def.permit] of every row: `FOR .. FULL`.
+	permit_full : Def(row), List(Action) -> Def(row)
+	permit_full = |this, actions| this.add(|src| Schema.permit(own, src, actions, Full))
+
+	## A permission of one field (`select`, `create`, `update`): the rows
+	## whose field a record user reads or writes. A field with no
+	## permission is `FULL`, SurrealDB's default for a field. A field
+	## that a select may not read is not in its row: give it a type
+	## that reads with it left out (`?:`), or select the other fields.
+	permit_field : Def(row), Code(row -> v), List(Action), Code(row -> Bool) -> Def(row)
+	permit_field = |this, path, actions, condition| this.add(|src| Schema.permit_field(own, src, stored_graph(path, "a field permission"), actions, Where(stored_graph(condition, "a field permission"))))
+
+	## [Def.permit_field] of no row: `FOR .. NONE`, such as the hash of a
+	## password that no record user reads.
+	deny_field : Def(row), Code(row -> v), List(Action) -> Def(row)
+	deny_field = |this, path, actions| this.add(|src| Schema.permit_field(own, src, stored_graph(path, "a field permission"), actions, No))
+
+	## The definition, ready for `schema`.
+	done : Def(row) -> Defined
+	done = |Def.(d)| Schema.defined(d.source, d.rules, d.problems)
+
+	add : Def(row), (Types.Source -> Try(List(Schema.Rule), Surreal.Error)) -> Def(row)
+	add = |Def.(d), clause| match clause(d.source) {
+		Ok(rules) => Def.({ ..d, rules: d.rules.concat(rules) })
+		Err(problem) => Def.({ ..d, problems: d.problems.append(problem) })
+	}
+}
+
+# The type of `Surreal.Selected`, private to the module: a nested type would have members with the names of members of `Surreal`.
+SurrealSelected(p, out) :: {
+	target : Target,
+	filters : List(Filter),
+	watched : List(Watched),
+	fetches : List(Str),
+	groups : List(Clause),
+	columns : Clause,
+	value : Clause,
+	intrinsic : List(Str),
+	results : ResultOrder,
+	rows : ResultRow,
+	order : List(Clause),
+	limit : [Unlimited, Limit(Try(Str, Surreal.Error))],
+	start : [FromFirst, Start(Try(Str, Surreal.Error))],
+	slots : List(Slot),
+	fixed : List(Ql.Value),
+}.{
+
+	## The cut of a filter of the result rows (see `Surreal.code_primitives`).
+	code_primitives = cut
+
+	## Order by one column of a result row: `|r| r.rate`. Several calls
+	## order by the first, then the second. SurrealDB's `ORDER BY` takes a
+	## field path, so any other key is refused when the statement is
+	## built (see `ResultOrder`).
+	order_by : Selected(p, out), Code(out -> k), [Asc, Desc] -> Selected(p, out)
+	order_by = |Selected.(s), key, direction| {
+		clause = |param| {
+			result = (s.results)(key.graph(), param)?
+			parts = parts_of(within_clause("`order_by`", Translate.evaluate(own, key.graph(), [result], spelled(key, param)))?)?
+			suffix = match direction {
+				Asc => ""
+				Desc => " DESC"
+			}
+			Ok(Str.join_with(parts.map(|part| "${part}${suffix}"), ", "))
+		}
+		Selected.({ ..s, order: s.order.append(clause), slots: s.slots.concat(slots_of(key)) })
+	}
+
+	## Keep the result rows the function is true for. Before a group, a
+	## limit or a start, a result row is one source row projected, so
+	## this is a filter of the source row in the same `WHERE`: the
+	## predicate reads the projection's fields. After one, it is the
+	## `WHERE` of an outer query over a subquery (`Selected.query`). After
+	## a group, that is SQL's `HAVING`.
+	filter : Selected(p, out), Code(out -> Bool) -> Selected(p, out)
+	filter = |selected, predicate| {
+		Selected.(s) = selected
+		match (s.rows.over, s.limit, s.start) {
+			(Projected(fields), Unlimited, FromFirst) => {
+				clause = |at, param| within_clause("`filter`", Translate.evaluate(own, predicate.graph(), [pick(fields, at)?], spelled(predicate, param)))
+				Selected.({ ..s, filters: s.filters.append(clause), slots: s.slots.concat(slots_of(predicate)), watched: reached_watches(s.watched, predicate.graph(), [fields.reach], narrowed(predicate.graph(), fields.now.map_ok(|row| [row]))) })
+			}
+			_ => whole_rows(selected.query().filter(predicate), s.rows.ty)
+		}
+	}
+
+	## The result rows as the rows of a new query, which every `Query`
+	## method reads as the type `out`:
+	##
+	## | The result | The new query |
+	## | --- | --- |
+	## | A projection with no order, limit, start or fetch | The same `SELECT`. A clause reads the projection's fields over the source row |
+	## | Any other | A subquery, `FROM (SELECT ..)`: the target `Sub` |
+	##
+	## The target keeps the two apart, because a `LIVE SELECT` takes no
+	## subquery.
+	query : Selected(p, out) -> Query(p, out)
+	query = |selected| {
+		Selected.(s) = selected
+		match (s.rows.over, s.order, s.limit, s.start, s.fetches) {
+			(Projected(fields), [], Unlimited, FromFirst, []) => Query.({ target: s.target, source: fields, filters: s.filters, watched: s.watched, slots: s.slots, fixed: s.fixed })
+			_ => Query.({ target: Sub(|param| selected.render(param).map_ok(|inner| "(${inner})")), source: { now: Ok(s.rows.nested), before: Err(Unsupported("a row of a subquery has no `$before`")), reach: Translate.Reach.Nothing }, filters: [], watched: [], slots: s.slots, fixed: s.fixed })
+		}
+	}
+
+	## At most this many rows: `LIMIT n`. The rows after it are a
+	## `Limited`, which has no `order_by`, `limit` or `start` (see
+	## `Started`).
+	limit : Selected(p, out), Code(U64) -> Limited(p, out)
+	limit = |Selected.(s), count| Limited.(Selected.({ ..s, limit: Limit(count_text(count)), slots: s.slots.concat(slots_of(count)) }))
+
+	## Skip this many rows first: `START n`. The rows after it are a
+	## `Started`, which takes a `limit` and no `order_by` or `start`.
+	start : Selected(p, out), Code(U64) -> Started(p, out)
+	start = |Selected.(s), count| Started.(Selected.({ ..s, start: Start(count_text(count)), slots: s.slots.concat(slots_of(count)) }))
+
+	## The statement with a `$name` for each parameter it reads.
+	to_surql : Selected(p, out) -> Try(Str, Surreal.Error)
+	to_surql = |selected| {
+		Selected.(s) = selected
+		inline_fixed(selected.render(Translate.variable), s.fixed)
+	}
+
+	## The statement with a `LET` for each field of the parameter
+	## record, and the type of its result: the result rows, each read
+	## as `out`. The record is the type the filters read, so a
+	## parameter a filter reads is a field the record has.
+	## `Session.run!` runs it, and `Prepared.statement` is its text.
+	prepare : Selected(p, out), p -> Prepared(List(out)) where [p.encoder_for : Encode.Format -> (p, Encode.State -> Try(Encode.State, [])), out.Cbor.Readable(errs)]
+	prepare = |selected, params| {
+		Selected.(s) = selected
+		prepared_of(bound_statement(|param| selected.render(param), params).map_ok(|statement| { statement: with_intrinsic(statement, selected), slots: s.slots, count: 1, atomic: No, read: result_rows(0) }))
+	}
+
+	## `prepare` of a query that has no parameter: `prepare({})`.
+	ready : Selected({}, out) -> Prepared(List(out)) where [out.Cbor.Readable(errs)]
+	ready = |selected| selected.prepare({})
+
+	## `prepare` of a query of one key (`Table.at`): the row, or
+	## `NotFound` when the table has no row with the key. Any other
+	## query can return several rows, so it is refused.
+	prepare_one : Selected(p, out), p -> Prepared(Try(out, [NotFound])) where [p.encoder_for : Encode.Format -> (p, Encode.State -> Try(Encode.State, [])), out.Cbor.Readable(errs)]
+	prepare_one = |selected, params| {
+		Selected.(s) = selected
+		rows = result_rows(0)
+		read = |results| match rows(results)? {
+			[] => Ok(Err(NotFound))
+			[one] => Ok(Ok(one))
+			more => Err(Wire("the record of one key returned ${more.len().to_str()} rows"))
+		}
+		built = match s.target {
+			Record(_) => bound_statement(|param| selected.render(param), params)
+			Whole(_) | Range(_) | Sub(_) => Err(Unsupported("`prepare_one` reads the row of one key, a query from `Table.at`; this query can return several rows: take `prepare`"))
+		}
+		prepared_of(built.map_ok(|statement| { statement: with_intrinsic(statement, selected), slots: s.slots, count: 1, atomic: No, read }))
+	}
+
+	## `prepare_one` of a query that has no parameter.
+	ready_one : Selected({}, out) -> Prepared(Try(out, [NotFound])) where [out.Cbor.Readable(errs)]
+	ready_one = |selected| selected.prepare_one({})
+
+	## The rows of the query, kept current: the twin of `prepare`. A
+	## `LIVE SELECT` on the table, and one on each other table that
+	## the rows read (see `Watched`), report every write that changes
+	## the result. Each notice holds the row and the filter `now`. The
+	## filter is also read on `$before`, so a row that no longer
+	## matches is reported:
+	##
+	## `LIVE SELECT VALUE { row: <row>, now: <p> } FROM t WHERE <p> OR ($before IS NOT NONE AND <p on $before>)`
+	##
+	## The guard is necessary: a filter that reads `$before` of a
+	## `CREATE` fails, and SurrealDB then sends nothing (verified).
+	## A filter that reads the row only through its id and its edges
+	## has the same value before and after a write of the row, so the
+	## statement tests it once, and each notice has `now: true`:
+	##
+	## `LIVE SELECT VALUE { row: <row>, now: true } FROM t WHERE <p>`
+	## `tables` are the definitions that `Surreal.schema` takes: a link
+	## of the row finds its table there, as in the schema.
+	live : Selected(p, out), p, List(Defined) -> Watch(out) where [p.encoder_for : Encode.Format -> (p, Encode.State -> Try(Encode.State, []))]
+	live = |selected, params, tables| Watch.(Code.Bound.of(watching(selected, params, tables)))
+
+	## `live` of a query that has no parameter: `live({}, tables)`.
+	ready_live : Selected({}, out), List(Defined) -> Watch(out)
+	ready_live = |selected, tables| selected.live({}, tables)
+
+	## What `live` builds.
+	watching : Selected(p, out), p, List(Defined) -> Try({ lets : List({ name : Str, value : Ql.Value }), slots : List(Bind), lives : List({ role : Role, surql : Str }), snapshot : Str }, Surreal.Error) where [p.encoder_for : Encode.Format -> (p, Encode.State -> Try(Encode.State, []))]
+	watching = |selected, params, tables| {
+		Selected.(s) = selected
+		name = Ql.ident(live_table(selected)?)
+		lets = lets_of(params)?
+		param = Translate.variable
+		row = (s.value)(param)?
+		now = all_of(s.filters.map_try(|f| f(Now, param))?)?
+		before = all_of(s.filters.map_try(|f| f(Before, param))?)?
+		now_text = condition_text(now)?
+		(watched, node_now) = match (now, before) {
+			(When(p), When(q)) =>
+				if keyed_only(Translate.text(q)?) {
+					(" WHERE ${Translate.text(p)?}", "true")
+				} else {
+					(" WHERE ${Translate.operand(p)?} OR ($before IS NOT NONE AND ${Translate.operand(q)?})", now_text)
+				}
+			_ => ("", now_text)
+		}
+		node = { role: Node, surql: "LIVE SELECT VALUE { row: ${row}, now: ${node_now} } FROM ${name}${watched}" }
+		edges = s.watched.keep_oks(
+			|w| match w {
+				Edge(e) => Ok({ role: Edge, surql: "LIVE SELECT VALUE { ref: ${e.node}, node: (SELECT VALUE { row: ${row}, now: ${now_text} } FROM ONLY $parent.${e.node}) } FROM ${Ql.ident(e.name)}" })
+				LinkAt(_) | Rows(_) | Near(_) => Err(NotEdge)
+			},
+		)
+		reads = read_lives(s.watched, Schema.tables(tables), "SELECT VALUE { ref: id, row: ${row}, now: ${now_text} }", name)?
+		snapshot = "SELECT VALUE { ref: id, row: ${row} } FROM ${name}${where_text(now)?}"
+		Ok({ lets, slots: binds_of(s.slots)?, lives: [node].concat(edges).concat(reads), snapshot })
+	}
+
+	## Escape hatch: the server's own events for the rows of the query.
+	## There is no snapshot and no `$before`, so a row that no longer
+	## matches sends nothing, a row that starts to match is `Updated`,
+	## and a write to an edge table, or to a table that the rows read,
+	## sends nothing.
+	live_raw : Selected(p, out), p -> Try(RawWatch(out), Surreal.Error) where [p.encoder_for : Encode.Format -> (p, Encode.State -> Try(Encode.State, []))]
+	live_raw = |selected, params| {
+		Selected.(s) = selected
+		name = Ql.ident(live_table(selected)?)
+		lets = lets_of(params)?
+		param = Translate.variable
+		row = (s.value)(param)?
+		now = all_of(s.filters.map_try(|f| f(Now, param))?)?
+		Ok(RawWatch.({ lets, live: "LIVE SELECT VALUE ${row} FROM ${name}${where_text(now)?}" }))
+	}
+
+	## The text of the `SELECT`. A `LIMIT` or a `START` with no `order_by`
+	## and no group gets `ORDER BY id`: SurrealDB 4 reads the rows of a
+	## table in no fixed order, so without it the rows of a limit are
+	## any rows, not the first by key. A group already gives its rows
+	## in the order of the group.
+	render : Selected(p, out), (Str -> Str) -> Try(Str, Surreal.Error)
+	render = |Selected.(s), param| {
+		run = |clause| clause(param)
+		filters = s.filters.map_try(|f| Translate.text(f(Now, param)?))?
+		limited = !(is_unlimited(s.limit)) or !(from_first(s.start))
+		order = if (s.order.is_empty() and s.groups.is_empty() and limited) ["id"] else s.order.map_try(run)?
+		parts = [
+			"SELECT ${run(s.columns)?}",
+			"FROM ${from_text(s.target, param)?}",
+		]
+			.concat(keyword("WHERE", if (filters.len() > 1) filters.map(|f| "(${f})") else filters, " AND "))
+			.concat(keyword("GROUP BY", s.groups.map_try(run)?, ", "))
+			.concat(keyword("ORDER BY", order, ", "))
+			.concat(
+				match s.limit {
+					Unlimited => []
+					Limit(n) => ["LIMIT ${n?}"]
+				},
+			)
+			.concat(
+				match s.start {
+					FromFirst => []
+					Start(n) => ["START ${n?}"]
+				},
+			)
+			.concat(keyword("FETCH", s.fetches, ", "))
+		Ok(Str.join_with(parts, " "))
+	}
 }
 
 # The type of `Surreal.Query`, private to the module: a nested type would have members with the names of members of `Surreal`.
