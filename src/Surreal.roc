@@ -1344,6 +1344,7 @@ Surreal :: {}.{
 
 	## A link that holds its row, for seed data and for a row read back.
 	fetched : Table({ id : Str, ..others }), { id : Str, ..others } -> Link({ id : Str, ..others })
+	# Method syntax: through the alias, `Table.id` called before its definition does not get its annotation (roc-lang/roc#13104).
 	fetched = |tbl, row| Link.({ id: tbl.id(row.id), fetched: Fetched(row) })
 
 	# ============================================================= schema
@@ -3246,7 +3247,7 @@ SurrealTable(row) :: { name : Str, kind : TableKind }.{
 				if !chosen.slots.is_empty() {
 					crash stored_message("a view")
 				}
-				# The private name: through the alias, a method that is called before its definition does not get its annotation (an upstream bug).
+				# The private name: through the alias, a method that is called before its definition does not get its annotation (roc-lang/roc#13104).
 				inline_fixed(SurrealSelected.render(Selected.(chosen), Translate.variable), chosen.fixed)
 			}
 		}
@@ -6004,7 +6005,7 @@ read_options = { ignore_tags: [6, 10, 180, 181, 182, 183, 184, 185, 186, 187, 18
 ## A value of the type `a` from CBOR bytes of the server.
 read_cbor : List(U8) -> Try(a, Error) where [a.Cbor.Readable(errs)]
 read_cbor = |bytes| {
-	# The annotation: on a `match` of the call, the 11-14 compiler warns that the `MissingRequiredField` branch cannot match.
+	# The annotation: on a `match` of the call, the 11-14 compiler warns that the `MissingRequiredField` branch cannot match (roc-lang/roc#13105).
 	parsed : Try(a, _)
 	parsed = Cbor.parse_with(bytes, read_options)
 	match parsed {
