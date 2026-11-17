@@ -79,7 +79,7 @@ basic-webserver" for the rest of an app):
 app [main!] {
 	pf: platform "https://github.com/roc-lang/basic-cli/releases/download/0.28.1/7brgwR8YUqfeGrkdfF1V4GPPN7DnP7ftqub9KcrTEZtr.tar.zst",
 	cli_ws: "https://github.com/Karakatiza666/roc-basic-cli-websocket/releases/download/0.0.5/AZpgG3RszEahBa67zc9yCJcAKe4MKw5HucDouNpi727b.tar.zst",
-	surreal: "https://github.com/Karakatiza666/roc-reify-surrealdb/releases/download/0.0.4/CkLUeGcqAc6kNLaDf5rMbQEaZAE7nxapCE4EsHnqh5HY.tar.zst",
+	surreal: "https://github.com/Karakatiza666/roc-reify-surrealdb/releases/download/0.0.4/B6FLFRXgHFjL9kyQSF3N467dpJjcsxjLd1HLxhr8Zmt2.tar.zst",
 }
 
 import pf.Stdout
@@ -172,7 +172,7 @@ The app names basic-cli and the WebSocket adapter
 app [main!] {
 	pf: platform "https://github.com/roc-lang/basic-cli/releases/download/0.28.1/7brgwR8YUqfeGrkdfF1V4GPPN7DnP7ftqub9KcrTEZtr.tar.zst",
 	cli_ws: "https://github.com/Karakatiza666/roc-basic-cli-websocket/releases/download/0.0.5/AZpgG3RszEahBa67zc9yCJcAKe4MKw5HucDouNpi727b.tar.zst",
-	surreal: "https://github.com/Karakatiza666/roc-reify-surrealdb/releases/download/0.0.4/CkLUeGcqAc6kNLaDf5rMbQEaZAE7nxapCE4EsHnqh5HY.tar.zst",
+	surreal: "https://github.com/Karakatiza666/roc-reify-surrealdb/releases/download/0.0.4/B6FLFRXgHFjL9kyQSF3N467dpJjcsxjLd1HLxhr8Zmt2.tar.zst",
 }
 
 import pf.OsStr
@@ -239,7 +239,7 @@ app [Context, program] {
 	http: "https://github.com/roc-lang/http/releases/download/1.0.0/6ZUwqYhCS8PU9Mo6MF7oV82ET2o7KYb57CLKDq4cq4sS.tar.zst",
 	pf: platform "https://github.com/roc-lang/basic-webserver/releases/download/0.22.0/BM2BUXA8mwbcoKPUfRV8cLtsUdnsSBPwjNLPRUJQAQ7Q.tar.zst",
 	bws_ws: "https://github.com/Karakatiza666/roc-basic-webserver-websocket/releases/download/0.0.4/CVdw532jo8EfTqYFZjfGismeWHjfuVPTfj6ofaKGcAmU.tar.zst",
-	surreal: "https://github.com/Karakatiza666/roc-reify-surrealdb/releases/download/0.0.4/CkLUeGcqAc6kNLaDf5rMbQEaZAE7nxapCE4EsHnqh5HY.tar.zst",
+	surreal: "https://github.com/Karakatiza666/roc-reify-surrealdb/releases/download/0.0.4/B6FLFRXgHFjL9kyQSF3N467dpJjcsxjLd1HLxhr8Zmt2.tar.zst",
 }
 
 import pf.Server
