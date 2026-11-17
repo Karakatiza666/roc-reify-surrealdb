@@ -105,9 +105,8 @@ reify-ee91030491d78fa5367d82222cb4c2fe0781c5cb
 
 The reify nightly
 [`nightly-reify-2026-11-15-ee91030`](https://github.com/Karakatiza666/roc-reify-nightlies/releases/tag/nightly-reify-2026-11-15-ee91030)
-has a prebuilt `roc` of that commit for Linux (x86_64, arm64), macOS (x86_64)
-and Windows (x86_64). It has no build for macOS on Apple silicon yet: there,
-build the compiler from source (below).
+has a prebuilt `roc` of that commit for Linux (x86_64, arm64), macOS (x86_64,
+Apple silicon) and Windows (x86_64).
 
 ```sh
 curl -LO https://github.com/Karakatiza666/roc-reify-nightlies/releases/download/nightly-reify-2026-11-15-ee91030/roc_nightly-reify-linux_x86_64-2026-11-15-ee91030.tar.gz
@@ -2711,8 +2710,7 @@ are breaking.
   closures, time series ranges, and GROUP and view columns.
 - `Id.table` is `Id.table_name`. The 11-15 compiler warns when a member of a
   nested type has the name of a module definition (here `Surreal.table`).
-- Compiler: the reify nightly 2026-11-15 (Zig 0.17.1 to build it). It has no
-  macOS Apple silicon build yet. An app that names roc-websocket must name
+- Compiler: the reify nightly 2026-11-15 (Zig 0.17.1 to build it). An app that names roc-websocket must name
   0.0.7. The examples use roc-basic-cli-websocket 0.0.5 (basic-cli 0.28.1;
   basic-cli 0.27.0 crashes at start with nightlies from 2026-11-10, which make
   PIE executables) and roc-basic-webserver-websocket 0.0.4 (basic-webserver
