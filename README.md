@@ -79,7 +79,7 @@ basic-webserver" for the rest of an app):
 app [main!] {
 	pf: platform "https://github.com/roc-lang/basic-cli/releases/download/0.28.1/7brgwR8YUqfeGrkdfF1V4GPPN7DnP7ftqub9KcrTEZtr.tar.zst",
 	cli_ws: "https://github.com/Karakatiza666/roc-basic-cli-websocket/releases/download/0.0.5/AZpgG3RszEahBa67zc9yCJcAKe4MKw5HucDouNpi727b.tar.zst",
-	surreal: "https://github.com/Karakatiza666/roc-reify-surrealdb/releases/download/0.0.4/B6FLFRXgHFjL9kyQSF3N467dpJjcsxjLd1HLxhr8Zmt2.tar.zst",
+	surreal: "https://github.com/Karakatiza666/roc-reify-surrealdb/releases/download/0.0.5/GSm2xKYwZcSaByndT1WepVje11uaZ4ck3gz3Pkmabqo4.tar.zst",
 }
 
 import pf.Stdout
@@ -87,9 +87,9 @@ import surreal.Surreal
 ```
 
 The app must be compiled with the compiler of the next section. The release
-URL (`<hash>` in `.../releases/download/0.0.4/<hash>.tar.zst`) is in the notes
+URL (`<hash>` in `.../releases/download/0.0.5/<hash>.tar.zst`) is in the notes
 of each [release](https://github.com/Karakatiza666/roc-reify-surrealdb/releases),
-and `scripts/bundle.sh 0.0.4` prints it.
+and `scripts/bundle.sh 0.0.5` prints it.
 
 ## Requirements
 
@@ -171,7 +171,7 @@ The app names basic-cli and the WebSocket adapter
 app [main!] {
 	pf: platform "https://github.com/roc-lang/basic-cli/releases/download/0.28.1/7brgwR8YUqfeGrkdfF1V4GPPN7DnP7ftqub9KcrTEZtr.tar.zst",
 	cli_ws: "https://github.com/Karakatiza666/roc-basic-cli-websocket/releases/download/0.0.5/AZpgG3RszEahBa67zc9yCJcAKe4MKw5HucDouNpi727b.tar.zst",
-	surreal: "https://github.com/Karakatiza666/roc-reify-surrealdb/releases/download/0.0.4/B6FLFRXgHFjL9kyQSF3N467dpJjcsxjLd1HLxhr8Zmt2.tar.zst",
+	surreal: "https://github.com/Karakatiza666/roc-reify-surrealdb/releases/download/0.0.5/GSm2xKYwZcSaByndT1WepVje11uaZ4ck3gz3Pkmabqo4.tar.zst",
 }
 
 import pf.OsStr
@@ -238,7 +238,7 @@ app [Context, program] {
 	http: "https://github.com/roc-lang/http/releases/download/1.0.0/6ZUwqYhCS8PU9Mo6MF7oV82ET2o7KYb57CLKDq4cq4sS.tar.zst",
 	pf: platform "https://github.com/roc-lang/basic-webserver/releases/download/0.22.0/BM2BUXA8mwbcoKPUfRV8cLtsUdnsSBPwjNLPRUJQAQ7Q.tar.zst",
 	bws_ws: "https://github.com/Karakatiza666/roc-basic-webserver-websocket/releases/download/0.0.4/CVdw532jo8EfTqYFZjfGismeWHjfuVPTfj6ofaKGcAmU.tar.zst",
-	surreal: "https://github.com/Karakatiza666/roc-reify-surrealdb/releases/download/0.0.4/B6FLFRXgHFjL9kyQSF3N467dpJjcsxjLd1HLxhr8Zmt2.tar.zst",
+	surreal: "https://github.com/Karakatiza666/roc-reify-surrealdb/releases/download/0.0.5/GSm2xKYwZcSaByndT1WepVje11uaZ4ck3gz3Pkmabqo4.tar.zst",
 }
 
 import pf.Server
@@ -391,7 +391,7 @@ for each query. It takes about half a minute, so it does not run by default.
 The release bundle has its own scripts:
 
 ```sh
-ROC=/path/to/fork/zig-out/bin/roc scripts/bundle.sh 0.0.4  # dist/<hash>.tar.zst, its file list and its release URL
+ROC=/path/to/fork/zig-out/bin/roc scripts/bundle.sh 0.0.5  # dist/<hash>.tar.zst, its file list and its release URL
 ROC=/path/to/fork/zig-out/bin/roc scripts/test_bundle.sh   # checks the examples against the bundle
 ```
 
