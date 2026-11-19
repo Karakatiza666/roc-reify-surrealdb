@@ -5,6 +5,8 @@
 # tests/BuiltinsTest.roc print against it.
 # Start one with:
 #   docker run --rm -d --name surreal-roc -p 8000:8000 surrealdb/surrealdb:v4.0.1 start --user root --pass root memory
+# With BUILD_BUDGET=1, also checks the build time of an optimised app with
+# 400 queries (scripts/build_budget.sh, about half a minute).
 set -euo pipefail
 ROC="${ROC:-roc}"
 cd "$(dirname "$0")/.."
@@ -51,6 +53,10 @@ done
 ROC="$ROC" tests/refusals/run.sh
 # `DeadlineTest.roc` also runs a session over a scripted adapter (`main!`).
 "$ROC" tests/DeadlineTest.roc
+# The release-build budget (scripts/build_budget.sh): slow, so only on request.
+if [ "${BUILD_BUDGET:-0}" = 1 ]; then
+	ROC="$ROC" scripts/build_budget.sh
+fi
 # The scripts and apps against a live SurrealDB.
 if (: >/dev/tcp/127.0.0.1/8000) 2>/dev/null; then
 	SURREAL_URL="${SURREAL_URL:-http://127.0.0.1:8000}" python3 -I tests/check.py "$ROC"

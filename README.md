@@ -383,6 +383,11 @@ docker run --rm -d --name surreal-roc -p 8000:8000 surrealdb/surrealdb:v4.0.1 st
 Without a server, the script skips `tests/check.py` and says so. Stop the
 server with `docker stop surreal-roc`.
 
+`BUILD_BUDGET=1 scripts/all_tests.sh` also runs `scripts/build_budget.sh`: an
+app with 400 prepared queries (`scripts/gen_budget.py`) must build with
+`--opt=speed` in 60 s (`QUERIES` and `LIMIT` change them), and print a script
+for each query. It takes about half a minute, so it does not run by default.
+
 The release bundle has its own scripts:
 
 ```sh
@@ -2655,6 +2660,33 @@ The cost of a new feature is small and local:
   and its `??`, and each query uses functions that the application also calls.
 
 ## Changes
+
+### 0.0.5
+
+No breaking change. The compiler pin, SurrealDB, roc-cbor and roc-websocket
+are those of 0.0.4.
+
+- Build time. An optimised build (`--opt=speed`) of an app with many
+  prepared queries is much faster. 400 queries took 200 to 255 s and take
+  about 30 s; 200 took 80 s and take 25 s; 800 take 44 s. Most of the time
+  is now the same for any count of queries (22 s at 8 queries). Above 400
+  queries the time grows faster again, in LLVM's `MemCpyOptPass`. The API
+  and the statements, vars and results are the same. Three changes:
+  - The payload of `Prepared` and `Watch` is in a `Box`
+    (`Code.Bound(Box(Try(..)))`). A call reads it from static data, and does
+    not rebuild it field by field in its caller.
+  - `Prepared.request` and `Prepared.statement` are each one function that
+    a call site calls (`prepared_request`, `prepared_statement`). A speed
+    build copies each small function into every call site, and the
+    functions of `request` were small, so each query copied about 430
+    instructions into `main`. LLVM slows down more than linearly with the
+    size of `main`. Now each query adds about 120.
+  - `Ql.cbor` builds the map of an object without `Cbor.ValueMap.from_list`,
+    which encodes and sorts the keys, and whose error holds a `Cbor.Value`.
+    That code, and the `Str.inspect` of any `Cbor.Value` for the error,
+    added about 5 s to the build of every app that sends a request. The
+    error for a name twice has the same text.
+  - `scripts/build_budget.sh` checks it (`BUILD_BUDGET=1`, see Testing).
 
 ### 0.0.4
 

@@ -1819,7 +1819,7 @@ Surreal :: {}.{
 	## | `Transaction.commit` | `(a, b)`, `((a, b), c)`, .. | The results of the statements of one transaction, or one `Aborted` error |
 	## | `Surreal.transaction` | `List(out)` | The result of each statement of one transaction, or one `Aborted` error |
 	## | `Plan.prepare` | `{}` | Nothing, or the `Server` error of the statement that failed the section |
-	Prepared(out) :: Code.Bound(Try(Ready(out), Error)).{
+	Prepared(out) :: Code.Bound(Box(Try(Ready(out), Error))).{
 
 		## The prepared statement, or why it cannot be built: a clause
 		## with no SurrealQL form, or a captured value with no SurrealQL
@@ -1835,13 +1835,13 @@ Surreal :: {}.{
 		## transaction, between `BEGIN` and `COMMIT`, with a var for each
 		## parameter and each captured value.
 		statement : Prepared(out) -> Try(Statement, Error)
-		statement = |prepared| ready_statement(ready_of(prepared)?)
+		statement = |prepared| prepared_statement(prepared)
 
 		## The `query` request: the statements, with a `$name` for each
 		## parameter and each captured value, and their values as CBOR
 		## `vars`. Its `to_script` is the readable form with `LET` lines.
 		request : Prepared(out) -> Try(Request, Error)
-		request = |prepared| prepared.statement()?.request()
+		request = |prepared| prepared_request(prepared)
 
 		## The reply to `request`, read as `out`. A request that the server refused, or a statement that
 		## failed, is a `Server` error, by its kind; a unique index is an
@@ -1870,7 +1870,7 @@ Surreal :: {}.{
 		## none. A statement that cannot be built makes the whole hold its
 		## error, the first one's first.
 		then : Prepared(a), Prepared(b) -> Prepared((Try(a, Error), Try(b, Error)))
-		then = |first, second| Prepared.(Code.Bound.of(then_ready(ready_of(first), ready_of(second))))
+		then = |first, second| Prepared.(Code.Bound.of(Box.box(then_ready(ready_of(first), ready_of(second)))))
 
 		## The prepared statement as the first of a transaction, which
 		## `Transaction.then` adds to.
@@ -1909,7 +1909,7 @@ Surreal :: {}.{
 
 		## The transaction as one prepared statement, for `Session.run!`.
 		commit : Transaction(out) -> Prepared(out)
-		commit = |Transaction.(built)| Prepared.(Code.Bound.of(built.map_ok(|t| { statement: t.statement, slots: t.slots, count: t.count, atomic: Parts(t.parts), read: t.read })))
+		commit = |Transaction.(built)| Prepared.(Code.Bound.of(Box.box(built.map_ok(|t| { statement: t.statement, slots: t.slots, count: t.count, atomic: Parts(t.parts), read: t.read }))))
 	}
 
 	## Prepared statements with one type of result, as one transaction
@@ -2139,7 +2139,7 @@ Surreal :: {}.{
 	## `LIVE SELECT` on the table and one on each other table that the rows
 	## read (see `Watched`), and the `SELECT` of the rows in the result now.
 	## The rows of the snapshot are `{ ref, row }`.
-	Watch(out) :: Code.Bound(Try({ lets : List({ name : Str, value : Ql.Value }), slots : List(Bind), lives : List({ role : Role, surql : Str }), snapshot : Str }, Error)).{
+	Watch(out) :: Code.Bound(Box(Try({ lets : List({ name : Str, value : Ql.Value }), slots : List(Bind), lives : List({ role : Role, surql : Str }), snapshot : Str }, Error))).{
 
 		## The watch, or why it cannot be built, as `Prepared.checked`.
 		checked : Watch(out) -> Try(Watch(out), Error)
@@ -3831,7 +3831,7 @@ SurrealSelected(p, out) :: {
 	## `tables` are the definitions that `Surreal.schema` takes: a link
 	## of the row finds its table there, as in the schema.
 	live : Selected(p, out), p, List(Defined) -> Watch(out) where [p.encoder_for : Encode.Format -> (p, Encode.State -> Try(Encode.State, []))]
-	live = |selected, params, tables| Watch.(Code.Bound.of(watching(selected, params, tables)))
+	live = |selected, params, tables| Watch.(Code.Bound.of(Box.box(watching(selected, params, tables))))
 
 	## `live` of a query that has no parameter: `live({}, tables)`.
 	ready_live : Selected({}, out), List(Defined) -> Watch(out)
@@ -5531,10 +5531,41 @@ ready_size = |r| match r.atomic {
 ## that the chain's call gave: one per slot that has none yet. A statement
 ## that a combination made at run time has every value, and the call gives
 ## none.
+##
+## The payload of `Prepared` (and of `Watch`, `watch_of`) is in a `Box`.
+## In an optimised build, a call then reads the payload from static data,
+## and does not rebuild it field by field in its caller (see
+## `prepared_request`).
 ready_of : Prepared(out) -> Try(Ready(out), Error)
 ready_of = |Prepared.(bound)| {
-	ready = bound.value()?
+	ready = Box.unbox(bound.value())?
 	Ok({ ..ready, slots: given_binds(ready.slots, bound.inputs())? })
+}
+
+## `Prepared.statement`, in one function that a call site calls.
+prepared_statement : Prepared(out) -> Try(Statement, Error)
+prepared_statement = |Prepared.(bound)| {
+	ready = Box.unbox(bound.value())?
+	ready_statement({ ..ready, slots: given_binds(ready.slots, bound.inputs())? })
+}
+
+## `Prepared.request`, in one function that a call site calls.
+##
+## It does the work of `ready_of`, `ready_statement` and
+## `Statement.request` in one body on purpose: this keeps the build time
+## of an optimised program with many queries short. A speed build inlines
+## each small function (up to 32 statements, with no loop) at every call
+## site, and LLVM's passes slow down more than linearly with the size of
+## the function that gets the copies (`main`). `Prepared.request`,
+## `Statement.request` and `Request.of` are small, so a call of them
+## copied about 430 instructions into `main`; this body is too large to
+## copy, so each call site keeps one call (about 120 instructions). With
+## `Box` on the payload, a build of 400 queries takes about 30 s, not
+## 200 to 255 s.
+prepared_request : Prepared(out) -> Try(Request, Error)
+prepared_request = |Prepared.(bound)| {
+	ready = Box.unbox(bound.value())?
+	ready_statement({ ..ready, slots: given_binds(ready.slots, bound.inputs())? })?.request()
 }
 
 ## The slots with the values that a chain's call gave: one per slot that
@@ -5720,14 +5751,16 @@ then_ready = |built_first, built_second| {
 prepared_of : Try({ statement : Statement, slots : List(Slot), count : U64, atomic : [No, Whole, Parts(List(U64))], read : List(Outcome) -> Try(out, Error) }, Error) -> Prepared(out)
 prepared_of = |built| Prepared.(
 	Code.Bound.of(
-		match built {
-			Ok(b) =>
-				match binds_of(b.slots) {
-					Ok(clause_binds) => fixed_slots(b.statement, clause_binds).map_ok(|f| { statement: f.statement, slots: f.binds, count: b.count, atomic: b.atomic, read: b.read })
-					Err(e) => Err(e)
-				}
-			Err(e) => Err(e)
-		},
+		Box.box(
+			match built {
+				Ok(b) =>
+					match binds_of(b.slots) {
+						Ok(clause_binds) => fixed_slots(b.statement, clause_binds).map_ok(|f| { statement: f.statement, slots: f.binds, count: b.count, atomic: b.atomic, read: b.read })
+						Err(e) => Err(e)
+					}
+				Err(e) => Err(e)
+			},
+		),
 	),
 )
 
@@ -5847,7 +5880,7 @@ lets_of = |params| {
 ## What a watch built, with the values of its captured values (`ready_of`).
 watch_of : Watch(out) -> Try({ lets : List({ name : Str, value : Ql.Value }), slots : List(Bind), lives : List({ role : Role, surql : Str }), snapshot : Str }, Error)
 watch_of = |Watch.(bound)| {
-	w = bound.value()?
+	w = Box.unbox(bound.value())?
 	Ok({ ..w, slots: given_binds(w.slots, bound.inputs())? })
 }
 

@@ -214,9 +214,9 @@ Ql :: {}.{
 		Array(items) => Ok(Cbor.Value.Array(items.map_try(Ql.cbor)?))
 		Object(fields) => {
 			pairs = fields.map_try(|f| Ok((Cbor.Value.Text(f.name), Ql.cbor(f.value)?)))?
-			match Cbor.ValueMap.from_list(pairs) {
-				Ok(m) => Ok(Cbor.Value.Map(m))
-				Err(DuplicateKey(key)) => Err(Unsupported("an object with the name ${Str.inspect(key)} twice"))
+			match Ql.repeated_name(fields) {
+				Ok(name) => Err(Unsupported("an object with the name Text(${Str.inspect(name)}) twice"))
+				Err(_) => Ok(Cbor.Value.Map(pairs.fold(Cbor.ValueMap.empty(), |m, (k, v)| m.insert(k, v))))
 			}
 		}
 		I8(n) => Ok(Cbor.Value.Tag(180, Cbor.Value.Int(Cbor.IntValue.from_i64(n.to_i64()))))
@@ -236,6 +236,26 @@ Ql :: {}.{
 		Interval(i) => Ok(Cbor.Value.Tag(191, Cbor.Value.Array([Cbor.Value.Int(Cbor.IntValue.from_i64(i.months.to_i64())), Cbor.Value.Int(Cbor.IntValue.from_i64(i.days.to_i64())), Cbor.Value.Int(Cbor.IntValue.from_i64(i.micros))])))
 		Geometry(geojson) => Ql.cbor_geometry(geojson)
 		Raw(r) => Ok(r.cbor)
+	}
+
+	## The first name in `fields` that a field before it also has.
+	##
+	## `cbor` checks the names with this, and does not use
+	## `Cbor.ValueMap.from_list`, which encodes and sorts the keys, and whose
+	## error holds a `Cbor.Value`: in an optimised build, that code and the
+	## `Str.inspect` of any `Cbor.Value` added about 5 s to the build of
+	## every program that sends a request. An object has few fields. The
+	## error text is the text that `Str.inspect` gave for the key.
+	repeated_name : List({ name : Str, value : Value }) -> Try(Str, [NotFound])
+	repeated_name = |fields| {
+		var $i = 0
+		for f in fields {
+			if fields.take_first($i).any(|g| g.name == f.name) {
+				return Ok(f.name)
+			}
+			$i = $i + 1
+		}
+		Err(NotFound)
 	}
 
 	## The `vars` map of a request: one entry per name, each value as
@@ -689,6 +709,19 @@ expect Ql.cbor(Value.Duration(18446744073709551615)) == Ok(Cbor.Value.Tag(14, Cb
 expect Ql.cbor(Value.Record({ table: "customer", key: "o'neil⟩" })) == Ok(Cbor.Value.Tag(8, Cbor.Value.Array([Cbor.Value.Text("customer"), Cbor.Value.Text("o'neil⟩")])))
 expect Ql.cbor(Value.Ref({ table: "vital", key: Value.Array([Value.Record({ table: "kennel", key: "a" }), Value.Int(1)]) })) == Ok(Cbor.Value.Tag(8, Cbor.Value.Array([Cbor.Value.Text("vital"), Cbor.Value.Array([Cbor.Value.Tag(8, Cbor.Value.Array([Cbor.Value.Text("kennel"), Cbor.Value.Text("a")])), Cbor.Value.Int(1)])])))
 expect Ql.cbor(Value.Object([{ name: "a", value: Value.Int(1) }, { name: "a", value: Value.Int(2) }])).is_err()
+# The fields keep their order, as `Cbor.ValueMap.from_list` kept it.
+expect Ql.cbor(Value.Object([{ name: "b", value: Value.Int(1) }, { name: "a", value: Value.Int(2) }])).map_ok(Cbor.encode) == Ok([0xA2, 0x61, 0x62, 0x01, 0x61, 0x61, 0x02])
+# The error names the first field whose name a field before it has, as
+# `Cbor.ValueMap.from_list` named it: `b`, not `a`.
+expect Ql.repeated_name([{ name: "a", value: Value.None }, { name: "b", value: Value.None }, { name: "b", value: Value.None }, { name: "a", value: Value.None }]) == Ok("b")
+expect Ql.repeated_name([{ name: "a", value: Value.None }, { name: "b", value: Value.None }]) == Err(NotFound)
+expect {
+	twice = Value.Object([{ name: "a", value: Value.None }, { name: "b", value: Value.None }, { name: "b", value: Value.None }, { name: "a", value: Value.None }])
+	match Ql.cbor(twice) {
+		Err(Unsupported(text)) => text == "an object with the name ${Str.inspect(Cbor.Value.Text("b"))} twice"
+		_ => Bool.False
+	}
+}
 expect Ql.vars([{ name: "p", value: Value.Bool(Bool.True) }]).map_ok(Cbor.encode) == Ok([0xa1, 0x61, 0x70, 0xf5])
 expect Ql.vars([]).map_ok(Cbor.encode) == Ok([0xa0])
 # Sized numbers and the other types of CBOR v2 keep their tags.
