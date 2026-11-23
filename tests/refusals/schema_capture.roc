@@ -1,7 +1,7 @@
 # refused-at: 27
 # message: reified function captures a value
 app [] {
-	cbor: "https://github.com/Karakatiza666/roc-cbor/releases/download/0.5.1/38XQEgbABvGrHkqPVDVMsabgXcBHouMQde1vz4cLchxT.tar.zst",
+	cbor: "https://github.com/Karakatiza666/roc-cbor/releases/download/0.6.0/BWQX6N63JpXQjThcHNgnRmiYp93ch2QTckFTxF98KAus.tar.zst",
 	internal: "../../src/internal.roc",
 }
 

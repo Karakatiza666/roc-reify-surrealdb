@@ -42,7 +42,7 @@ with it. See [Requirements](#requirements).
 | Item | Value |
 | --- | --- |
 | Modules | `Surreal` (the whole public API). `src/internal.roc` is a second header that also exposes `Ql`, `Encode`, `Types`, `Translate`, `Schema`, `Diff`, `Rpc` and `HttpRpc`, for the tests |
-| Dependencies | [roc-cbor](https://github.com/Karakatiza666/roc-cbor) 0.5.1, [roc-websocket](https://github.com/Karakatiza666/roc-websocket) 0.0.7 |
+| Dependencies | [roc-cbor](https://github.com/Karakatiza666/roc-cbor) 0.6.0, [roc-websocket](https://github.com/Karakatiza666/roc-websocket) 0.0.7 |
 | Examples only | [roc-basic-cli-websocket](https://github.com/Karakatiza666/roc-basic-cli-websocket) 0.0.5 (basic-cli 0.28.1), [roc-basic-webserver-websocket](https://github.com/Karakatiza666/roc-basic-webserver-websocket) 0.0.4 (basic-webserver 0.22.0) |
 | Compiler | the `reify` branch of [Karakatiza666/roc](https://github.com/Karakatiza666/roc), at commit `ee91030491` (reify nightly `nightly-reify-2026-11-15-ee91030`, based on Roc nightly 2026-11-15), pinned in `.roc-version` |
 | Database | SurrealDB 4.0.1. Migrations need a database at compatibility level 4 |
@@ -234,7 +234,7 @@ of the URL):
 
 ```roc
 app [Context, program] {
-	cbor: "https://github.com/Karakatiza666/roc-cbor/releases/download/0.5.1/38XQEgbABvGrHkqPVDVMsabgXcBHouMQde1vz4cLchxT.tar.zst",
+	cbor: "https://github.com/Karakatiza666/roc-cbor/releases/download/0.6.0/BWQX6N63JpXQjThcHNgnRmiYp93ch2QTckFTxF98KAus.tar.zst",
 	http: "https://github.com/roc-lang/http/releases/download/1.0.0/6ZUwqYhCS8PU9Mo6MF7oV82ET2o7KYb57CLKDq4cq4sS.tar.zst",
 	pf: platform "https://github.com/roc-lang/basic-webserver/releases/download/0.22.0/BM2BUXA8mwbcoKPUfRV8cLtsUdnsSBPwjNLPRUJQAQ7Q.tar.zst",
 	bws_ws: "https://github.com/Karakatiza666/roc-basic-webserver-websocket/releases/download/0.0.4/CVdw532jo8EfTqYFZjfGismeWHjfuVPTfj6ofaKGcAmU.tar.zst",
@@ -313,7 +313,7 @@ kennel b at 2026-03-01T10:00:00Z: pulse 120, temp_c 39.0
 
 | File | What it is |
 | --- | --- |
-| `src/main.roc` | The package header. It exposes `Surreal`, and depends on roc-cbor 0.5.1 for the CBOR of a live session and on roc-websocket 0.0.7 for the types of a WebSocket adapter. |
+| `src/main.roc` | The package header. It exposes `Surreal`, and depends on roc-cbor 0.6.0 for the CBOR of a live session and on roc-websocket 0.0.7 for the types of a WebSocket adapter. |
 | `src/Surreal.roc` | The public API: ids, links, read rows (`Linked`, `Out`, `In`), datetimes, tables, the schema builder, queries and writes, live queries, `Mirror` (the Roc prediction of their notices, and the `-- roc:` literals that `check.py` compares), and `Unchecked` (the escape hatch: `SELECT *`, `FETCH`, record ids by text, decoding, and a raw `query!` with its `result`). The `parser_for` of each SurrealDB value, the reading of the messages of a live session, the `Session` itself with its `Inbox` of the replies and the notices that it read, the `Connection` that it runs on (a WebSocket, or HTTP), the patches of `live_diff` (`Patch`, `DiffView`), and the typed results of plain queries and writes (`Prepared`). Also the package functions for SurrealDB (`Text`, `Hash`, `Array`, `Time`, `Math`, `Rand`, `Vector`), analyzers and the full-text and vector indexes with their searches (`Analyzer`, `FullText`, `VectorIndex`, `Hit`, `Near`), database functions (`DbFn`), time series keys (`TimeKey`), views, the geometry types (`Point`, `Polygon`, ..) and their functions (`Geo`). |
 | `src/Translate.roc` | The translator. A `Code` graph in, a SurrealQL expression out. It knows a call by the id of its definition: the builtins in its own table, the functions of `Surreal` in the extension `Surreal.library`, and an app's in the extensions it passes (see "Extending the translator"). |
 | `src/Schema.roc` | `DEFINE` statements from row types, builder clauses and database functions. It also writes the delete policy of every link. |
@@ -1040,7 +1040,7 @@ The live blocks of `monitoring.roc` (`examples/monitoring.roc:995`) check each p
 #### Decoding
 
 A live session speaks CBOR v2, the WebSocket subprotocol `cbor.2`. The package
-reads it with roc-cbor 0.5.1, through the `parser_for` of each Roc type.
+reads it with roc-cbor 0.6.0, through the `parser_for` of each Roc type.
 Each read uses the options `{ ignore_tags: [6, 10, 180, .., 188], allow: [DecFromText, ..],
 unions: Internal({ tag: "kind", content: "value" }) }` (`Surreal.read_options`), so NONE before `null` is no value, a decimal reads from
 its text, a sized number reads into any Roc number type that holds it, and a tag union reads the form that the ORM writes (`Encode.tagged`):
@@ -2660,6 +2660,15 @@ The cost of a new feature is small and local:
   and its `??`, and each query uses functions that the application also calls.
 
 ## Changes
+
+### Unreleased
+
+- roc-cbor 0.6.0 (was 0.5.1). An app that names roc-cbor in its header must
+  name 0.6.0. A function of the app that reads rows writes
+  `where [a.Cbor.Readable]`, not `a.Cbor.Readable(errs)`; the reads of the
+  package give the same values and errors. The wire bytes do not change.
+  The build time of `scripts/build_budget.sh` is the same (400 queries: 51
+  to 55 s with 0.6.0, 52 to 53 s with 0.5.1, on the same machine).
 
 ### 0.0.5
 
