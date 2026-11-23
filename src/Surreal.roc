@@ -302,7 +302,7 @@ Surreal :: {}.{
 
 		## The array `[series, time]` from the server, as `record::id(id)`
 		## gives it.
-		parser_for : Cbor -> (Cbor.Reader -> Try({ value : TimeKey(s), rest : Cbor.Reader }, [InvalidCbor(U64), MissingRequiredField(Str)])) where [s.Cbor.Parseable([InvalidCbor(U64), MissingRequiredField(Str)])]
+		parser_for : Cbor -> (Cbor.Reader -> Try({ value : TimeKey(s), rest : Cbor.Reader }, [InvalidCbor(U64), MissingRequiredField(Str)])) where [s.Cbor.Parseable(Cbor.Error)]
 		parser_for = |encoding| |state| {
 			start = Cbor.parse_tuple_start(encoding, state, 2)?
 			first : { value : s, rest : Cbor.Reader }
@@ -1574,7 +1574,7 @@ Surreal :: {}.{
 
 		## As `Selected.prepare`, and the result is the row itself: the
 		## database always gives one.
-		prepare : Totals(p, out), p -> Prepared(out) where [p.encoder_for : Encode.Format -> (p, Encode.State -> Try(Encode.State, [])), out.Cbor.Readable(errs)]
+		prepare : Totals(p, out), p -> Prepared(out) where [p.encoder_for : Encode.Format -> (p, Encode.State -> Try(Encode.State, [])), out.Cbor.Readable]
 		prepare = |Totals.(selected), params| {
 			Selected.(s) = selected
 			rows = result_rows(0)
@@ -1586,7 +1586,7 @@ Surreal :: {}.{
 		}
 
 		## `prepare` of a query that has no parameter.
-		ready : Totals({}, out) -> Prepared(out) where [out.Cbor.Readable(errs)]
+		ready : Totals({}, out) -> Prepared(out) where [out.Cbor.Readable]
 		ready = |totals| totals.prepare({})
 	}
 
@@ -1635,11 +1635,11 @@ Surreal :: {}.{
 		to_surql : Started(p, out) -> Try(Str, Error)
 		to_surql = |Started.(selected)| selected.to_surql()
 
-		prepare : Started(p, out), p -> Prepared(List(out)) where [p.encoder_for : Encode.Format -> (p, Encode.State -> Try(Encode.State, [])), out.Cbor.Readable(errs)]
+		prepare : Started(p, out), p -> Prepared(List(out)) where [p.encoder_for : Encode.Format -> (p, Encode.State -> Try(Encode.State, [])), out.Cbor.Readable]
 		prepare = |Started.(selected), params| selected.prepare(params)
 
 		## `prepare` of a query that has no parameter.
-		ready : Started({}, out) -> Prepared(List(out)) where [out.Cbor.Readable(errs)]
+		ready : Started({}, out) -> Prepared(List(out)) where [out.Cbor.Readable]
 		ready = |Started.(selected)| selected.prepare({})
 	}
 
@@ -1658,11 +1658,11 @@ Surreal :: {}.{
 		to_surql : Limited(p, out) -> Try(Str, Error)
 		to_surql = |Limited.(selected)| selected.to_surql()
 
-		prepare : Limited(p, out), p -> Prepared(List(out)) where [p.encoder_for : Encode.Format -> (p, Encode.State -> Try(Encode.State, [])), out.Cbor.Readable(errs)]
+		prepare : Limited(p, out), p -> Prepared(List(out)) where [p.encoder_for : Encode.Format -> (p, Encode.State -> Try(Encode.State, [])), out.Cbor.Readable]
 		prepare = |Limited.(selected), params| selected.prepare(params)
 
 		## `prepare` of a query that has no parameter.
-		ready : Limited({}, out) -> Prepared(List(out)) where [out.Cbor.Readable(errs)]
+		ready : Limited({}, out) -> Prepared(List(out)) where [out.Cbor.Readable]
 		ready = |Limited.(selected)| selected.prepare({})
 	}
 
@@ -1679,14 +1679,14 @@ Surreal :: {}.{
 		## record, and the type of its result: the rows that the write
 		## changed, as stored. An update returns each row after the write, and a delete
 		## each row before it: `RETURN AFTER`, `RETURN BEFORE`.
-		prepare : Write(p, row), p -> Prepared(List(row)) where [p.encoder_for : Encode.Format -> (p, Encode.State -> Try(Encode.State, [])), row.Cbor.Readable(errs)]
+		prepare : Write(p, row), p -> Prepared(List(row)) where [p.encoder_for : Encode.Format -> (p, Encode.State -> Try(Encode.State, [])), row.Cbor.Readable]
 		prepare = |Write.(w), params| {
 			back = return_clause(w.gives)
 			prepared_of(bound_statement(|param| (w.build)(param).map_ok(|text| "${text}${back}"), params).map_ok(|statement| { statement, slots: w.slots, count: 1, atomic: No, read: read_stored(0, w.edge) }))
 		}
 
 		## `prepare` of a write that has no parameter.
-		ready : Write({}, row) -> Prepared(List(row)) where [row.Cbor.Readable(errs)]
+		ready : Write({}, row) -> Prepared(List(row)) where [row.Cbor.Readable]
 		ready = |write| write.prepare({})
 	}
 
@@ -1985,7 +1985,7 @@ Surreal :: {}.{
 		## A value of any type from CBOR bytes of the server, such as a
 		## reply of `query!`. The type is the caller's: a value that does
 		## not fit it is a `Decode` error.
-		decode : List(U8) -> Try(a, Error) where [a.Cbor.Readable(errs)]
+		decode : List(U8) -> Try(a, Error) where [a.Cbor.Readable]
 		decode = |bytes| read_cbor(bytes)
 
 		## One `query` request with this text, which no type checks, and
@@ -2210,7 +2210,7 @@ Surreal :: {}.{
 		## of each `LIVE` and its role, and the view of the snapshot. A
 		## statement that failed is a `Server` error with its message.
 		## `Session.live!` reads it.
-		start : Watch(out), List(U8) -> Try({ live : Live(out), view : View(out) }, Error) where [out.Cbor.Readable(errs)]
+		start : Watch(out), List(U8) -> Try({ live : Live(out), view : View(out) }, Error) where [out.Cbor.Readable]
 		start = |watch, bytes| {
 			w = watch_of(watch)?
 			results = query_results(bytes, w.lives.len() + 1, [])?
@@ -2227,7 +2227,7 @@ Surreal :: {}.{
 		## is `Mine`, with the notices of its payload: one of the row
 		## statement and of an edge statement, one for each row that a
 		## `Read` statement gives, none when it gives none. Pure.
-		notice : Watch(out), Lives, List(U8) -> Try(Frame(List(Notice(out))), Error) where [out.Cbor.Readable(errs)]
+		notice : Watch(out), Lives, List(U8) -> Try(Frame(List(Notice(out))), Error) where [out.Cbor.Readable]
 		notice = |_watch, lives, bytes| match message_of(lives, bytes)? {
 			Mine({ action, role: Node }) => {
 				read : { result : { record : Ref, result : { row : Cbor.Value, now : Bool } } }
@@ -2280,7 +2280,7 @@ Surreal :: {}.{
 
 		## One message of the session, read: an event of the `LIVE` of
 		## `lives` is `Mine`. Pure.
-		event : RawWatch(out), Lives, List(U8) -> Try(Frame(Event(out)), Error) where [out.Cbor.Readable(errs)]
+		event : RawWatch(out), Lives, List(U8) -> Try(Frame(Event(out)), Error) where [out.Cbor.Readable]
 		event = |_watch, lives, bytes| match message_of(lives, bytes)? {
 			Mine({ action, .. }) => {
 				read : { result : { record : Ref, result : Cbor.Value } }
@@ -2372,14 +2372,14 @@ Surreal :: {}.{
 		## The stored row, read as `row`. The `id` of a stored row is a
 		## record id, and a row of the ORM holds its key, as
 		## `record::id(id)` gives it, so the key is read.
-		get : DiffView(row), Ref -> Try(row, [UnknownRef(Ref), Unreadable(Error)]) where [row.Cbor.Readable(errs)]
+		get : DiffView(row), Ref -> Try(row, [UnknownRef(Ref), Unreadable(Error)]) where [row.Cbor.Readable]
 		get = |DiffView.(stored_rows), ref| match stored_rows.get(ref) {
 			Ok(stored) => row_of(keyed(stored)).map_err(|e| Unreadable(e))
 			Err(_) => Err(UnknownRef(ref))
 		}
 
 		## Every stored row, read as `row`.
-		rows : DiffView(row) -> Try(List(row), Error) where [row.Cbor.Readable(errs)]
+		rows : DiffView(row) -> Try(List(row), Error) where [row.Cbor.Readable]
 		rows = |DiffView.(stored_rows)| stored_rows.values().map_try(|one| row_of(keyed(one)))
 
 		refs : DiffView(row) -> List(Ref)
@@ -2616,7 +2616,7 @@ Surreal :: {}.{
 		## the changes of a notice of the watch and the watch after it,
 		## `Skip` for a notice that changes nothing and any other message,
 		## and `Ended` for its `KILLED`. Pure.
-		receive : Live(out), List(U8) -> Try([Got({ item : List(Change(out)), live : Live(out) }), Skip(Live(out)), Ended], Error) where [out.Cbor.Readable(errs)]
+		receive : Live(out), List(U8) -> Try([Got({ item : List(Change(out)), live : Live(out) }), Skip(Live(out)), Ended], Error) where [out.Cbor.Readable]
 		receive = |Live.(l), bytes| match changes_of(l.watch, l.lives, l.members, bytes)? {
 			Changed(c) if c.changes.is_empty() => Ok(Skip(Live.({ ..l, members: c.members })))
 			Changed(c) => Ok(Got({ item: c.changes, live: Live.({ ..l, members: c.members }) }))
@@ -2632,7 +2632,7 @@ Surreal :: {}.{
 		## One message of the session, read (`RawWatch.event`): `Got` with
 		## an event of the watch, `Skip` for any other message, `Ended`
 		## for its `KILLED`. Pure.
-		receive : RawLive(out), List(U8) -> Try([Got({ item : Event(out), live : RawLive(out) }), Skip(RawLive(out)), Ended], Error) where [out.Cbor.Readable(errs)]
+		receive : RawLive(out), List(U8) -> Try([Got({ item : Event(out), live : RawLive(out) }), Skip(RawLive(out)), Ended], Error) where [out.Cbor.Readable]
 		receive = |RawLive.(l), bytes| match l.watch.event(l.lives, bytes)? {
 			Mine(event) => Ok(Got({ item: event, live: RawLive.(l) }))
 			Killed(id) if l.lives.any(|one| one.id == id) => Ok(Ended)
@@ -3265,19 +3265,19 @@ SurrealTable(row) :: { name : Str, kind : TableKind }.{
 	## The result is the rows as stored, with the fields that the
 	## database computes: `BEGIN`, the `INSERT`, `COMMIT`, and a
 	## failure is the insert's.
-	insert : Table(row), List(row) -> Prepared(List(row)) where [row.encoder_for : Encode.Format -> (row, Encode.State -> Try(Encode.State, [])), row.Cbor.Readable(errs)]
+	insert : Table(row), List(row) -> Prepared(List(row)) where [row.encoder_for : Encode.Format -> (row, Encode.State -> Try(Encode.State, [])), row.Cbor.Readable]
 	insert = |Table.(t), new_rows| prepared_of(insert_body(t, new_rows, return_clause(After)).map_ok(|statement| { statement, slots: [], count: 1, atomic: Whole, read: read_stored(0, is_edge(t.kind)) }))
 
 	## [Table.insert] of rows whose keys the server makes, as
 	## [Table.create_new] does: each row without its `id`. The result is
 	## the rows as stored, in the order of `rows`.
-	insert_new : Table({ id : Str, ..new }), List(new) -> Prepared(List(Created({ id : Str, ..new }, new))) where [new.encoder_for : Encode.Format -> (new, Encode.State -> Try(Encode.State, [])), new.Cbor.Readable(errs)]
+	insert_new : Table({ id : Str, ..new }), List(new) -> Prepared(List(Created({ id : Str, ..new }, new))) where [new.encoder_for : Encode.Format -> (new, Encode.State -> Try(Encode.State, [])), new.Cbor.Readable]
 	insert_new = |Table.(t), new_rows| prepared_of(insert_body(t, new_rows, return_clause(After)).map_ok(|statement| { statement, slots: [], count: 1, atomic: Whole, read: read_created(t) }))
 
 	## A new row at `table:⟨id⟩`, or for an edge table the edge between
 	## the rows of `from` and `to`: `CREATE`, `RELATE`. It fails when
 	## the row exists. The result is the row as stored.
-	create : Table(row), row -> Prepared(List(row)) where [row.encoder_for : Encode.Format -> (row, Encode.State -> Try(Encode.State, [])), row.Cbor.Readable(errs)]
+	create : Table(row), row -> Prepared(List(row)) where [row.encoder_for : Encode.Format -> (row, Encode.State -> Try(Encode.State, [])), row.Cbor.Readable]
 	create = |this, row| this.edit(Create(row))
 
 	## A new row whose key the server makes: the row without its `id`.
@@ -3286,7 +3286,7 @@ SurrealTable(row) :: { name : Str, kind : TableKind }.{
 	## (`.default_by(|r| r.id, |_| Surreal.Rand.ulid())`), or else
 	## SurrealDB's random 20 characters. The result is the row as
 	## stored: its `Id`, and its other fields.
-	create_new : Table({ id : Str, ..new }), new -> Prepared(List(Created({ id : Str, ..new }, new))) where [new.encoder_for : Encode.Format -> (new, Encode.State -> Try(Encode.State, [])), new.Cbor.Readable(errs)]
+	create_new : Table({ id : Str, ..new }), new -> Prepared(List(Created({ id : Str, ..new }, new))) where [new.encoder_for : Encode.Format -> (new, Encode.State -> Try(Encode.State, [])), new.Cbor.Readable]
 	create_new = |Table.(t), row| {
 		built = |{}| {
 			fields = keyless(t, row)?
@@ -3301,13 +3301,13 @@ SurrealTable(row) :: { name : Str, kind : TableKind }.{
 
 	## The row at `table:⟨id⟩`, replaced when it exists and made when
 	## not. The result is the row as stored after the write.
-	upsert : Table(row), row -> Prepared(List(row)) where [row.encoder_for : Encode.Format -> (row, Encode.State -> Try(Encode.State, [])), row.Cbor.Readable(errs)]
+	upsert : Table(row), row -> Prepared(List(row)) where [row.encoder_for : Encode.Format -> (row, Encode.State -> Try(Encode.State, [])), row.Cbor.Readable]
 	upsert = |Table.(t), row| stored_write(t, content_write("UPSERT", t, row), After)
 
 	## The row at `table:⟨id⟩`, replaced by this one when it exists:
 	## `UPDATE .. CONTENT`. The result is the row as stored after the
 	## write, or none when the key has no row.
-	replace : Table(row), row -> Prepared(List(row)) where [row.encoder_for : Encode.Format -> (row, Encode.State -> Try(Encode.State, [])), row.Cbor.Readable(errs)]
+	replace : Table(row), row -> Prepared(List(row)) where [row.encoder_for : Encode.Format -> (row, Encode.State -> Try(Encode.State, [])), row.Cbor.Readable]
 	replace = |Table.(t), row| stored_write(t, content_write("UPDATE", t, row), After)
 
 	## Insert rows, and where a row with the same key exists, change the
@@ -3319,7 +3319,7 @@ SurrealTable(row) :: { name : Str, kind : TableKind }.{
 	## is the rows as stored. SurrealDB 4.0.1 takes a duplicate to be the
 	## same record key; a row that only repeats the value of a unique
 	## index is refused (`Unique`). A relation table is refused.
-	insert_or_update : Table(row), List(row), Code((row, row -> row)) -> Prepared(List(row)) where [row.encoder_for : Encode.Format -> (row, Encode.State -> Try(Encode.State, [])), row.Cbor.Readable(errs)]
+	insert_or_update : Table(row), List(row), Code((row, row -> row)) -> Prepared(List(row)) where [row.encoder_for : Encode.Format -> (row, Encode.State -> Try(Encode.State, [])), row.Cbor.Readable]
 	insert_or_update = |Table.(t), new_rows, patch| {
 		built = |{}| {
 			writable(t)?
@@ -3345,7 +3345,7 @@ SurrealTable(row) :: { name : Str, kind : TableKind }.{
 	## row does not have, or a value of another type, is the server's
 	## error. The result is the row as stored, or none for a key with
 	## no row.
-	patch_at : Table(row), Id(row), List(Patch(row)) -> Prepared(List(row)) where [row.Cbor.Readable(errs)]
+	patch_at : Table(row), Id(row), List(Patch(row)) -> Prepared(List(row)) where [row.Cbor.Readable]
 	patch_at = |this, row_id, patches| {
 		Id.(i) = row_id
 		foreign = patches.keep_if(|Patch.(p)| p.ref.to_str() != Ql.record_ref(i.table, Ql.Value.Str(i.key)))
@@ -3358,7 +3358,7 @@ SurrealTable(row) :: { name : Str, kind : TableKind }.{
 
 	## [Table.patch_at] of ops that the app made, `Replace(["tag"],
 	## Cbor.Value.Text("x"))`.
-	patch_ops_at : Table(row), Id(row), List(Op) -> Prepared(List(row)) where [row.Cbor.Readable(errs)]
+	patch_ops_at : Table(row), Id(row), List(Op) -> Prepared(List(row)) where [row.Cbor.Readable]
 	patch_ops_at = |Table.(t), row_id, ops| {
 		built = |{}| {
 			writable(t)?
@@ -3380,18 +3380,18 @@ SurrealTable(row) :: { name : Str, kind : TableKind }.{
 	## key by key too, so the keys of its old arm stay (verified): change
 	## a union with `set_at`, as `update` does. The result is the row as
 	## stored, or none for a key with no row.
-	merge_at : Table(row), Id(row), partial -> Prepared(List(row)) where [partial.encoder_for : Encode.Format -> (partial, Encode.State -> Try(Encode.State, [])), row.Cbor.Readable(errs)]
+	merge_at : Table(row), Id(row), partial -> Prepared(List(row)) where [partial.encoder_for : Encode.Format -> (partial, Encode.State -> Try(Encode.State, [])), row.Cbor.Readable]
 	merge_at = |Table.(t), row_id, partial| stored_write(t, keyed_merge("UPDATE", t, row_id, partial), After)
 
 	## [Table.merge_at] where the row is made when the key has none:
 	## `UPSERT t:⟨k⟩ MERGE { .. }`, so the record must hold every field
 	## that the schema requires.
-	upsert_merge_at : Table(row), Id(row), partial -> Prepared(List(row)) where [partial.encoder_for : Encode.Format -> (partial, Encode.State -> Try(Encode.State, [])), row.Cbor.Readable(errs)]
+	upsert_merge_at : Table(row), Id(row), partial -> Prepared(List(row)) where [partial.encoder_for : Encode.Format -> (partial, Encode.State -> Try(Encode.State, [])), row.Cbor.Readable]
 	upsert_merge_at = |Table.(t), row_id, partial| stored_write(t, keyed_merge("UPSERT", t, row_id, partial), After)
 
 	## [Table.merge_at] in every row that the condition keeps:
 	## `UPDATE t MERGE { .. } WHERE ..`.
-	merge : Table(row), Code(row -> Bool), partial -> Prepared(List(row)) where [partial.encoder_for : Encode.Format -> (partial, Encode.State -> Try(Encode.State, [])), row.Cbor.Readable(errs)]
+	merge : Table(row), Code(row -> Bool), partial -> Prepared(List(row)) where [partial.encoder_for : Encode.Format -> (partial, Encode.State -> Try(Encode.State, [])), row.Cbor.Readable]
 	merge = |Table.(t), condition, partial| {
 		built = |{}| {
 			keep = within_clause("the condition of `merge`", Translate.render(own, condition.graph(), [Translate.table_row(t.name, is_edge(t.kind))], spelled(condition, Translate.variable)))?
@@ -3407,7 +3407,7 @@ SurrealTable(row) :: { name : Str, kind : TableKind }.{
 	## stored: after a create and a replace, before a delete, and none
 	## for a replace or a delete of a row that is not there. A write
 	## that has only the new row or the key is `replace` or `delete_at`.
-	edit : Table(row), Edit(row) -> Prepared(List(row)) where [row.encoder_for : Encode.Format -> (row, Encode.State -> Try(Encode.State, [])), row.Cbor.Readable(errs)]
+	edit : Table(row), Edit(row) -> Prepared(List(row)) where [row.encoder_for : Encode.Format -> (row, Encode.State -> Try(Encode.State, [])), row.Cbor.Readable]
 	edit = |Table.(t), change| match change {
 		Create(row) =>
 			match t.kind {
@@ -3779,20 +3779,20 @@ SurrealSelected(p, out) :: {
 	## as `out`. The record is the type the filters read, so a
 	## parameter a filter reads is a field the record has.
 	## `Session.run!` runs it, and `Prepared.statement` is its text.
-	prepare : Selected(p, out), p -> Prepared(List(out)) where [p.encoder_for : Encode.Format -> (p, Encode.State -> Try(Encode.State, [])), out.Cbor.Readable(errs)]
+	prepare : Selected(p, out), p -> Prepared(List(out)) where [p.encoder_for : Encode.Format -> (p, Encode.State -> Try(Encode.State, [])), out.Cbor.Readable]
 	prepare = |selected, params| {
 		Selected.(s) = selected
 		prepared_of(bound_statement(|param| selected.render(param), params).map_ok(|statement| { statement: with_intrinsic(statement, selected), slots: s.slots, count: 1, atomic: No, read: result_rows(0) }))
 	}
 
 	## `prepare` of a query that has no parameter: `prepare({})`.
-	ready : Selected({}, out) -> Prepared(List(out)) where [out.Cbor.Readable(errs)]
+	ready : Selected({}, out) -> Prepared(List(out)) where [out.Cbor.Readable]
 	ready = |selected| selected.prepare({})
 
 	## `prepare` of a query of one key (`Table.at`): the row, or
 	## `NotFound` when the table has no row with the key. Any other
 	## query can return several rows, so it is refused.
-	prepare_one : Selected(p, out), p -> Prepared(Try(out, [NotFound])) where [p.encoder_for : Encode.Format -> (p, Encode.State -> Try(Encode.State, [])), out.Cbor.Readable(errs)]
+	prepare_one : Selected(p, out), p -> Prepared(Try(out, [NotFound])) where [p.encoder_for : Encode.Format -> (p, Encode.State -> Try(Encode.State, [])), out.Cbor.Readable]
 	prepare_one = |selected, params| {
 		Selected.(s) = selected
 		rows = result_rows(0)
@@ -3809,7 +3809,7 @@ SurrealSelected(p, out) :: {
 	}
 
 	## `prepare_one` of a query that has no parameter.
-	ready_one : Selected({}, out) -> Prepared(Try(out, [NotFound])) where [out.Cbor.Readable(errs)]
+	ready_one : Selected({}, out) -> Prepared(Try(out, [NotFound])) where [out.Cbor.Readable]
 	ready_one = |selected| selected.prepare_one({})
 
 	## The rows of the query, kept current: the twin of `prepare`. A
@@ -4127,20 +4127,20 @@ SurrealQuery(p, row) :: {
 
 	## The whole rows of the query: the `prepare` of `select(|r| r)`
 	## (see `Selected.prepare`).
-	prepare : Query(p, row), p -> Prepared(List(row)) where [p.encoder_for : Encode.Format -> (p, Encode.State -> Try(Encode.State, [])), row.Cbor.Readable(errs)]
+	prepare : Query(p, row), p -> Prepared(List(row)) where [p.encoder_for : Encode.Format -> (p, Encode.State -> Try(Encode.State, [])), row.Cbor.Readable]
 	prepare = |query, params| whole_of(query).prepare(params)
 
 	## The whole rows of a query that has no parameter: `prepare({})`.
-	ready : Query({}, row) -> Prepared(List(row)) where [row.Cbor.Readable(errs)]
+	ready : Query({}, row) -> Prepared(List(row)) where [row.Cbor.Readable]
 	ready = |query| whole_of(query).prepare({})
 
 	## The whole row of a query of one key: `select(|r| r)` and
 	## `Selected.prepare_one`.
-	prepare_one : Query(p, row), p -> Prepared(Try(row, [NotFound])) where [p.encoder_for : Encode.Format -> (p, Encode.State -> Try(Encode.State, [])), row.Cbor.Readable(errs)]
+	prepare_one : Query(p, row), p -> Prepared(Try(row, [NotFound])) where [p.encoder_for : Encode.Format -> (p, Encode.State -> Try(Encode.State, [])), row.Cbor.Readable]
 	prepare_one = |query, params| whole_of(query).prepare_one(params)
 
 	## `prepare_one` of a query that has no parameter.
-	ready_one : Query({}, row) -> Prepared(Try(row, [NotFound])) where [row.Cbor.Readable(errs)]
+	ready_one : Query({}, row) -> Prepared(Try(row, [NotFound])) where [row.Cbor.Readable]
 	ready_one = |query| whole_of(query).prepare_one({})
 
 	## The whole rows of the query, kept current: `select(|r| r)` and
@@ -4201,7 +4201,7 @@ SurrealPatch(row) := { ref : Ref, action : [Create, Update, Delete], ops : List(
 	## | `Add` or `Replace` above the field (a create replaces `""`) | `Set` of the field in the new value, or `Unset` when it has none |
 	## | `Remove` above the field | `Unset` |
 	## | No op reaches the field | `Untouched` |
-	field : Patch(row), Code(row -> a) -> Try([Untouched, Set(a), Unset, Inside], Error) where [a.Cbor.Readable(errs)]
+	field : Patch(row), Code(row -> a) -> Try([Untouched, Set(a), Unset, Inside], Error) where [a.Cbor.Readable]
 	field = |Patch.(p), path| {
 		steps = Translate.path_of(path.graph())?
 		pointer = steps.map_try(
@@ -4534,7 +4534,7 @@ datetime_of = |parts| match parts {
 }
 
 ## The item after a CBOR tag, read as `a`. Another tag is an error at the tag.
-tagged : Cbor, Cbor.Reader, U64 -> Try({ value : a, rest : Cbor.Reader }, [InvalidCbor(U64), MissingRequiredField(Str)]) where [a.Cbor.Parseable([InvalidCbor(U64), MissingRequiredField(Str)])]
+tagged : Cbor, Cbor.Reader, U64 -> Try({ value : a, rest : Cbor.Reader }, [InvalidCbor(U64), MissingRequiredField(Str)]) where [a.Cbor.Parseable(Cbor.Error)]
 tagged = |encoding, state, number| {
 	tag = Cbor.parse_cbor_tag(encoding, state)?
 	if tag.value == number {
@@ -5503,11 +5503,11 @@ keyless = |t, row| {
 
 ## A write of one row with a typed result: the row as stored, after
 ## the write or before it (`RETURN AFTER`, `RETURN BEFORE`).
-stored_write : { name : Str, kind : TableKind }, Try(Statement, Error), [After, Before] -> Prepared(List(row)) where [row.Cbor.Readable(errs)]
+stored_write : { name : Str, kind : TableKind }, Try(Statement, Error), [After, Before] -> Prepared(List(row)) where [row.Cbor.Readable]
 stored_write = |t, built, gives| keyed_write(t, built, [], gives)
 
 ## `stored_write` of a statement over the slots of its clauses.
-keyed_write : { name : Str, kind : TableKind }, Try(Statement, Error), List(Slot), [After, Before] -> Prepared(List(row)) where [row.Cbor.Readable(errs)]
+keyed_write : { name : Str, kind : TableKind }, Try(Statement, Error), List(Slot), [After, Before] -> Prepared(List(row)) where [row.Cbor.Readable]
 keyed_write = |t, built, slots, gives| prepared_of(built.map_ok(|statement| { statement: then_text(statement, return_clause(gives)), slots, count: 1, atomic: No, read: read_stored(0, is_edge(t.kind)) }))
 
 ## The statement with more text after it, its values kept.
@@ -6036,7 +6036,7 @@ read_options : Cbor.Options
 read_options = { ignore_tags: [6, 10, 180, 181, 182, 183, 184, 185, 186, 187, 188], allow: [DecFromText, BoolFromInt, FloatToInt, NullAsAbsent, UndefinedAsNull, BytesFromArray], unions: Internal({ tag: "kind", content: "value" }) }
 
 ## A value of the type `a` from CBOR bytes of the server.
-read_cbor : List(U8) -> Try(a, Error) where [a.Cbor.Readable(errs)]
+read_cbor : List(U8) -> Try(a, Error) where [a.Cbor.Readable]
 read_cbor = |bytes| {
 	# The annotation: on a `match` of the call, the 11-14 compiler warns that the `MissingRequiredField` branch cannot match (roc-lang/roc#13105).
 	parsed : Try(a, _)
@@ -6056,7 +6056,7 @@ read_cbor = |bytes| {
 ## around it has fixed types, and holds the row as a `Cbor.Value`: the
 ## compiler derives no `parser_for` of a record, a list or a tuple over
 ## a type variable (`{ row : out }`), so the row is read on its own.
-row_of : Cbor.Value -> Try(out, Error) where [out.Cbor.Readable(errs)]
+row_of : Cbor.Value -> Try(out, Error) where [out.Cbor.Readable]
 row_of = |value| read_cbor(Cbor.encode(value))
 
 ## The path to a byte position: `result.row.temp_c`, `result[2].id`,
@@ -6491,7 +6491,7 @@ reply_for! = |session, id| {
 ## One message of the session, applied to the members of a watch: the
 ## members after it and its changes (`Watch.step`), or `Ended` when it
 ## is the end of one of `lives`. Another message gives no change.
-changes_of : Watch(out), Lives, Members, List(U8) -> Try([Changed({ members : Members, changes : List(Change(out)) }), Ended], Error) where [out.Cbor.Readable(errs)]
+changes_of : Watch(out), Lives, Members, List(U8) -> Try([Changed({ members : Members, changes : List(Change(out)) }), Ended], Error) where [out.Cbor.Readable]
 changes_of = |watch, lives, members, bytes| match watch.notice(lives, bytes)? {
 	Mine(notices) => Ok(Changed(Mirror.step_all(members, notices)))
 	Killed(id) => if (lives.any(|l| l.id == id)) Ok(Ended) else Ok(Changed({ members, changes: [] }))
@@ -6629,7 +6629,7 @@ stored_row = |stored, edge| match (keyed(stored), edge) {
 ## The rows that a write of `Table.create_new` or `Table.insert_new`
 ## returned: the record id of each as an `Id` of the table, and its other
 ## fields read as `new`.
-read_created : { name : Str, kind : TableKind } -> (List(Outcome) -> Try(List(Created(row, new)), Error)) where [new.Cbor.Readable(errs)]
+read_created : { name : Str, kind : TableKind } -> (List(Outcome) -> Try(List(Created(row, new)), Error)) where [new.Cbor.Readable]
 read_created = |t| |results|
 	rows_at(results, 0)?.map_try(
 		|one| match stored_row(one, is_edge(t.kind)) {
@@ -6651,11 +6651,11 @@ read_created = |t| |results|
 	)
 
 ## The result rows of the statement at `at`, each read as `out`.
-result_rows : U64 -> (List(Outcome) -> Try(List(out), Error)) where [out.Cbor.Readable(errs)]
+result_rows : U64 -> (List(Outcome) -> Try(List(out), Error)) where [out.Cbor.Readable]
 result_rows = |at| |results| rows_at(results, at)?.map_try(row_of)
 
 ## The stored rows that the write at `at` returned, each read as `row`.
-read_stored : U64, Bool -> (List(Outcome) -> Try(List(row), Error)) where [row.Cbor.Readable(errs)]
+read_stored : U64, Bool -> (List(Outcome) -> Try(List(row), Error)) where [row.Cbor.Readable]
 read_stored = |at, edge| |results| rows_at(results, at)?.map_try(|one| row_of(stored_row(one, edge)))
 
 ## The rows of the result at `at`: an array, or the error of the
@@ -7010,7 +7010,7 @@ first_failure = |outcomes| {
 }
 
 ## The result at `at`, read as `out`.
-outcome_at : List(Outcome), U64 -> Try(out, Error) where [out.Cbor.Readable(errs)]
+outcome_at : List(Outcome), U64 -> Try(out, Error) where [out.Cbor.Readable]
 outcome_at = |outcomes, place| match outcomes.get(place) {
 	Ok(Ok(value)) => row_of(value)
 	Ok(Err(f)) => Err(Server(f.error))

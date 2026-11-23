@@ -1,5 +1,5 @@
 app [] {
-	cbor: "https://github.com/Karakatiza666/roc-cbor/releases/download/0.5.1/38XQEgbABvGrHkqPVDVMsabgXcBHouMQde1vz4cLchxT.tar.zst",
+	cbor: "https://github.com/Karakatiza666/roc-cbor/releases/download/0.6.0/BWQX6N63JpXQjThcHNgnRmiYp93ch2QTckFTxF98KAus.tar.zst",
 	internal: "../src/internal.roc",
 }
 
@@ -157,7 +157,7 @@ fever_events = match Surreal.from(vitals).filter(|v| fever_fn.call2(v.temp_c, v.
 }
 
 ## The live queries and the snapshot of a reply that reads.
-started : Surreal.Watch(out), List(U8) -> { live : Surreal.Live(out), view : Surreal.View(out) } where [out.Cbor.Readable(errs)]
+started : Surreal.Watch(out), List(U8) -> { live : Surreal.Live(out), view : Surreal.View(out) } where [out.Cbor.Readable]
 started = |watch, reply| match watch.start(reply) {
 	Ok(s) => s
 	Err(_) => crash "the recorded reply reads"
@@ -221,7 +221,7 @@ expect unattended.start(fevered_reply).map_ok(|_| {}) == Err(Wire("a reply of 2 
 # ------------------------------------------------------- notices
 
 ## The notice of a message that is one notice of the watch.
-notice_of : Surreal.Watch(out), Surreal.Lives, List(U8) -> Try(Surreal.Notice(out), Surreal.Error) where [out.Cbor.Readable(errs)]
+notice_of : Surreal.Watch(out), Surreal.Lives, List(U8) -> Try(Surreal.Notice(out), Surreal.Error) where [out.Cbor.Readable]
 notice_of = |watch, lives, bytes| match watch.notice(lives, bytes)? {
 	Mine([n]) => Ok(n)
 	_ => Err(Wire("not one notice of the watch"))
@@ -254,7 +254,7 @@ expect fevered.notice(unattended_start.live.lives(), fevered_1) == Ok(Other)
 ## The changes of a list of messages, from the watch that starts with the
 ## snapshot, as `Live.receive` gives them: an error is passed on, and
 ## `Ended` ends.
-changes_of : Surreal.Watch(out), { live : Surreal.Live(out), view : Surreal.View(out) }, List(List(U8)) -> List(Try(Surreal.Change(out), Surreal.Error)) where [out.Cbor.Readable(errs)]
+changes_of : Surreal.Watch(out), { live : Surreal.Live(out), view : Surreal.View(out) }, List(List(U8)) -> List(Try(Surreal.Change(out), Surreal.Error)) where [out.Cbor.Readable]
 changes_of = |_watch, start, messages| {
 	done = messages.fold_until(
 		{ live: start.live, out: [] },
@@ -360,7 +360,7 @@ expect {
 # ------------------------------------------------------- the values of SurrealDB
 
 ## A value from the bytes of a `Cbor.Value`.
-read : Cbor.Value -> Try(a, Surreal.Error) where [a.Cbor.Readable(errs)]
+read : Cbor.Value -> Try(a, Surreal.Error) where [a.Cbor.Readable]
 read = |value| Surreal.Unchecked.decode(Cbor.encode(value))
 
 tag : U64, List(Cbor.Value) -> Cbor.Value

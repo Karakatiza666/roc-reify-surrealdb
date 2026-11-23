@@ -10,7 +10,7 @@ import sys
 n = int(sys.argv[1])
 out = sys.argv[2]
 internal = sys.argv[3]
-cbor = "https://github.com/Karakatiza666/roc-cbor/releases/download/0.5.1/38XQEgbABvGrHkqPVDVMsabgXcBHouMQde1vz4cLchxT.tar.zst"
+cbor = "https://github.com/Karakatiza666/roc-cbor/releases/download/0.6.0/BWQX6N63JpXQjThcHNgnRmiYp93ch2QTckFTxF98KAus.tar.zst"
 header = f'''app [main!] {{
 	cbor: "{cbor}",
 	internal: "{internal}",
